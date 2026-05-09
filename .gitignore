@@ -27,6 +27,14 @@ uploads/
 logs/
 *.log
 
+# Large local media / generated competition previews
+*.mov
+*.MOV
+*.mp4
+*.MP4
+docs/competition/renders/
+ai-interview-backend/docker-compose-linux-x86_64
+
 # OS / editor
 .DS_Store
 Thumbs.db
