@@ -2034,11 +2034,226 @@ class AIService:
             },
         ]
         result = await AIService._chat(messages, temperature=0.2, ai_config=ai_config)
-        return await AIService._extract_or_repair_json(
-            result,
-            'JSON object with keys: name, education, skills, experience, projects, summary',
-            ai_config=ai_config,
+        try:
+            payload = await AIService._extract_or_repair_json(
+                result,
+                'JSON object with keys: name, education, skills, experience, projects, summary',
+                ai_config=ai_config,
+            )
+        except json.JSONDecodeError as exc:
+            logger.warning("Resume parse JSON malformed after repair, using deterministic fallback: %s", exc)
+            return AIService.build_resume_parse_fallback(resume_text)
+        return AIService._normalize_parsed_resume(payload, source_text=resume_text)
+
+    @staticmethod
+    def _resume_value_to_text(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return re.sub(r"\s+", " ", value).strip()
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        if isinstance(value, dict):
+            preferred_keys = (
+                "title",
+                "name",
+                "school",
+                "major",
+                "degree",
+                "company",
+                "role",
+                "position",
+                "skill",
+                "evidence",
+                "description",
+                "summary",
+                "content",
+                "details",
+                "technologies",
+                "result",
+            )
+            parts = [
+                AIService._resume_value_to_text(value.get(key))
+                for key in preferred_keys
+                if value.get(key) is not None
+            ]
+            if not parts:
+                parts = [AIService._resume_value_to_text(item) for item in list(value.values())[:8]]
+            return re.sub(r"\s+", " ", " ".join(part for part in parts if part)).strip()
+        if isinstance(value, (list, tuple, set)):
+            return re.sub(
+                r"\s+",
+                " ",
+                " ".join(
+                    part
+                    for part in (AIService._resume_value_to_text(item) for item in value)
+                    if part
+                ),
+            ).strip()
+        return str(value).strip()
+
+    @staticmethod
+    def _normalize_resume_list(value: Any, limit: int = 8) -> List[str]:
+        if value is None:
+            return []
+        raw_items = value if isinstance(value, list) else [value]
+        normalized: List[str] = []
+        seen = set()
+        for item in raw_items:
+            text = AIService._resume_value_to_text(item)
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            normalized.append(text)
+            if len(normalized) >= limit:
+                break
+        return normalized
+
+    @staticmethod
+    def _normalize_parsed_resume(payload: Any, source_text: str = "") -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            fallback = AIService.build_resume_parse_fallback(source_text)
+            fallback["summary"] = fallback.get("summary") or "AI 返回的简历解析结果不是对象结构，已使用文本兜底解析。"
+            return fallback
+
+        fallback = AIService.build_resume_parse_fallback(source_text) if source_text else {}
+        normalized = {
+            "name": AIService._resume_value_to_text(payload.get("name")) or fallback.get("name", ""),
+            "education": AIService._resume_value_to_text(payload.get("education")) or fallback.get("education", ""),
+            "skills": AIService._normalize_resume_list(payload.get("skills"), limit=16) or fallback.get("skills", []),
+            "experience": AIService._normalize_resume_list(payload.get("experience"), limit=8)
+            or fallback.get("experience", []),
+            "projects": AIService._normalize_resume_list(payload.get("projects"), limit=8)
+            or fallback.get("projects", []),
+            "summary": AIService._resume_value_to_text(payload.get("summary")) or fallback.get("summary", ""),
+        }
+        if not normalized["summary"]:
+            evidence_parts = [normalized["education"], *normalized["skills"][:5], *normalized["projects"][:2]]
+            normalized["summary"] = AIService._trim_text("；".join(part for part in evidence_parts if part), 260)
+        return normalized
+
+    @staticmethod
+    def _extract_resume_section(text: str, start_markers: Sequence[str], end_markers: Sequence[str]) -> str:
+        start_index = -1
+        for marker in start_markers:
+            index = text.find(marker)
+            if index >= 0 and (start_index < 0 or index < start_index):
+                start_index = index + len(marker)
+        if start_index < 0:
+            return ""
+        end_index = len(text)
+        for marker in end_markers:
+            index = text.find(marker, start_index)
+            if index >= 0:
+                end_index = min(end_index, index)
+        return text[start_index:end_index].strip()
+
+    @staticmethod
+    def _split_resume_section_items(section: str, limit: int = 6) -> List[str]:
+        if not section:
+            return []
+        lines = [line.strip(" ｜|/-\t") for line in section.splitlines() if line.strip(" ｜|/-\t")]
+        items: List[str] = []
+        current: List[str] = []
+        date_pattern = re.compile(r"(?:19|20)\d{2}\.\d{1,2}\s*[-~至到]\s*(?:19|20)\d{2}\.\d{1,2}|(?:19|20)\d{2}")
+        for line in lines:
+            starts_new = bool(date_pattern.search(line)) and current
+            if starts_new:
+                items.append(AIService._trim_text(" ".join(current), 360))
+                current = [line]
+            else:
+                current.append(line)
+        if current:
+            items.append(AIService._trim_text(" ".join(current), 360))
+        if not items:
+            compact = re.sub(r"\s+", " ", section).strip()
+            return [AIService._trim_text(compact, 360)] if compact else []
+        return [item for item in items if item][:limit]
+
+    @staticmethod
+    def build_resume_parse_fallback(resume_text: str) -> Dict[str, Any]:
+        text = (resume_text or "").replace("\r", "\n")
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        compact = re.sub(r"\s+", " ", text).strip()
+
+        name = ""
+        for line in lines[:8]:
+            if "@" in line or re.search(r"\d{5,}", line):
+                continue
+            if 1 < len(line) <= 24:
+                name = line
+                break
+
+        education_section = AIService._extract_resume_section(
+            text,
+            ("教育经历", "教育背景"),
+            ("项目经历", "工作经历", "实习经历", "获奖经历", "技能", "校园经历"),
         )
+        project_section = AIService._extract_resume_section(
+            text,
+            ("项目经历", "项目经验"),
+            ("获奖经历", "工作经历", "实习经历", "技能", "校园经历", "教育经历"),
+        )
+        experience_section = AIService._extract_resume_section(
+            text,
+            ("工作经历", "实习经历", "校园经历"),
+            ("项目经历", "获奖经历", "技能", "教育经历"),
+        )
+
+        skill_terms = [
+            "Python",
+            "Java",
+            "JavaScript",
+            "TypeScript",
+            "SQL",
+            "MySQL",
+            "PostgreSQL",
+            "Redis",
+            "Docker",
+            "FastAPI",
+            "Django",
+            "Flask",
+            "Streamlit",
+            "JSON",
+            "OCR",
+            "pypdf",
+            "python-docx",
+            "pytesseract",
+            "pdf2image",
+            "Pillow",
+            "Excel",
+            "产品",
+            "需求拆解",
+            "流程梳理",
+            "规则设计",
+            "数据整理",
+        ]
+        lowered = compact.lower()
+        skills = []
+        for term in skill_terms:
+            if term.lower() in lowered and term not in skills:
+                skills.append(term)
+
+        projects = AIService._split_resume_section_items(project_section, limit=6)
+        experience = AIService._split_resume_section_items(experience_section, limit=6)
+        education = AIService._trim_text(re.sub(r"\s+", " ", education_section).strip(), 260)
+
+        summary_parts = []
+        if education:
+            summary_parts.append(education)
+        if skills:
+            summary_parts.append("技能线索：" + "、".join(skills[:8]))
+        if projects:
+            summary_parts.append("项目线索：" + projects[0])
+
+        return {
+            "name": name,
+            "education": education,
+            "skills": skills[:16],
+            "experience": experience,
+            "projects": projects,
+            "summary": AIService._trim_text("；".join(summary_parts) or compact, 360),
+        }
 
     @staticmethod
     async def analyze_resume(

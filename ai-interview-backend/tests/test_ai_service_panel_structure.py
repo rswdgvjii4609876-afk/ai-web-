@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from app.services.client.ai_service import AIService, PANEL_OUTPUT_VERSION
@@ -226,6 +228,51 @@ def test_extract_json_accepts_python_style_dict_output():
 
     assert parsed["overall_score"] == 7.5
     assert parsed["strengths"] == ["基础扎实"]
+
+
+@pytest.mark.unit
+def test_build_resume_parse_fallback_extracts_grounded_resume_fields():
+    resume_text = """
+詹已誉
+产品经理实习生
+中国劳动关系学院 工商管理
+教育经历
+中国劳动关系学院 (本科) 工商管理 ｜2025.09 - 2029.06
+项目经历
+HireMate AI 招聘审核 独立设计与实现 ｜2026.03 - 2026.04
+面向 HR / 招聘经理设计 AI 招聘初筛工作台，支持岗位配置、简历批量审核、候选池分流与人工审核留痕。
+使用 Python、Streamlit、JSON、pypdf、python-docx、pytesseract、pdf2image、Pillow 完成原型搭建。
+技能
+产品与业务：需求拆解、流程梳理、规则设计
+数据与工具：Python；Excel 基础函数、数据整理
+"""
+
+    parsed = AIService.build_resume_parse_fallback(resume_text)
+
+    assert parsed["name"] == "詹已誉"
+    assert "中国劳动关系学院" in parsed["education"]
+    assert "Python" in parsed["skills"]
+    assert "Streamlit" in parsed["skills"]
+    assert "HireMate AI" in parsed["projects"][0]
+    assert parsed["summary"]
+
+
+@pytest.mark.unit
+def test_parse_resume_falls_back_when_ai_json_remains_malformed(monkeypatch):
+    async def _bad_chat(*args, **kwargs):
+        return '{"name": "詹已誉", "skills": ["Python",}'
+
+    monkeypatch.setattr(AIService, "_chat", staticmethod(_bad_chat))
+
+    parsed = asyncio.run(
+        AIService.parse_resume(
+            "詹已誉\n教育经历\n中国劳动关系学院 工商管理\n项目经历\nHireMate AI 招聘审核\n技能\nPython Streamlit OCR"
+        )
+    )
+
+    assert parsed["name"] == "詹已誉"
+    assert "Python" in parsed["skills"]
+    assert parsed["projects"]
 
 
 @pytest.mark.unit
