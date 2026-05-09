@@ -44,6 +44,33 @@ git push origin main
 
 ## 4. 云服务器部署
 
+推荐先使用阶段 79/81 的自动验收脚本：
+
+```bash
+cd /opt/apps/ai-interview
+git fetch origin
+git reset --hard origin/main
+bash scripts/stage79_server_verify.sh --deploy
+```
+
+脚本会执行：
+
+- 拉取并重置到 `origin/main`。
+- 重建 `app`、`frontend`、`admin`。
+- 执行 Alembic 迁移。
+- 初始化公共岗位画像。
+- 检查后端健康接口、用户端、后台端、公共岗位画像数量和知识切片数量。
+- 输出最近 300 行后端日志中的关键错误。
+
+如果只想检查当前服务器，不拉代码、不重建：
+
+```bash
+cd /opt/apps/ai-interview
+bash scripts/stage79_server_verify.sh
+```
+
+手动部署命令仍可使用：
+
 ```bash
 cd /opt/apps/ai-interview
 git pull
