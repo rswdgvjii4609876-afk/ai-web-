@@ -88,6 +88,7 @@ bash scripts/stage79_server_verify.sh --deploy
 - 初始化公共岗位画像。
 - 检查后端健康接口、用户端、后台端、公共岗位画像数量和知识切片数量。
 - 输出最近 300 行后端日志中的关键错误。
+- 生成服务器验收 Markdown 报告，默认路径：`docs/competition/server_validation_reports/stage79_server_verify_latest.md`。
 
 如果只想检查当前服务器，不拉代码、不重建：
 
@@ -95,6 +96,14 @@ bash scripts/stage79_server_verify.sh --deploy
 cd /opt/apps/ai-interview
 bash scripts/stage79_server_verify.sh
 ```
+
+如果要把报告写到指定位置：
+
+```bash
+bash scripts/stage79_server_verify.sh --deploy --report docs/competition/server_validation_reports/$(date +%Y%m%d_%H%M%S)_stage79.md
+```
+
+报告中会记录：执行前后提交、公共岗位画像数量、知识切片数量、HTTP 检查结果、最近后端关键日志和人工验收入口。若脚本返回 `FAIL`，先处理报告里第一条失败项。
 
 手动部署命令仍可使用：
 
