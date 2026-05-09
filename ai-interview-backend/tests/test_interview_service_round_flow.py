@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import zipfile
@@ -6,7 +7,9 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import SQLAlchemyError
 
+from app.exceptions.http_exceptions import ValidationError
 from app.services.client.ai_service import AIService
 from app.services.client.interview_service import InterviewService
 
@@ -311,6 +314,79 @@ async def test_evaluate_round_falls_back_to_single_when_panel_evaluation_fails(m
     assert mode == "single_fallback"
     assert evaluation["feedback"] == "Need more concrete ownership evidence."
     assert evaluation["next_best_followup"]["target_gap"] == "ownership clarity"
+
+
+def test_start_interview_returns_business_error_when_record_commit_fails(monkeypatch):
+    resume = SimpleNamespace(
+        id=10,
+        user_id=3,
+        status="completed",
+        parsed_content=json.dumps({"name": "Demo", "skills": ["Python"]}),
+        analysis="{}",
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return resume
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return None
+
+    class _CommitFailingDb:
+        def __init__(self):
+            self.rollback_called = False
+
+        async def execute(self, query):
+            return _Result()
+
+        def add(self, item):
+            self.added = item
+
+        async def commit(self):
+            raise SQLAlchemyError("column interviews.panel_snapshot does not exist")
+
+        async def rollback(self):
+            self.rollback_called = True
+
+        async def refresh(self, item):
+            return None
+
+    async def _blueprint(**kwargs):
+        return {}
+
+    async def _questions(**kwargs):
+        return [
+            {"index": 0, "question": "请先做一个自我介绍。", "category": "self-intro"},
+            {"index": 1, "question": "介绍一个 Python 项目。", "category": "project"},
+            {"index": 2, "question": "说说数据库索引。", "category": "technical"},
+        ]
+
+    monkeypatch.setattr(AIService, "extract_interview_blueprint", _blueprint)
+    monkeypatch.setattr(AIService, "generate_questions", _questions)
+
+    db = _CommitFailingDb()
+    async def _run():
+        await InterviewService.start_interview(
+            db=db,
+            user_id=3,
+            resume_id=10,
+            target_position="Python后端开发工程师",
+            knowledge_base_id=None,
+            difficulty="medium",
+            total_questions=3,
+            multi_interviewer_enabled=False,
+            ai_config={"api_key": "test", "provider": "deepseek"},
+        )
+
+    with pytest.raises(ValidationError) as exc:
+        asyncio.run(_run())
+
+    assert db.rollback_called is True
+    assert "数据库写入异常" in exc.value.detail
+    assert "alembic upgrade head" in exc.value.detail
 
 
 @pytest.mark.unit

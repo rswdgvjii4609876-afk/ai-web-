@@ -781,6 +781,21 @@ function buildStartErrorTips(message) {
   const text = (message || '').trim()
   if (!text) return []
 
+  if (
+    text.includes('数据库写入异常') ||
+    text.includes('数据库迁移') ||
+    text.includes('alembic') ||
+    text.includes('UndefinedColumn') ||
+    text.includes('interview_mode') ||
+    text.includes('panel_snapshot') ||
+    text.includes('knowledge_base_snapshot')
+  ) {
+    return [
+      '这通常不是 API Key 问题，而是服务器数据库表结构没有跟上最新代码。',
+      '请管理员在服务器执行 alembic upgrade head，并查看 docker compose logs --tail=300 app 中第一条数据库异常。'
+    ]
+  }
+
   if (text.includes('API Key') || text.includes('API Token')) {
     return [
       '先在当前页面点一次“检测连接”，确认你选择的服务商和模型真的可用。',

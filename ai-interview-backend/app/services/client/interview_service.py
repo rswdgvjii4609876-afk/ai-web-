@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
@@ -78,6 +79,11 @@ EVALUATION_DATASET_DEFINITIONS = (
             "report_signal_present=true",
         ],
     },
+)
+
+START_INTERVIEW_DB_ERROR_MESSAGE = (
+    "开始面试失败：数据库写入异常，可能是服务器数据库迁移未完成。"
+    "请管理员执行 alembic upgrade head，并查看后端日志中的第一条数据库异常。"
 )
 
 
@@ -2028,8 +2034,13 @@ class InterviewService:
             status="in_progress",
         )
         db.add(interview)
-        await db.commit()
-        await db.refresh(interview)
+        try:
+            await db.commit()
+            await db.refresh(interview)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Start interview record creation failed: %s", exc)
+            raise ValidationError(message=START_INTERVIEW_DB_ERROR_MESSAGE) from exc
 
         first_question = questions[0]["question"]
         db.add(
@@ -2040,7 +2051,22 @@ class InterviewService:
                 question_index=0,
             )
         )
-        await db.commit()
+        try:
+            await db.commit()
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Start interview first message creation failed: %s", exc)
+            try:
+                await db.execute(sql_delete(Interview).where(Interview.id == interview.id))
+                await db.commit()
+            except SQLAlchemyError as cleanup_exc:
+                await db.rollback()
+                logger.warning(
+                    "Failed to clean incomplete interview after first message error: interview_id=%s error=%s",
+                    interview.id,
+                    cleanup_exc,
+                )
+            raise ValidationError(message=START_INTERVIEW_DB_ERROR_MESSAGE) from exc
 
         return {
             "interview_id": interview.id,
