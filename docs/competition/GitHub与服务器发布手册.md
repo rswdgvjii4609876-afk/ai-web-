@@ -105,6 +105,14 @@ bash scripts/stage79_server_verify.sh --deploy --report docs/competition/server_
 
 报告中会记录：执行前后提交、公共岗位画像数量、知识切片数量、HTTP 检查结果、最近后端关键日志和人工验收入口。若脚本返回 `FAIL`，先处理报告里第一条失败项。
 
+把服务器报告拉回本地或直接在服务器上检查时，使用：
+
+```bash
+python scripts/validate_server_validation_report.py --report docs/competition/server_validation_reports/stage79_server_verify_latest.md
+```
+
+看到 `result=PASS` 后，再进入真实简历闭环验收；如果输出 `ERROR`，先处理第一条错误。
+
 手动部署命令仍可使用：
 
 ```bash
