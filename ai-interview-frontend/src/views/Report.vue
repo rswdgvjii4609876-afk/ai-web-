@@ -52,6 +52,14 @@
         </div>
       </div>
 
+      <LearningPlanProgress
+        v-if="learningPlanTasks.length"
+        class="card section-card"
+        :learning-plan="learningPlan"
+        :resume-id="data.resume_id || interviewId"
+        :target-position="learningPlanTarget"
+      />
+
       <div v-if="report.panel_summary?.length" class="card section-card">
         <h3>分视角结论</h3>
         <ul class="panel-list">
@@ -178,6 +186,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getReport } from '../api/interview'
+import LearningPlanProgress from '../components/LearningPlanProgress.vue'
 
 const route = useRoute()
 const interviewId = route.params.id
@@ -190,6 +199,12 @@ const abilityGapItems = computed(() => {
   const items = Array.isArray(topGaps) && topGaps.length ? topGaps : profile?.items
   return Array.isArray(items) ? items.slice(0, 5) : []
 })
+const learningPlan = computed(() => report.value?.learning_plan || report.value?.matching_metrics?.learning_plan || null)
+const learningPlanTasks = computed(() => {
+  const tasks = learningPlan.value?.tasks
+  return Array.isArray(tasks) ? tasks : []
+})
+const learningPlanTarget = computed(() => learningPlan.value?.target_position || data.value?.target_position || '')
 
 function formatInsightItem(item) {
   if (!item) return ''

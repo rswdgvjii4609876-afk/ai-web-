@@ -2309,6 +2309,10 @@ class InterviewService:
             resume_analysis = InterviewService._load_resume_analysis_payload(resume) if resume else {}
             if resume_analysis.get("matching_metrics") and not report.get("matching_metrics"):
                 report["matching_metrics"] = resume_analysis["matching_metrics"]
+            if resume_analysis.get("ability_gap_profile") and not report.get("ability_gap_profile"):
+                report["ability_gap_profile"] = resume_analysis["ability_gap_profile"]
+            if resume_analysis.get("learning_plan") and not report.get("learning_plan"):
+                report["learning_plan"] = resume_analysis["learning_plan"]
             report["question_scores"] = InterviewService._build_question_scores(questions)
             report["mode_label"] = (
                 "内部多面试官协同 + 单主持人输出"

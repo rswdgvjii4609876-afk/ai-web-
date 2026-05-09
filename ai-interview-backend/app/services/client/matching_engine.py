@@ -58,6 +58,11 @@ class MatchingEngine:
             target_position=target_position,
             resume_evidence=resume_evidence,
         )
+        learning_plan = cls._build_learning_plan(
+            ability_gap_profile=ability_gap_profile,
+            profile=profile,
+            target_position=target_position,
+        )
 
         return {
             "engine_version": cls.VERSION,
@@ -98,6 +103,7 @@ class MatchingEngine:
             "embedding_error_code": "not_configured",
             "ability_gap_profile": ability_gap_profile,
             "learning_priority_summary": cls._learning_priority_summary(ability_gap_profile),
+            "learning_plan": learning_plan,
         }
 
     @classmethod
@@ -326,6 +332,142 @@ class MatchingEngine:
                 f"优先补强{name}：当前 {item.get('current_level')} / 要求 {item.get('required_level')}，建议围绕 {missing} 准备学习任务和项目证据。"
             )
         return summary[:5]
+
+    @classmethod
+    def _build_learning_plan(
+        cls,
+        ability_gap_profile: Dict[str, Any],
+        profile: Dict[str, Any],
+        target_position: str,
+    ) -> Dict[str, Any]:
+        top_gaps = (ability_gap_profile or {}).get("top_gaps") or []
+        if not top_gaps:
+            items = sorted(
+                (ability_gap_profile or {}).get("items") or [],
+                key=lambda item: item.get("priority_score") or 0,
+                reverse=True,
+            )
+            top_gaps = items[:5]
+
+        tasks: List[Dict[str, Any]] = []
+        for index, item in enumerate(top_gaps[:5], start=1):
+            task = cls._build_learning_task(
+                item=item,
+                profile=profile,
+                target_position=target_position,
+                rank=index,
+            )
+            if task:
+                tasks.append(task)
+
+        return {
+            "version": "learning_plan_v1",
+            "target_position": target_position,
+            "matched_profile": (ability_gap_profile or {}).get("matched_profile")
+            or {
+                "job_id": profile.get("job_id"),
+                "job_name": profile.get("job_name") or target_position,
+                "category": profile.get("category"),
+            },
+            "source_ability_gap_engine": (ability_gap_profile or {}).get("engine_version") or "ability_gap_v1",
+            "progress_storage": "browser_local_storage_json_import_export",
+            "task_count": len(tasks),
+            "tasks": tasks,
+            "summary": [
+                f"已根据 {target_position or '目标岗位'} 的能力差距生成 {len(tasks)} 个优先学习任务。",
+                "学习进度第一版保存在浏览器本地，可下载 JSON 备份，也可上传 JSON 恢复。",
+            ],
+        }
+
+    @classmethod
+    def _build_learning_task(
+        cls,
+        item: Dict[str, Any],
+        profile: Dict[str, Any],
+        target_position: str,
+        rank: int,
+    ) -> Dict[str, Any]:
+        ability_id = str(item.get("ability_id") or f"ability_{rank}")
+        ability_name = str(item.get("name") or "岗位能力")
+        missing_keywords = cls._clean_string_list(item.get("missing_keywords"))
+        matched_keywords = cls._clean_string_list(item.get("matched_keywords"))
+        material_type, material = cls._learning_material(
+            profile=profile,
+            ability_name=ability_name,
+            missing_keywords=missing_keywords,
+            target_position=target_position,
+        )
+        focus_terms = missing_keywords[:4] or matched_keywords[:4] or [ability_name]
+        focus_text = "、".join(focus_terms)
+        priority_score = cls._bounded_float(item.get("priority_score"), default=0.0, lower=0.0, upper=100.0)
+
+        return {
+            "task_id": f"{profile.get('job_id') or 'custom'}_{ability_id}_{rank}",
+            "ability_id": ability_id,
+            "ability_name": ability_name,
+            "title": f"补强{ability_name}",
+            "material_type": material_type,
+            "learning_material": material,
+            "practice_task": f"围绕 {focus_text} 完成一次可展示练习：整理知识点、写出一个小 Demo 或复盘一个相关项目经历。",
+            "deliverable": f"形成一份不少于 300 字的学习记录，并准备 1 个能在面试中讲清楚的 {ability_name} 证据。",
+            "estimated_hours": "2-4 小时",
+            "acceptance_criteria": [
+                "能用自己的话解释核心概念、适用场景和常见问题。",
+                "能给出与简历或目标岗位相关的项目/任务证据。",
+                "能回答一轮追问，并说明下一步改进计划。",
+            ],
+            "priority_score": priority_score,
+            "priority_rank": rank,
+            "evidence_basis": item.get("evidence_basis") or "由能力差距模型根据简历证据和岗位画像生成。",
+            "current_level": item.get("current_level"),
+            "required_level": item.get("required_level"),
+            "gap": item.get("gap"),
+        }
+
+    @classmethod
+    def _learning_material(
+        cls,
+        profile: Dict[str, Any],
+        ability_name: str,
+        missing_keywords: List[str],
+        target_position: str,
+    ) -> tuple[str, str]:
+        job_id = str(profile.get("job_id") or "")
+        text = cls._normalize_text(" ".join([ability_name, target_position, *missing_keywords]))
+        if job_id == "python_backend" or "python" in text:
+            if any(term in text for term in ["oop", "装饰器", "迭代器", "异常", "文件", "语法", "基础"]):
+                return (
+                    "python_basic_route",
+                    r"E:\学习\python基础学习路线.md：Python 基础语法、函数、OOP、异常处理和文件处理。",
+                )
+            if any(term in text for term in ["fastapi", "api", "http", "rest", "接口", "后端"]):
+                return (
+                    "python_backend_route",
+                    r"E:\学习\python后端学习路线.md：HTTP、RESTful API、FastAPI、接口设计与后端工程实践。",
+                )
+            if any(term in text for term in ["sql", "mysql", "postgres", "数据库", "索引", "事务", "orm"]):
+                return (
+                    "python_backend_route",
+                    r"E:\学习\python后端学习路线.md：数据库、SQL、索引、事务和 ORM。",
+                )
+            if any(term in text for term in ["redis", "celery", "docker", "缓存", "异步", "部署", "排障"]):
+                return (
+                    "python_backend_route",
+                    r"E:\学习\python后端学习路线.md：Redis、Celery、Docker、异步任务、部署和线上排障。",
+                )
+            return (
+                "python_backend_route",
+                r"E:\学习\python后端学习路线.md 与 E:\学习\python基础学习路线.md：按薄弱项选择基础或后端工程模块。",
+            )
+        if any(term in text for term in ["产品", "prd", "需求", "原型", "用户", "指标"]):
+            return (
+                "product_position_route",
+                "岗位画像知识库：产品需求分析、PRD、原型、数据指标、用户反馈和复盘案例。",
+            )
+        return (
+            "general_position_route",
+            "岗位画像知识库：岗位要求、问答经验、能力模型和面试追问分区。",
+        )
 
     @staticmethod
     def _bounded_float(value: Any, default: float, lower: float, upper: float) -> float:

@@ -68,3 +68,57 @@ def test_product_assistant_ability_gap_profile_has_priority_items():
     assert profile["top_gaps"]
     assert 0 <= profile["overall_match_score"] <= 100
     assert metrics["learning_priority_summary"]
+
+
+@pytest.mark.unit
+def test_python_backend_learning_plan_uses_local_python_routes():
+    python_profile = next(profile for profile in POSITION_PROFILES if profile.get("job_id") == "python_backend")
+    metrics = matching_engine.evaluate(
+        parsed_resume={
+            "skills": ["Python"],
+            "projects": [
+                {
+                    "name": "Data script",
+                    "description": "Used Python to clean CSV files, but no FastAPI, Redis, Docker, or SQL evidence.",
+                }
+            ],
+        },
+        target_position=python_profile.get("job_name"),
+        llm_analysis={"overall_score": 6},
+        resume_evidence={"projects": ["Python CSV script"]},
+    )
+
+    plan = metrics["learning_plan"]
+    assert plan["version"] == "learning_plan_v1"
+    assert plan["source_ability_gap_engine"] == "ability_gap_v1"
+    assert len(plan["tasks"]) >= 3
+    assert any(
+        "python后端学习路线.md" in task["learning_material"]
+        or "python基础学习路线.md" in task["learning_material"]
+        for task in plan["tasks"]
+    )
+    for task in plan["tasks"]:
+        assert task["task_id"]
+        assert task["ability_name"]
+        assert task["practice_task"]
+        assert task["deliverable"]
+        assert task["acceptance_criteria"]
+        assert 0 <= task["priority_score"] <= 100
+
+
+@pytest.mark.unit
+def test_learning_plan_falls_back_to_general_template_for_custom_position():
+    metrics = matching_engine.evaluate(
+        parsed_resume={
+            "skills": ["communication"],
+            "projects": [{"name": "Volunteer project", "description": "Coordinated campus event workflow."}],
+        },
+        target_position="校园项目协调员",
+        llm_analysis={"overall_score": 5},
+        resume_evidence={"projects": ["campus event"]},
+    )
+
+    plan = metrics["learning_plan"]
+    assert plan["version"] == "learning_plan_v1"
+    assert len(plan["tasks"]) >= 3
+    assert any(task["material_type"] == "general_position_route" for task in plan["tasks"])

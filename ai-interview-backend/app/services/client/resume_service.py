@@ -257,6 +257,7 @@ class ResumeService:
         payload["evidence_basis"] = metrics["evidence_basis"]
         payload["ability_gap_profile"] = metrics.get("ability_gap_profile")
         payload["learning_priority_summary"] = metrics.get("learning_priority_summary") or []
+        payload["learning_plan"] = metrics.get("learning_plan") or {}
         return payload
 
     @staticmethod

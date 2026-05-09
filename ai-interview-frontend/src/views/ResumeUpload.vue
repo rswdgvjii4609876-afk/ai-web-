@@ -156,6 +156,13 @@
             <h4>下一步学习优先事项</h4>
             <ul><li v-for="(item, i) in learningPrioritySummary" :key="i">{{ item }}</li></ul>
           </div>
+          <LearningPlanProgress
+            v-if="learningPlanTasks.length"
+            class="analysis-section"
+            :learning-plan="learningPlan"
+            :resume-id="resumeId"
+            :target-position="targetPosition"
+          />
           <p v-if="analysis.summary" class="analysis-summary">{{ analysis.summary }}</p>
           <div class="analysis-section" v-if="analysis.keyword_match?.length">
             <h4>🎯 匹配技能</h4>
@@ -349,6 +356,7 @@ import { uploadResume, getResume } from '../api/resume'
 import { startInterview } from '../api/interview'
 import { getKnowledgeBases } from '../api/knowledgeBase'
 import { getProfile, testAiConnection } from '../api/user'
+import LearningPlanProgress from '../components/LearningPlanProgress.vue'
 
 const router = useRouter()
 const step = ref(1)
@@ -434,6 +442,11 @@ const abilityGapItems = computed(() => {
 const learningPrioritySummary = computed(() => {
   const direct = analysis.value?.learning_priority_summary || matchingMetrics.value?.learning_priority_summary
   return Array.isArray(direct) ? direct.slice(0, 5) : []
+})
+const learningPlan = computed(() => analysis.value?.learning_plan || matchingMetrics.value?.learning_plan || null)
+const learningPlanTasks = computed(() => {
+  const tasks = learningPlan.value?.tasks
+  return Array.isArray(tasks) ? tasks : []
 })
 
 const selectedKnowledgeBase = computed(() => {
