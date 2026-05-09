@@ -37,6 +37,36 @@ def test_build_slice_payloads_include_structured_metadata():
 
 
 @pytest.mark.unit
+def test_build_slice_payloads_recognize_markdown_sections():
+    knowledge_base = PositionKnowledgeBase(
+        id=202,
+        scope="public",
+        title="Python backend structured KB",
+        target_position="Python backend engineer",
+        knowledge_content=(
+            "## 岗位要求\n"
+            "- Python / FastAPI / PostgreSQL / Redis.\n"
+            "## 问答经验\n"
+            "- 问：如何排查接口变慢？答：先看日志、SQL 和缓存命中。\n"
+            "## 能力模型\n"
+            "- 数据库建模：要求 4 级，关注索引、事务和慢查询。\n"
+            "## 面试追问\n"
+            "- 简历没有直接证据时，继续追问项目细节和排障过程。\n"
+        ),
+        focus_points="Focus on evidence.",
+        interviewer_prompt="Probe for evidence.",
+        is_active=True,
+    )
+
+    payloads = position_knowledge_base_slice_service.build_slice_payloads(knowledge_base)
+    sections = {item["source_section"] for item in payloads}
+
+    assert {"job_requirements", "interview_experience", "ability_model", "followup_rules"}.issubset(sections)
+    assert any(item["source_section"] == "ability_model" and "technical" in item["stage_tags"] for item in payloads)
+    assert any(item["source_section"] == "followup_rules" and item["slice_type"] == "prompt" for item in payloads)
+
+
+@pytest.mark.unit
 def test_rank_slices_prefers_stage_role_and_scene_matches():
     slices = [
         {

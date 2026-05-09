@@ -46,7 +46,8 @@
           <label>岗位画像内容</label>
           <textarea
             v-model="form.knowledge_content"
-            rows="10"
+            rows="13"
+            :title="knowledgeTemplatePlaceholder"
             placeholder="写该岗位的核心能力、典型任务、关键词、常见工作场景和能力要求"
           />
         </div>
@@ -115,6 +116,17 @@
 
             <p class="item-preview">{{ item.preview }}</p>
 
+            <div v-if="structuredSections(item.knowledge_content).length" class="structured-section-list">
+              <div
+                v-for="section in structuredSections(item.knowledge_content)"
+                :key="`${item.knowledge_base_id}-${section.key}`"
+                class="structured-section"
+              >
+                <div class="structured-section-title">{{ section.label }}</div>
+                <p>{{ section.preview }}</p>
+              </div>
+            </div>
+
             <div v-if="item.focus_points" class="detail-block">
               <strong>训练重点：</strong>{{ item.focus_points }}
             </div>
@@ -154,7 +166,7 @@
                     <div v-for="slice in slicePreviewItems(item)" :key="slice.id || slice.slice_id" class="slice-preview-item">
                       <div class="slice-preview-title">
                         <strong>{{ slice.title || `切片 #${slice.chunk_index || slice.sort_order || slice.slice_id || '-'}` }}</strong>
-                        <span class="slice-preview-meta">{{ slice.slice_type || 'general' }}</span>
+                        <span class="slice-preview-meta">{{ sourceSectionLabel(slice.source_section || slice.slice_type) }}</span>
                       </div>
                       <p class="slice-preview-content">{{ slice.content }}</p>
                       <div class="slice-preview-tags">
@@ -206,6 +218,33 @@ const editingId = ref(null)
 const formMsg = ref('')
 const sliceState = ref({})
 const slicePreviewLimit = 4
+const sectionLabels = {
+  job_requirements: '岗位要求',
+  interview_experience: '问答经验',
+  ability_model: '能力模型',
+  followup_rules: '面试追问',
+  knowledge_content: '岗位画像',
+  focus_points: '训练重点',
+  interviewer_prompt: '面试官要求'
+}
+const knowledgeTemplatePlaceholder = `## 岗位要求
+- 硬性要求：
+- 加分项：
+- 公司侧重点：
+
+## 问答经验
+- 真实问题：
+- 参考回答要点：
+- 复盘反思：
+
+## 能力模型
+- 能力项：
+- 等级标准：
+- 证据线索：
+
+## 面试追问
+- 证据追问规则：
+- 评分关注点：`
 
 const defaultForm = () => ({
   title: '',
@@ -271,6 +310,34 @@ function hiddenSliceCount(item) {
   const state = sliceState.value[item.knowledge_base_id]
   const total = state?.total || state?.items?.length || 0
   return Math.max(total - slicePreviewLimit, 0)
+}
+
+function sourceSectionLabel(value) {
+  return sectionLabels[value] || value || '通用切片'
+}
+
+function structuredSections(text) {
+  if (!text) return []
+  const matches = []
+  const headingPattern = /^#{1,4}\s*(岗位要求|问答经验|能力模型|面试追问)\s*$/gm
+  let match
+  while ((match = headingPattern.exec(text)) !== null) {
+    matches.push({
+      label: match[1],
+      index: match.index,
+      contentStart: headingPattern.lastIndex
+    })
+  }
+  return matches.map((entry, index) => {
+    const next = matches[index + 1]
+    const content = text.slice(entry.contentStart, next?.index ?? text.length).trim()
+    const key = Object.entries(sectionLabels).find(([, label]) => label === entry.label)?.[0] || entry.label
+    return {
+      key,
+      label: entry.label,
+      preview: content.split(/\s+/).join(' ').slice(0, 140) || '已建立分区，待补充具体内容'
+    }
+  })
 }
 
 async function loadSlices(item, force = false) {
@@ -548,6 +615,29 @@ onMounted(loadItems)
   line-height: 1.8;
   color: #374151;
 }
+.structured-section-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.structured-section {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.structured-section-title {
+  margin-bottom: 6px;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 700;
+}
+.structured-section p {
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.65;
+}
 .detail-block {
   margin-top: 10px;
   color: #4b5563;
@@ -678,7 +768,8 @@ onMounted(loadItems)
 
 @media (max-width: 900px) {
   .intro-grid,
-  .content-grid {
+  .content-grid,
+  .structured-section-list {
     grid-template-columns: 1fr;
   }
 }

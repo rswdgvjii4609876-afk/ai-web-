@@ -49,7 +49,7 @@
 
         <div class="form-group">
           <label>岗位画像内容</label>
-          <textarea v-model="form.knowledge_content" rows="9" placeholder="写岗位核心能力、典型任务、关键词、常见工作场景和能力要求" />
+          <textarea v-model="form.knowledge_content" rows="13" :placeholder="knowledgeTemplatePlaceholder" />
         </div>
 
         <div class="form-group">
@@ -127,8 +127,14 @@
 
             <div v-if="expandedIds.has(item.knowledge_base_id)" class="kb-detail">
               <div>
-                <div class="detail-label">完整岗位画像内容</div>
-                <pre>{{ item.knowledge_content }}</pre>
+                <div class="detail-label">结构化岗位知识库</div>
+                <div v-if="structuredSections(item.knowledge_content).length" class="structured-section-list">
+                  <div v-for="section in structuredSections(item.knowledge_content)" :key="`${item.knowledge_base_id}-${section.key}`" class="structured-section">
+                    <div class="structured-section-title">{{ section.title }}</div>
+                    <pre>{{ section.content }}</pre>
+                  </div>
+                </div>
+                <pre v-else>{{ item.knowledge_content }}</pre>
               </div>
               <div v-if="sliceError[item.knowledge_base_id]" class="error-text">
                 {{ sliceError[item.knowledge_base_id] }}
@@ -143,7 +149,7 @@
                   <div v-for="slice in slicesByKb[item.knowledge_base_id]" :key="slice.slice_id" class="slice-item">
                     <div class="slice-head">
                       <strong>{{ slice.title || '岗位画像切片' }}</strong>
-                      <span>{{ slice.source_section }} / {{ slice.difficulty }}</span>
+                      <span>{{ sourceSectionLabel(slice.source_section) }} / {{ slice.difficulty }}</span>
                     </div>
                     <p>{{ slice.content }}</p>
                     <div class="tag-row">
@@ -183,6 +189,32 @@ const defaultForm = () => ({
 const form = ref(defaultForm())
 
 const techKeywords = ['python', 'java', '前端', '后端', '开发', '测试', '算法', '数据分析', '工程师', 'typescript', 'react', 'vue']
+const sectionLabels = {
+  job_requirements: '岗位要求',
+  interview_experience: '问答经验',
+  ability_model: '能力模型',
+  followup_rules: '面试追问',
+  knowledge_content: '其他内容',
+  focus_points: '训练重点',
+  interviewer_prompt: '面试官要求',
+  overview: '岗位概览'
+}
+const knowledgeTemplatePlaceholder = `## 岗位要求
+- 硬性要求：
+- 加分项：
+- 公司侧重点：
+
+## 问答经验
+- 问题：
+  参考回答要点：
+  复盘提醒：
+
+## 能力模型
+- 能力项：要求等级 / 权重 / 证据线索 / 可提升系数
+
+## 面试追问
+- 证据追问规则：
+- 评分关注点：`
 
 const stats = computed(() => {
   const total = items.value.length
@@ -223,6 +255,27 @@ function compactTags(slice) {
     ...(slice.skill_tags || []),
     ...(slice.scene_tags || [])
   ].filter(Boolean).slice(0, 6)
+}
+
+function sourceSectionLabel(value) {
+  return sectionLabels[value] || value || '切片'
+}
+
+function structuredSections(text) {
+  const content = String(text || '')
+  const matches = [...content.matchAll(/^#{1,4}\s*(岗位要求|问答经验|能力模型|面试追问)\s*$/gm)]
+  if (!matches.length) return []
+  return matches.map((match, index) => {
+    const start = match.index + match[0].length
+    const end = matches[index + 1]?.index ?? content.length
+    const title = match[1]
+    const key = Object.entries(sectionLabels).find(([, label]) => label === title)?.[0] || title
+    return {
+      key,
+      title,
+      content: content.slice(start, end).trim()
+    }
+  }).filter(item => item.content)
 }
 
 async function loadItems() {
@@ -492,6 +545,29 @@ onMounted(loadItems)
   font-family: inherit;
   font-size: 13px;
   color: #374151;
+}
+.structured-section-list {
+  display: grid;
+  gap: 10px;
+}
+.structured-section {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.structured-section-title {
+  padding: 8px 12px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 13px;
+  font-weight: 700;
+}
+.structured-section pre {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  background: #fff;
 }
 .slice-list {
   display: flex;

@@ -38,6 +38,20 @@
         </div>
       </div>
 
+      <div v-if="abilityGapItems.length" class="card section-card">
+        <h3>能力差距优先级</h3>
+        <div class="ability-gap-list">
+          <div v-for="item in abilityGapItems" :key="item.ability_id" class="ability-gap-item">
+            <div class="ability-gap-head">
+              <strong>{{ item.name }}</strong>
+              <span>优先级 {{ item.priority_score }}</span>
+            </div>
+            <p>当前 {{ item.current_level }} / 要求 {{ item.required_level }}，差距 {{ item.gap }}，匹配 {{ item.match_score }}%。</p>
+            <p class="ability-gap-evidence">{{ item.evidence_basis }}</p>
+          </div>
+        </div>
+      </div>
+
       <div v-if="report.panel_summary?.length" class="card section-card">
         <h3>分视角结论</h3>
         <ul class="panel-list">
@@ -161,7 +175,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getReport } from '../api/interview'
 
@@ -170,6 +184,12 @@ const interviewId = route.params.id
 const data = ref(null)
 const report = ref(null)
 const loading = ref(true)
+const abilityGapItems = computed(() => {
+  const profile = report.value?.matching_metrics?.ability_gap_profile || report.value?.ability_gap_profile
+  const topGaps = profile?.top_gaps
+  const items = Array.isArray(topGaps) && topGaps.length ? topGaps : profile?.items
+  return Array.isArray(items) ? items.slice(0, 5) : []
+})
 
 function formatInsightItem(item) {
   if (!item) return ''
@@ -221,6 +241,45 @@ onMounted(async () => {
 
 .section-card {
   margin-top: 16px;
+}
+
+.ability-gap-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ability-gap-item {
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.ability-gap-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.ability-gap-head strong {
+  color: #111827;
+}
+
+.ability-gap-head span {
+  color: #1d4ed8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ability-gap-item p {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.ability-gap-evidence {
+  margin-top: 4px;
 }
 
 .score-card {

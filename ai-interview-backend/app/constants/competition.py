@@ -306,6 +306,94 @@ POSITION_PROFILES = [
     },
 ]
 
+
+def _ability(
+    ability_id: str,
+    name: str,
+    required_level: int,
+    weight: float,
+    keywords: list[str],
+    evidence_hints: list[str],
+    improvability: float = 1.0,
+) -> dict:
+    return {
+        "ability_id": ability_id,
+        "name": name,
+        "required_level": required_level,
+        "weight": weight,
+        "keywords": keywords,
+        "evidence_hints": evidence_hints,
+        "improvability": improvability,
+    }
+
+
+PYTHON_BACKEND_ABILITY_MODEL = [
+    _ability("python_language", "Python 语言与框架基础", 4, 0.18, ["Python", "FastAPI", "Django", "Flask", "类型", "装饰器"], ["项目中使用 Python/FastAPI", "能解释接口参数校验和异常处理"]),
+    _ability("api_design", "接口设计与后端业务建模", 4, 0.17, ["接口", "REST", "API", "权限", "参数校验", "业务流程"], ["设计过接口", "能说明请求、响应、权限和异常"]),
+    _ability("database_modeling", "数据库建模与 SQL 优化", 4, 0.17, ["SQL", "PostgreSQL", "MySQL", "索引", "事务", "SQLAlchemy"], ["有表结构设计或查询优化经历", "能解释索引和事务取舍"]),
+    _ability("cache_async", "Redis 缓存与异步任务", 3, 0.14, ["Redis", "缓存", "Celery", "异步", "队列", "幂等"], ["用缓存或异步任务解决过实际问题", "能说明失败重试和一致性"]),
+    _ability("deployment_ops", "部署运维与线上排障", 3, 0.14, ["Docker", "Linux", "Nginx", "日志", "部署", "排障"], ["有部署上线或日志排查证据", "能说明接口变慢的排查顺序"], 1.1),
+    _ability("project_evidence", "项目证据与个人贡献表达", 4, 0.20, ["项目", "模块", "负责", "优化", "指标", "结果"], ["能讲清个人贡献、难点、结果和复盘", "有量化指标或真实交付结果"], 1.2),
+]
+
+PRODUCT_ASSISTANT_ABILITY_MODEL = [
+    _ability("requirement_analysis", "需求分析与问题拆解", 4, 0.20, ["需求", "用户问题", "场景", "痛点", "优先级"], ["能把模糊需求拆成用户、场景、目标和约束"]),
+    _ability("user_research", "用户理解与反馈整理", 3, 0.14, ["用户访谈", "问卷", "反馈", "画像", "调研"], ["有访谈、问卷或用户反馈整理证据"], 1.1),
+    _ability("competitive_analysis", "竞品分析与方案取舍", 3, 0.13, ["竞品", "差异", "功能对比", "方案", "取舍"], ["能说明竞品对比维度和最终取舍"]),
+    _ability("prd_expression", "PRD 与原型表达", 4, 0.17, ["PRD", "原型", "流程图", "用户故事", "验收标准"], ["写过文档、流程或原型，能说明验收标准"]),
+    _ability("delivery_collaboration", "跨部门协作与推进", 3, 0.15, ["开发", "测试", "沟通", "排期", "协作", "推进"], ["有跟进开发测试或协调多方的经历"]),
+    _ability("data_validation", "数据验证与上线复盘", 3, 0.13, ["指标", "转化", "留存", "点击", "复盘", "A/B"], ["能说明功能上线后看什么指标"], 1.2),
+    _ability("project_translation", "技术项目产品化表达", 3, 0.08, ["技术项目", "业务价值", "用户价值", "流程优化"], ["能把技术经历转化为需求和产品价值"], 1.2),
+]
+
+DEFAULT_ABILITY_MODELS = {
+    "技术岗": [
+        _ability("core_foundation", "岗位核心技术基础", 4, 0.20, ["语言基础", "框架", "原理", "基础"], ["能解释岗位核心知识点"]),
+        _ability("engineering_practice", "工程实践与工具链", 3, 0.15, ["Git", "Docker", "Linux", "工程化", "部署"], ["有工程工具或部署实践"]),
+        _ability("data_and_storage", "数据存储与性能意识", 3, 0.14, ["数据库", "SQL", "缓存", "性能", "索引"], ["能说明数据存储、性能或缓存取舍"]),
+        _ability("project_delivery", "项目交付与个人贡献", 4, 0.20, ["项目", "模块", "负责", "上线", "结果"], ["能讲清个人贡献和项目结果"], 1.2),
+        _ability("troubleshooting", "问题定位与复盘", 3, 0.16, ["排查", "Bug", "日志", "优化", "故障"], ["有定位问题、修复问题或复盘证据"], 1.1),
+        _ability("system_thinking", "系统设计与扩展意识", 3, 0.15, ["架构", "系统设计", "扩展", "稳定性", "并发"], ["能解释方案取舍和稳定性考虑"]),
+    ],
+    "数据岗": [
+        _ability("sql_processing", "SQL 与数据处理", 4, 0.20, ["SQL", "Python", "Pandas", "Excel", "清洗"], ["有数据提取、清洗或处理证据"]),
+        _ability("metric_system", "指标体系理解", 4, 0.18, ["指标", "转化率", "留存", "漏斗", "复购"], ["能解释业务指标含义"]),
+        _ability("visualization", "可视化与报告表达", 3, 0.14, ["报表", "可视化", "图表", "Dashboard"], ["能输出报表或图表结论"]),
+        _ability("business_analysis", "业务分析与归因", 4, 0.20, ["业务", "原因", "归因", "策略", "建议"], ["能从数据推导业务行动"]),
+        _ability("experiment_awareness", "实验与验证意识", 3, 0.13, ["A/B", "实验", "验证", "假设"], ["能说明分析结论如何验证"], 1.1),
+        _ability("communication", "结论表达与沟通", 3, 0.15, ["汇报", "表达", "沟通", "复盘"], ["能把分析结论讲给非技术同学"]),
+    ],
+    "产品岗": PRODUCT_ASSISTANT_ABILITY_MODEL,
+    "运营岗": [
+        _ability("execution", "活动/内容执行", 3, 0.17, ["活动", "内容", "执行", "排期"], ["有活动或内容执行证据"]),
+        _ability("user_operation", "用户沟通与反馈", 3, 0.15, ["用户", "社群", "反馈", "互动"], ["能整理用户反馈并跟进"]),
+        _ability("data_review", "数据复盘", 4, 0.20, ["数据", "阅读量", "互动率", "转化", "复盘"], ["能用数据复盘结果"], 1.2),
+        _ability("planning", "选题/活动策划", 3, 0.16, ["选题", "策划", "热点", "方案"], ["能说明策划逻辑和目标"]),
+        _ability("collaboration", "协作推进", 3, 0.14, ["沟通", "协作", "推进", "跟进"], ["有跨角色协作经历"]),
+        _ability("growth_awareness", "增长与目标意识", 3, 0.18, ["增长", "目标", "拉新", "留存", "转化"], ["能把动作和指标目标关联"]),
+    ],
+    "职能岗": [
+        _ability("process_awareness", "流程意识", 3, 0.18, ["流程", "规范", "记录", "手续"], ["能说清岗位流程和注意事项"]),
+        _ability("communication", "沟通协调", 4, 0.20, ["沟通", "协调", "候选人", "同事"], ["有协调多方或服务对象沟通证据"]),
+        _ability("office_tools", "办公工具与数据记录", 3, 0.14, ["Excel", "表格", "文档", "记录"], ["有表格、文档或数据整理经历"]),
+        _ability("scenario_response", "场景处理能力", 3, 0.16, ["突发", "问题", "处理", "跟进"], ["能回答真实工作场景问题"]),
+        _ability("compliance_basic", "规则与合规基础", 3, 0.14, ["劳动合同", "制度", "合规", "档案"], ["了解基础规则或制度要求"]),
+        _ability("review_improvement", "复盘与改进", 3, 0.18, ["复盘", "改进", "总结", "反馈"], ["能总结问题并提出改进动作"], 1.1),
+    ],
+}
+
+ABILITY_MODEL_LIBRARY = {
+    "python_backend": PYTHON_BACKEND_ABILITY_MODEL,
+    "product_assistant": PRODUCT_ASSISTANT_ABILITY_MODEL,
+}
+
+for _profile in POSITION_PROFILES:
+    _profile["ability_model"] = ABILITY_MODEL_LIBRARY.get(
+        _profile["job_id"],
+        DEFAULT_ABILITY_MODELS.get(_profile.get("category"), DEFAULT_ABILITY_MODELS["职能岗"]),
+    )
+
+
 SCORING_RULES = {
     "total_score": 100,
     "dimensions": [

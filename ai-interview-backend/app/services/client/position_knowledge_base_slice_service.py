@@ -104,6 +104,29 @@ SCENE_KEYWORDS = {
     ],
 }
 
+SECTION_ALIASES = {
+    "岗位要求": "job_requirements",
+    "职位要求": "job_requirements",
+    "岗位画像": "job_requirements",
+    "问答经验": "interview_experience",
+    "真实面试经验": "interview_experience",
+    "面试经验": "interview_experience",
+    "能力模型": "ability_model",
+    "岗位能力图谱": "ability_model",
+    "能力图谱": "ability_model",
+    "面试追问": "followup_rules",
+    "追问规则": "followup_rules",
+    "评分追问": "followup_rules",
+}
+
+SECTION_TITLES = {
+    "job_requirements": "岗位要求",
+    "interview_experience": "问答经验",
+    "ability_model": "能力模型",
+    "followup_rules": "面试追问",
+    "knowledge_content": "岗位画像内容",
+}
+
 
 class PositionKnowledgeBaseSliceService:
     @staticmethod
@@ -133,6 +156,49 @@ class PositionKnowledgeBaseSliceService:
         if current:
             chunks.append("\n".join(current))
         return chunks
+
+    @staticmethod
+    def _section_key(heading: str) -> Optional[str]:
+        cleaned = (heading or "").strip().strip("#").strip(" ：:")
+        for label, key in SECTION_ALIASES.items():
+            if label in cleaned:
+                return key
+        return None
+
+    @staticmethod
+    def _split_markdown_sections(text: str) -> List[Dict[str, str]]:
+        if not text:
+            return []
+        sections: List[Dict[str, str]] = []
+        current_key = "knowledge_content"
+        current_title = SECTION_TITLES[current_key]
+        current_lines: List[str] = []
+
+        def flush() -> None:
+            content = "\n".join(line for line in current_lines if line.strip()).strip()
+            if content:
+                sections.append(
+                    {
+                        "source_section": current_key,
+                        "title": current_title,
+                        "content": content,
+                    }
+                )
+
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            heading_match = re.match(r"^#{1,4}\s*(.+?)\s*$", line)
+            if heading_match:
+                next_key = PositionKnowledgeBaseSliceService._section_key(heading_match.group(1))
+                if next_key:
+                    flush()
+                    current_key = next_key
+                    current_title = SECTION_TITLES.get(next_key, heading_match.group(1).strip())
+                    current_lines = []
+                    continue
+            current_lines.append(raw_line)
+        flush()
+        return sections
 
     @staticmethod
     def _tokenize(text: str) -> Set[str]:
@@ -170,6 +236,14 @@ class PositionKnowledgeBaseSliceService:
         ]
         if stages:
             return stages
+        if source_section == "job_requirements":
+            return ["opening", "project"]
+        if source_section == "interview_experience":
+            return ["project", "scenario"]
+        if source_section == "ability_model":
+            return ["technical", "scenario"]
+        if source_section == "followup_rules":
+            return ["behavior", "closing"]
         if source_section == "focus_points":
             return ["technical", "scenario"]
         if source_section == "interviewer_prompt":
@@ -194,6 +268,10 @@ class PositionKnowledgeBaseSliceService:
             return scenes[:4]
         default_scene = {
             "overview": "self_intro",
+            "job_requirements": "business_case",
+            "interview_experience": "project_delivery",
+            "ability_model": "technical_depth",
+            "followup_rules": "behavior_case",
             "knowledge_content": "project_delivery",
             "focus_points": "technical_depth",
             "interviewer_prompt": "behavior_case",
@@ -215,6 +293,10 @@ class PositionKnowledgeBaseSliceService:
     def _infer_priority(source_section: str, text: str) -> int:
         priority = {
             "overview": 8,
+            "job_requirements": 10,
+            "ability_model": 10,
+            "interview_experience": 9,
+            "followup_rules": 9,
             "focus_points": 10,
             "interviewer_prompt": 9,
             "knowledge_content": 7,
@@ -248,7 +330,7 @@ class PositionKnowledgeBaseSliceService:
             "knowledge_base_id": knowledge_base.id,
             "title": title or knowledge_base.title,
             "content": cleaned,
-            "slice_type": "prompt" if source_section == "interviewer_prompt" else "knowledge",
+            "slice_type": "prompt" if source_section in {"interviewer_prompt", "followup_rules"} else "knowledge",
             "source_section": source_section,
             "source_scope": knowledge_base.scope or "private",
             "difficulty": difficulty,
@@ -289,16 +371,20 @@ class PositionKnowledgeBaseSliceService:
         )
         sort_order += 1
 
-        for block in PositionKnowledgeBaseSliceService._split_lines(knowledge_base.knowledge_content):
-            payloads.append(
-                PositionKnowledgeBaseSliceService._build_slice_payload(
-                    knowledge_base=knowledge_base,
-                    content=block,
-                    source_section="knowledge_content",
-                    sort_order=sort_order,
+        for section in PositionKnowledgeBaseSliceService._split_markdown_sections(knowledge_base.knowledge_content):
+            source_section = section["source_section"]
+            section_title = section["title"]
+            for block in PositionKnowledgeBaseSliceService._split_lines(section["content"]):
+                payloads.append(
+                    PositionKnowledgeBaseSliceService._build_slice_payload(
+                        knowledge_base=knowledge_base,
+                        content=block,
+                        source_section=source_section,
+                        sort_order=sort_order,
+                        title=f"{knowledge_base.title} - {section_title}",
+                    )
                 )
-            )
-            sort_order += 1
+                sort_order += 1
 
         for focus in PositionKnowledgeBaseSliceService._split_lines(knowledge_base.focus_points or ""):
             payloads.append(

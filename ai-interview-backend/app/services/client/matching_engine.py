@@ -52,6 +52,12 @@ class MatchingEngine:
             + (llm_score if llm_score is not None else rule_score) * 0.10,
             1,
         )
+        ability_gap_profile = cls._ability_gap_profile(
+            profile=profile,
+            parsed_resume=parsed_resume,
+            target_position=target_position,
+            resume_evidence=resume_evidence,
+        )
 
         return {
             "engine_version": cls.VERSION,
@@ -90,6 +96,8 @@ class MatchingEngine:
             "embedding_provider": None,
             "embedding_model": None,
             "embedding_error_code": "not_configured",
+            "ability_gap_profile": ability_gap_profile,
+            "learning_priority_summary": cls._learning_priority_summary(ability_gap_profile),
         }
 
     @classmethod
@@ -197,6 +205,159 @@ class MatchingEngine:
             if item and item not in ordered:
                 ordered.append(item)
         return ordered[:24]
+
+    @classmethod
+    def _ability_model(cls, profile: Dict[str, Any]) -> List[Dict[str, Any]]:
+        model = profile.get("ability_model") or []
+        if model:
+            return [item for item in model if isinstance(item, dict)]
+        keywords = profile.get("keywords") or profile.get("core_skills") or ["项目", "沟通", "执行"]
+        return [
+            {
+                "ability_id": "custom_core_match",
+                "name": "岗位核心能力匹配",
+                "required_level": 3,
+                "weight": 0.34,
+                "keywords": keywords[:8],
+                "evidence_hints": ["项目", "实践", "经历", "负责"],
+                "improvability": 1.0,
+            },
+            {
+                "ability_id": "custom_project_evidence",
+                "name": "项目/实践证据",
+                "required_level": 3,
+                "weight": 0.33,
+                "keywords": ["项目", "实习", "负责", "结果", "指标"],
+                "evidence_hints": ["有项目结果", "有个人贡献"],
+                "improvability": 1.1,
+            },
+            {
+                "ability_id": "custom_expression",
+                "name": "表达与复盘",
+                "required_level": 3,
+                "weight": 0.33,
+                "keywords": ["复盘", "总结", "表达", "沟通", "改进"],
+                "evidence_hints": ["能说明复盘和改进"],
+                "improvability": 1.2,
+            },
+        ]
+
+    @classmethod
+    def _ability_gap_profile(
+        cls,
+        profile: Dict[str, Any],
+        parsed_resume: Dict[str, Any],
+        target_position: str,
+        resume_evidence: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        resume_text = cls._resume_to_text(parsed_resume or {})
+        evidence_text = " ".join([resume_text, cls._resume_to_text(resume_evidence or {})])
+        ability_items = cls._ability_model(profile)
+        results: List[Dict[str, Any]] = []
+        weighted_total = 0.0
+        weight_sum = 0.0
+
+        for ability in ability_items:
+            required_level = cls._bounded_float(ability.get("required_level"), default=3.0, lower=1.0, upper=5.0)
+            weight = cls._bounded_float(ability.get("weight"), default=0.1, lower=0.01, upper=1.0)
+            improvability = cls._bounded_float(ability.get("improvability"), default=1.0, lower=0.1, upper=2.0)
+            keywords = cls._clean_string_list(ability.get("keywords"))
+            evidence_hints = cls._clean_string_list(ability.get("evidence_hints"))
+            matched_keywords = cls._matched_keywords(evidence_text, keywords)
+            matched_hints = cls._matched_keywords(evidence_text, evidence_hints)
+            keyword_ratio = len(matched_keywords) / max(len(keywords), 1)
+            hint_bonus = min(len(matched_hints) * 0.35, 0.8)
+            current_level = 1.0 + keyword_ratio * 3.2 + hint_bonus
+            if matched_keywords and keyword_ratio >= 0.75:
+                current_level += 0.3
+            if not matched_keywords and not matched_hints:
+                current_level = 1.0
+            current_level = round(min(max(current_level, 1.0), 5.0), 1)
+            gap = round(max(required_level - current_level, 0.0), 1)
+            match_score = round(min(current_level / max(required_level, 1.0), 1.0) * 100, 1)
+            priority_score = round(weight * gap * improvability * 20, 1)
+            missing_keywords = [item for item in keywords if item not in matched_keywords]
+            weighted_total += match_score * weight
+            weight_sum += weight
+            results.append(
+                {
+                    "ability_id": str(ability.get("ability_id") or ability.get("name") or "ability"),
+                    "name": str(ability.get("name") or "岗位能力"),
+                    "required_level": required_level,
+                    "current_level": current_level,
+                    "gap": gap,
+                    "weight": round(weight, 3),
+                    "improvability": improvability,
+                    "priority_score": priority_score,
+                    "match_score": match_score,
+                    "matched_keywords": matched_keywords[:8],
+                    "missing_keywords": missing_keywords[:8],
+                    "evidence_basis": cls._ability_evidence_basis(
+                        matched_keywords=matched_keywords,
+                        matched_hints=matched_hints,
+                        gap=gap,
+                    ),
+                }
+            )
+
+        sorted_items = sorted(results, key=lambda item: item["priority_score"], reverse=True)
+        return {
+            "engine_version": "ability_gap_v1",
+            "target_position": target_position,
+            "matched_profile": {
+                "job_id": profile.get("job_id"),
+                "job_name": profile.get("job_name") or target_position,
+                "category": profile.get("category") or "自定义岗位",
+            },
+            "overall_match_score": round(weighted_total / max(weight_sum, 0.01), 1) if results else 0.0,
+            "items": results,
+            "top_gaps": [item for item in sorted_items if item["gap"] > 0][:5],
+            "strengths": sorted(results, key=lambda item: item["match_score"], reverse=True)[:3],
+            "priority_formula": "提升优先级 = 岗位重要性(权重) × 能力差距 × 可提升系数",
+        }
+
+    @staticmethod
+    def _learning_priority_summary(ability_gap_profile: Dict[str, Any]) -> List[str]:
+        summary: List[str] = []
+        for item in (ability_gap_profile or {}).get("top_gaps") or []:
+            name = item.get("name") or "岗位能力"
+            missing = "、".join((item.get("missing_keywords") or [])[:4]) or "补充可验证证据"
+            summary.append(
+                f"优先补强{name}：当前 {item.get('current_level')} / 要求 {item.get('required_level')}，建议围绕 {missing} 准备学习任务和项目证据。"
+            )
+        return summary[:5]
+
+    @staticmethod
+    def _bounded_float(value: Any, default: float, lower: float, upper: float) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            number = default
+        return round(min(max(number, lower), upper), 2)
+
+    @staticmethod
+    def _clean_string_list(values: Any) -> List[str]:
+        if not isinstance(values, list):
+            return []
+        result: List[str] = []
+        for value in values:
+            item = str(value).strip()
+            if item and item not in result:
+                result.append(item)
+        return result
+
+    @staticmethod
+    def _ability_evidence_basis(
+        matched_keywords: List[str],
+        matched_hints: List[str],
+        gap: float,
+    ) -> str:
+        if matched_keywords or matched_hints:
+            evidence = "、".join([*matched_keywords[:4], *matched_hints[:2]])
+            if gap > 0:
+                return f"已有部分证据：{evidence}；但仍需补充更直接的项目、任务或结果证明。"
+            return f"已有较充分证据：{evidence}。"
+        return "简历中暂未识别到直接证据，后续应通过学习任务、项目补充或面试追问继续验证。"
 
     @staticmethod
     def _normalize_text(text: str) -> str:

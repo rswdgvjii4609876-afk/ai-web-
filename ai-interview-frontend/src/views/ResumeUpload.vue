@@ -137,6 +137,25 @@
             <h4>可解释匹配依据</h4>
             <ul><li v-for="(item, i) in matchingMetrics.evidence_basis" :key="i">{{ item }}</li></ul>
           </div>
+          <div v-if="abilityGapItems.length" class="analysis-section ability-gap-section">
+            <h4>能力差距优先级</h4>
+            <div class="ability-gap-list">
+              <div v-for="item in abilityGapItems" :key="item.ability_id" class="ability-gap-item">
+                <div class="ability-gap-head">
+                  <strong>{{ item.name }}</strong>
+                  <span>优先级 {{ item.priority_score }}</span>
+                </div>
+                <div class="ability-gap-meta">
+                  当前 {{ item.current_level }} / 要求 {{ item.required_level }} · 差距 {{ item.gap }} · 匹配 {{ item.match_score }}%
+                </div>
+                <p>{{ item.evidence_basis }}</p>
+              </div>
+            </div>
+          </div>
+          <div v-if="learningPrioritySummary.length" class="analysis-section">
+            <h4>下一步学习优先事项</h4>
+            <ul><li v-for="(item, i) in learningPrioritySummary" :key="i">{{ item }}</li></ul>
+          </div>
           <p v-if="analysis.summary" class="analysis-summary">{{ analysis.summary }}</p>
           <div class="analysis-section" v-if="analysis.keyword_match?.length">
             <h4>🎯 匹配技能</h4>
@@ -406,6 +425,16 @@ const hasEvidenceCard = computed(() => {
 })
 
 const matchingMetrics = computed(() => analysis.value?.matching_metrics || null)
+const abilityGapProfile = computed(() => analysis.value?.ability_gap_profile || matchingMetrics.value?.ability_gap_profile || null)
+const abilityGapItems = computed(() => {
+  const topGaps = abilityGapProfile.value?.top_gaps
+  const items = Array.isArray(topGaps) && topGaps.length ? topGaps : abilityGapProfile.value?.items
+  return Array.isArray(items) ? items.slice(0, 5) : []
+})
+const learningPrioritySummary = computed(() => {
+  const direct = analysis.value?.learning_priority_summary || matchingMetrics.value?.learning_priority_summary
+  return Array.isArray(direct) ? direct.slice(0, 5) : []
+})
 
 const selectedKnowledgeBase = computed(() => {
   const id = Number(selectedKnowledgeBaseId.value)
@@ -1057,6 +1086,46 @@ async function handleStart() {
 }
 .analysis-section { margin-bottom: 14px; }
 .analysis-section h4 { font-size: 14px; margin-bottom: 8px; color: #374151; }
+.ability-gap-section {
+  padding: 12px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+.ability-gap-list {
+  display: grid;
+  gap: 10px;
+}
+.ability-gap-item {
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+.ability-gap-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.ability-gap-head strong {
+  color: #111827;
+  font-size: 13px;
+}
+.ability-gap-head span {
+  color: #1d4ed8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ability-gap-meta,
+.ability-gap-item p {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.ability-gap-item p {
+  margin-top: 4px;
+}
 .tag-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag { padding: 3px 10px; border-radius: 12px; font-size: 12px; }
 .tag-green { background: #d1fae5; color: #065f46; }
