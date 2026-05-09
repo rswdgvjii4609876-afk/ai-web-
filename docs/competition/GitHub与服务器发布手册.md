@@ -23,6 +23,7 @@ powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1
 - 用户端临时构建
 - 后台端临时构建
 - 真实闭环 CSV 结构
+- 可选检查服务器验收报告
 - `node_modules`、`dist`、`.vite-build-check` 是否被忽略
 
 如果只是想跳过某一类检查，可用：
@@ -31,6 +32,18 @@ powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1
 powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipPytest
 powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipFrontendBuild
 powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipAdminBuild
+```
+
+服务器报告回收后，可以把报告也纳入本地预检：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -ValidateServerReport
+```
+
+如果报告不是默认路径，指定文件：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -ValidateServerReport -ServerReportPath docs\competition\server_validation_reports\20260510_120000_stage79.md
 ```
 
 手动检查仍可使用：

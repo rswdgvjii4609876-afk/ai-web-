@@ -1,7 +1,9 @@
 param(
     [switch]$SkipFrontendBuild,
     [switch]$SkipAdminBuild,
-    [switch]$SkipPytest
+    [switch]$SkipPytest,
+    [switch]$ValidateServerReport,
+    [string]$ServerReportPath = "docs\competition\server_validation_reports\stage79_server_verify_latest.md"
 )
 
 $ErrorActionPreference = "Stop"
@@ -133,6 +135,23 @@ try {
     Write-Section "Real closed-loop record schema"
     Invoke-Checked "validate real closed-loop CSV" {
         python scripts\validate_real_closed_loop_records.py
+    }
+
+    Write-Section "Server validation report"
+    if ($ValidateServerReport) {
+        if ([System.IO.Path]::IsPathRooted($ServerReportPath)) {
+            $resolvedReportPath = $ServerReportPath
+        }
+        else {
+            $resolvedReportPath = Join-Path $RepoRoot $ServerReportPath
+        }
+        Invoke-Checked "validate server report" {
+            python scripts\validate_server_validation_report.py --report $resolvedReportPath
+        }
+    }
+    else {
+        Write-Host "SKIP: server report validation"
+        Write-Host "TIP: add -ValidateServerReport after copying the server report back to the repo."
     }
 
     Write-Section "Summary"
