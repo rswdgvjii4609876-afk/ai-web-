@@ -230,6 +230,60 @@ def test_reroute_question_slices_and_report_signals_capture_round_metadata():
 
 
 @pytest.mark.unit
+def test_route_question_plan_accepts_structured_resume_sections():
+    question_plan = InterviewService._build_question_plan(total_questions=2, difficulty="medium")
+    knowledge_base = {
+        "slices": [
+            {
+                "slice_id": 21,
+                "title": "Python backend API design",
+                "content": "FastAPI SQLAlchemy PostgreSQL Redis Docker system design troubleshooting",
+                "priority": 8,
+                "stage_tags": ["technical", "scenario"],
+                "role_tags": ["technical_deep_dive"],
+                "scene_tags": ["technical_depth"],
+                "topic_tags": ["Python Backend Engineer", "FastAPI"],
+                "skill_tags": ["python", "fastapi", "postgresql", "redis"],
+                "keywords": ["api", "sqlalchemy", "docker"],
+                "source_section": "focus_points",
+                "difficulty": "medium",
+                "is_enabled": True,
+            }
+        ]
+    }
+    parsed_resume = {
+        "summary": {"content": "Computer science student with backend project experience."},
+        "education": {"school": "Harvard", "major": "Computer Science"},
+        "skills": [
+            {"skill": "Python", "evidence": "listed in skills"},
+            {"skill": "SQL", "evidence": "database coursework"},
+        ],
+        "projects": [
+            {"title": "Firewall Network", "evidence": "P4 packet filtering project"},
+            {"title": "Website Backend", "technologies": ["Python", "SQL"]},
+        ],
+        "experience": [
+            {"company": "Microsoft", "role": "Software Engineering Intern"},
+        ],
+    }
+
+    routed = InterviewService._route_question_plan(
+        question_plan=question_plan,
+        knowledge_base=knowledge_base,
+        parsed_resume=parsed_resume,
+        target_position="Python Backend Engineer",
+        difficulty="medium",
+    )
+
+    assert len(routed) == 2
+    assert all("selected_slices" in item for item in routed)
+    route_text = InterviewService._resume_route_text(parsed_resume)
+    assert "Firewall Network" in route_text
+    assert "Python" in route_text
+    assert "Microsoft" in route_text
+
+
+@pytest.mark.unit
 def test_apply_blueprint_to_question_plan_adds_track_and_traceable_fields():
     question_plan = [
         {

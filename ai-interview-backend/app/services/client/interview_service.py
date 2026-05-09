@@ -624,19 +624,75 @@ class InterviewService:
         return summary
 
     @staticmethod
+    def _route_item_to_text(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        if isinstance(value, dict):
+            preferred_keys = (
+                "title",
+                "name",
+                "project",
+                "role",
+                "company",
+                "position",
+                "skill",
+                "evidence",
+                "description",
+                "summary",
+                "content",
+                "details",
+                "result",
+                "technologies",
+            )
+            parts = [
+                InterviewService._route_item_to_text(value.get(key))
+                for key in preferred_keys
+                if value.get(key) is not None
+            ]
+            if not parts:
+                parts = [InterviewService._route_item_to_text(item) for item in list(value.values())[:6]]
+            return " ".join(part for part in parts if part)
+        if isinstance(value, (list, tuple, set)):
+            return " ".join(
+                part
+                for part in (InterviewService._route_item_to_text(item) for item in value)
+                if part
+            )
+        return str(value).strip()
+
+    @staticmethod
+    def _route_values_to_texts(values, limit: int) -> List[str]:
+        if values is None:
+            return []
+        if isinstance(values, (str, dict)):
+            values = [values]
+        cleaned = []
+        for item in values:
+            text = InterviewService._route_item_to_text(item)
+            if text:
+                cleaned.append(text)
+            if len(cleaned) >= limit:
+                break
+        return cleaned
+
+    @staticmethod
     def _resume_route_text(parsed_resume: Dict) -> str:
         parts = []
         if parsed_resume.get("summary"):
-            parts.append(parsed_resume["summary"])
+            parts.append(InterviewService._route_item_to_text(parsed_resume["summary"]))
         if parsed_resume.get("education"):
-            parts.append(parsed_resume["education"])
+            parts.append(InterviewService._route_item_to_text(parsed_resume["education"]))
         if parsed_resume.get("skills"):
-            parts.append(" ".join(parsed_resume.get("skills")[:12]))
+            parts.append(" ".join(InterviewService._route_values_to_texts(parsed_resume.get("skills"), 12)))
         if parsed_resume.get("projects"):
-            parts.append(" ".join(parsed_resume.get("projects")[:4]))
+            parts.append(" ".join(InterviewService._route_values_to_texts(parsed_resume.get("projects"), 4)))
         if parsed_resume.get("experience"):
-            parts.append(" ".join(parsed_resume.get("experience")[:4]))
-        return "\n".join(parts)
+            parts.append(" ".join(InterviewService._route_values_to_texts(parsed_resume.get("experience"), 4)))
+        return "\n".join(part for part in parts if part)
 
     @staticmethod
     def _build_question_plan(total_questions: int, difficulty: str) -> List[Dict]:
@@ -666,8 +722,8 @@ class InterviewService:
         routed = []
         top_k = 2 if len(question_plan) >= 7 else 3
         resume_text = InterviewService._resume_route_text(parsed_resume)
-        resume_skills = parsed_resume.get("skills") or []
-        resume_projects = parsed_resume.get("projects") or []
+        resume_skills = InterviewService._route_values_to_texts(parsed_resume.get("skills"), 12)
+        resume_projects = InterviewService._route_values_to_texts(parsed_resume.get("projects"), 6)
         for item in question_plan:
             query_text = "\n".join(
                 [
@@ -1082,8 +1138,8 @@ class InterviewService:
             return question_meta
 
         resume_text = InterviewService._resume_route_text(parsed_resume)
-        resume_skills = parsed_resume.get("skills") or []
-        resume_projects = parsed_resume.get("projects") or []
+        resume_skills = InterviewService._route_values_to_texts(parsed_resume.get("skills"), 12)
+        resume_projects = InterviewService._route_values_to_texts(parsed_resume.get("projects"), 6)
         query_parts = [
             target_position,
             resume_text,

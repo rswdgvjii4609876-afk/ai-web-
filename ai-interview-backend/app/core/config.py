@@ -1,3 +1,5 @@
+from urllib.parse import quote
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
@@ -107,7 +109,7 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         if self.REDIS_PASSWORD:
-            redis_url = f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/0"
+            redis_url = f"redis://:{quote(self.REDIS_PASSWORD, safe='')}@{self.REDIS_HOST}:{self.REDIS_PORT}/0"
         else:
             redis_url = f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
         self.CELERY_BROKER_URL = redis_url
