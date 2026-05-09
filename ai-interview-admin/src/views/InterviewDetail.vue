@@ -13,7 +13,7 @@
           <div><span class="info-label">目标岗位</span><span>{{ detail.target_position || '-' }}</span></div>
           <div><span class="info-label">难度</span><span>{{ diffMap[detail.difficulty] || detail.difficulty || '-' }}</span></div>
           <div><span class="info-label">题数</span><span>{{ detail.total_questions }}</span></div>
-          <div><span class="info-label">综合得分</span><span style="font-weight:700;color:#4f46e5">{{ detail.overall_score || '-' }}</span></div>
+          <div><span class="info-label">综合得分</span><span style="font-weight:700;color:#111827">{{ detail.overall_score || '-' }}</span></div>
           <div><span class="info-label">状态</span><span :class="['badge', detail.status === 'completed' ? 'badge-green' : 'badge-yellow']">{{ detail.status === 'completed' ? '已完成' : '进行中' }}</span></div>
           <div><span class="info-label">模式</span><span>{{ interviewModeMap[detail.interview_mode] || detail.interview_mode || '-' }}</span></div>
           <div><span class="info-label">人工标注</span><span :class="['badge', reviewStatusClass]">{{ reviewStatusText }}</span></div>
@@ -25,7 +25,7 @@
           <div>
             <h3 style="margin-bottom:6px">评测样本人工标注</h3>
             <p class="helper-text">
-              这一步服务于答辩验证和人工评分对比。后台可判断一场测评是否适合作为高质量样本、是否存在无依据判断、追问是否有训练价值，再决定是否导出。
+              这一步服务于模型质量验证和人工评分对比。后台可判断一场测评是否适合作为高质量样本、是否存在无依据判断、追问是否有训练价值，再决定是否导出。
             </p>
           </div>
           <div class="export-hint" :class="exportRecommended ? 'export-good' : 'export-warn'">
@@ -110,7 +110,7 @@
       <div class="card">
         <h3 style="margin-bottom:16px">💬 对话记录</h3>
         <div v-for="m in detail.messages" :key="m.id" :class="['msg', m.role]">
-          <div class="msg-role">{{ m.role === 'interviewer' ? '职启智评面试官' : '候选人' }}</div>
+          <div class="msg-role">{{ m.role === 'interviewer' ? '职启智评面试官' : '用户' }}</div>
           <div class="msg-content">{{ m.content }}</div>
           <div v-if="m.score" class="msg-score">
             评分: {{ m.score }}/10
@@ -292,12 +292,12 @@ onMounted(loadDetail)
   cursor: pointer;
 }
 .btn-primary {
-  background: #4f46e5;
+  background: #111827;
   color: white;
 }
 .btn-secondary {
-  background: #eef2ff;
-  color: #4338ca;
+  background: #f3f4f6;
+  color: #111827;
 }
 .btn-primary:disabled,
 .btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -320,8 +320,8 @@ onMounted(loadDetail)
 }
 .msg { margin-bottom: 16px; padding: 12px; border-radius: 8px; }
 .msg.interviewer { background: #f9fafb; }
-.msg.candidate { background: #eef2ff; }
+.msg.candidate { background: #f3f4f6; }
 .msg-role { font-size: 12px; font-weight: 600; color: #6b7280; margin-bottom: 6px; }
 .msg-content { font-size: 14px; line-height: 1.7; }
-.msg-score { margin-top: 8px; font-size: 12px; color: #4f46e5; font-weight: 500; }
+.msg-score { margin-top: 8px; font-size: 12px; color: #111827; font-weight: 500; }
 </style>

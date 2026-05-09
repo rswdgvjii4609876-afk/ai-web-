@@ -4,7 +4,7 @@
       <div>
         <h1 style="font-size:20px;margin-bottom:6px">评测样本与人工评分对比</h1>
         <p class="helper-text">
-          基于已完成且已人工标注的测评样本，预览答辩验证数据，并按固定规则导出 ZIP + JSONL。
+          基于已完成且已人工标注的测评样本，预览模型验证数据，并按固定规则导出 ZIP + JSONL。
         </p>
       </div>
       <button class="btn-primary" :disabled="exportLoading || !hasCompletedSamples" @click="downloadBundle">
@@ -225,15 +225,15 @@ onMounted(loadPreview)
 }
 .dataset-file {
   font-size: 12px;
-  color: #6366f1;
+  color: #111827;
   font-family: monospace;
 }
 .dataset-count {
   min-width: 44px;
   height: 44px;
   border-radius: 999px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: #f3f4f6;
+  color: #111827;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -264,7 +264,7 @@ onMounted(loadPreview)
   border-radius: 10px;
   padding: 10px 16px;
   font-size: 14px;
-  background: #4f46e5;
+  background: #111827;
   color: white;
   cursor: pointer;
 }

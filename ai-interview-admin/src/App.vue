@@ -2,7 +2,7 @@
   <div class="admin-layout" v-if="authStore.isLoggedIn">
     <aside class="sidebar">
       <div class="sidebar-logo"><span class="logo-text">职启智评</span></div>
-      <div class="sidebar-subtitle">参赛后台管理</div>
+      <div class="sidebar-subtitle">管理后台</div>
       <nav class="sidebar-nav">
         <router-link to="/" exact-active-class="active">
           <span class="nav-icon">📊</span> 数据概览
@@ -57,33 +57,14 @@ function logout() { authStore.logout(); router.push('/login') }
 
 .sidebar {
   width: 230px;
-  background: linear-gradient(180deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+  background: #111827;
   color: white;
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
   position: fixed;
   top: 0; left: 0; bottom: 0;
-  overflow: hidden;
-}
-
-.sidebar::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
-              radial-gradient(ellipse at 70% 80%, rgba(168, 85, 247, 0.1) 0%, transparent 50%);
-  animation: auroraFloat 8s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes auroraFloat {
-  0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  33% { transform: translate(2%, -3%) rotate(1deg); }
-  66% { transform: translate(-2%, 2%) rotate(-1deg); }
+  overflow: auto;
 }
 
 .sidebar-logo {
@@ -100,10 +81,7 @@ function logout() { authStore.logout(); router.push('/login') }
 }
 
 .logo-text {
-  background: linear-gradient(135deg, #a78bfa, #818cf8, #6ee7b7);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #ffffff;
 }
 
 .sidebar-subtitle {
@@ -133,22 +111,22 @@ function logout() { authStore.logout(); router.push('/login') }
 }
 
 .sidebar-nav a:hover {
-  background: rgba(99, 102, 241, 0.15);
-  color: #e0e7ff;
+  background: #1f2937;
+  color: #ffffff;
 }
 
 .sidebar-nav a.active {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.2));
-  color: white;
-  box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+  background: #ffffff;
+  color: #111827;
+  box-shadow: none;
 }
 
 .nav-icon { font-size: 16px; }
 
 .sidebar-footer {
   font-size: 12px;
-  color: #6b7280;
-  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  color: #9ca3af;
+  border-top: 1px solid #374151;
   padding-top: 16px;
   position: relative;
 }
@@ -160,17 +138,17 @@ function logout() { authStore.logout(); router.push('/login') }
   padding: 8px;
   border-radius: 8px;
   font-size: 13px;
-  background: rgba(99, 102, 241, 0.15);
-  color: #a5b4fc;
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: #1f2937;
+  color: #f9fafb;
+  border: 1px solid #374151;
   cursor: pointer;
   transition: all 0.3s;
 }
 
 .logout-btn:hover {
-  background: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.3);
+  background: #374151;
+  color: #ffffff;
+  border-color: #4b5563;
 }
 
 .main-content {
@@ -198,6 +176,6 @@ function logout() { authStore.logout(); router.push('/login') }
 }
 
 .icp-footer a:hover {
-  color: #4f46e5;
+  color: #111827;
 }
 </style>

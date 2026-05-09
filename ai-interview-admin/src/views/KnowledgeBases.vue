@@ -4,7 +4,7 @@
       <div>
         <h1 style="font-size:20px;margin-bottom:8px">公共岗位画像库</h1>
         <p style="color:#6b7280;font-size:14px;line-height:1.7">
-          这里维护真实面试和初赛展示都可复用的公共岗位画像。评委重点看这里：有多少岗位、每个岗位画像写了什么、切片如何支撑面试追问。
+          这里维护系统可复用的公共岗位画像和岗位知识库。管理员可以查看岗位要求、问答经验、能力模型与面试追问，并管理知识切片。
         </p>
       </div>
       <button class="btn-primary" @click="startCreate">{{ editingId ? '新建一份' : '+ 新建公共岗位画像' }}</button>
@@ -47,9 +47,32 @@
           <input v-model="form.target_position" placeholder="例如：Python后端开发工程师" />
         </div>
 
-        <div class="form-group">
-          <label>岗位画像内容</label>
-          <textarea v-model="form.knowledge_content" rows="13" :placeholder="knowledgeTemplatePlaceholder" />
+        <div class="section-editor">
+          <div class="section-editor-head">
+            <div>
+              <h4>岗位知识库分区</h4>
+              <p>按分区维护知识资产，保存时会自动合成为 Markdown 写入岗位画像内容。</p>
+            </div>
+            <span class="section-completion">{{ formCompletion.completed }} / {{ formCompletion.total }} 已填写</span>
+          </div>
+
+          <div v-for="section in formSections" :key="section.key" class="form-group section-field">
+            <label>{{ section.label }}</label>
+            <textarea
+              v-model="form.sections[section.key]"
+              :rows="section.rows"
+              :placeholder="section.placeholder"
+            />
+          </div>
+
+          <div v-if="form.legacy_content" class="form-group section-field legacy-field">
+            <label>旧格式原文</label>
+            <textarea
+              v-model="form.legacy_content"
+              rows="5"
+              placeholder="无法自动拆分的旧内容会保留在这里，保存时写入“其他内容”分区。"
+            />
+          </div>
         </div>
 
         <div class="form-group">
@@ -103,7 +126,22 @@
               </span>
             </div>
 
-            <p class="kb-preview">{{ item.preview }}</p>
+            <p class="kb-preview">{{ knowledgePreviewText(item) }}</p>
+
+            <div class="asset-tags">
+              <span class="asset-tag">分区 {{ sectionCompletion(item).completed }}/{{ sectionCompletion(item).total }}</span>
+              <span class="asset-tag">问答经验 {{ interviewExperienceCount(item) }}</span>
+              <span :class="['asset-tag', hasCompanyFocus(item) ? 'asset-ok' : 'asset-warn']">
+                {{ hasCompanyFocus(item) ? '已写公司侧重点' : '未写公司侧重点' }}
+              </span>
+              <span
+                v-for="status in auditStatuses(item)"
+                :key="`${item.knowledge_base_id}-${status}`"
+                :class="['asset-tag', auditStatusClass(status)]"
+              >
+                {{ status }}
+              </span>
+            </div>
 
             <p v-if="item.focus_points" class="kb-extra"><strong>测评重点：</strong>{{ item.focus_points }}</p>
             <p v-if="item.interviewer_prompt" class="kb-extra"><strong>面试官要求：</strong>{{ item.interviewer_prompt }}</p>
@@ -177,10 +215,18 @@ const editingId = ref(null)
 const msg = ref('')
 const items = ref([])
 
+const emptySections = () => ({
+  job_requirements: '',
+  interview_experience: '',
+  ability_model: '',
+  followup_rules: ''
+})
+
 const defaultForm = () => ({
   title: '',
   target_position: '',
-  knowledge_content: '',
+  sections: emptySections(),
+  legacy_content: '',
   focus_points: '',
   interviewer_prompt: '',
   is_active: true
@@ -199,22 +245,46 @@ const sectionLabels = {
   interviewer_prompt: '面试官要求',
   overview: '岗位概览'
 }
-const knowledgeTemplatePlaceholder = `## 岗位要求
-- 硬性要求：
-- 加分项：
-- 公司侧重点：
+const formSections = [
+  {
+    key: 'job_requirements',
+    label: '岗位要求',
+    rows: 7,
+    placeholder: '- 硬性要求：\n- 加分项：\n- 公司侧重点：例如大厂更看重项目深度，中小团队更看重落地速度\n- 来源与许可：可入库 / 仅参考 / 不采用 / 待核验'
+  },
+  {
+    key: 'interview_experience',
+    label: '问答经验',
+    rows: 8,
+    placeholder: '- 问题：\n  参考回答要点：\n  复盘反思：\n  来源与审核状态：待核验'
+  },
+  {
+    key: 'ability_model',
+    label: '能力模型',
+    rows: 7,
+    placeholder: '- 能力项：要求等级 / 权重 / 证据线索 / 可提升系数\n- 示例：接口设计：4 / 0.18 / REST API、鉴权、错误处理 / 1.2'
+  },
+  {
+    key: 'followup_rules',
+    label: '面试追问',
+    rows: 7,
+    placeholder: '- 证据追问规则：回答模糊时追问项目背景、个人职责、指标结果\n- 评分关注点：基础是否扎实、证据是否真实、能否定位问题'
+  }
+]
+const sectionHeadingMap = {
+  岗位要求: 'job_requirements',
+  问答经验: 'interview_experience',
+  能力模型: 'ability_model',
+  面试追问: 'followup_rules',
+  其他内容: 'legacy_content'
+}
+const auditStatusOptions = ['可入库', '仅参考', '不采用', '待核验']
 
-## 问答经验
-- 问题：
-  参考回答要点：
-  复盘提醒：
-
-## 能力模型
-- 能力项：要求等级 / 权重 / 证据线索 / 可提升系数
-
-## 面试追问
-- 证据追问规则：
-- 评分关注点：`
+const formCompletion = computed(() => {
+  const total = formSections.length
+  const completed = formSections.filter(section => form.value.sections[section.key]?.trim()).length
+  return { total, completed }
+})
 
 const stats = computed(() => {
   const total = items.value.length
@@ -228,7 +298,7 @@ const filteredItems = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   if (!kw) return items.value
   return items.value.filter(item => {
-    return [item.title, item.target_position, item.preview]
+    return [item.title, item.target_position, item.preview, item.knowledge_content]
       .filter(Boolean)
       .some(text => text.toLowerCase().includes(kw))
   })
@@ -261,21 +331,131 @@ function sourceSectionLabel(value) {
   return sectionLabels[value] || value || '切片'
 }
 
-function structuredSections(text) {
+function parseKnowledgeSections(text) {
   const content = String(text || '')
-  const matches = [...content.matchAll(/^#{1,4}\s*(岗位要求|问答经验|能力模型|面试追问)\s*$/gm)]
-  if (!matches.length) return []
-  return matches.map((match, index) => {
+  const result = {
+    sections: emptySections(),
+    legacy_content: ''
+  }
+  const matches = [...content.matchAll(/^#{1,4}\s*(岗位要求|问答经验|能力模型|面试追问|其他内容)\s*$/gm)]
+  if (!matches.length) {
+    result.legacy_content = content.trim()
+    return result
+  }
+
+  const beforeFirst = content.slice(0, matches[0].index).trim()
+  if (beforeFirst) result.legacy_content = beforeFirst
+
+  matches.forEach((match, index) => {
     const start = match.index + match[0].length
     const end = matches[index + 1]?.index ?? content.length
     const title = match[1]
-    const key = Object.entries(sectionLabels).find(([, label]) => label === title)?.[0] || title
-    return {
-      key,
-      title,
-      content: content.slice(start, end).trim()
+    const key = sectionHeadingMap[title]
+    const value = content.slice(start, end).trim()
+    if (key === 'legacy_content') {
+      result.legacy_content = [result.legacy_content, value].filter(Boolean).join('\n\n')
+    } else if (key) {
+      result.sections[key] = value
     }
-  }).filter(item => item.content)
+  })
+
+  return result
+}
+
+function structuredSections(text) {
+  const parsed = parseKnowledgeSections(text)
+  const sections = formSections
+    .map(section => ({
+      key: section.key,
+      title: section.label,
+      content: parsed.sections[section.key]?.trim() || ''
+    }))
+    .filter(item => item.content)
+
+  if (parsed.legacy_content?.trim()) {
+    sections.push({
+      key: 'legacy_content',
+      title: '其他内容',
+      content: parsed.legacy_content.trim()
+    })
+  }
+
+  return sections
+}
+
+function buildKnowledgeContent() {
+  const parts = formSections
+    .map(section => ({
+      title: section.label,
+      content: form.value.sections[section.key]?.trim() || ''
+    }))
+    .filter(section => section.content)
+    .map(section => `## ${section.title}\n${section.content}`)
+
+  const legacy = form.value.legacy_content?.trim()
+  if (legacy) parts.push(`## 其他内容\n${legacy}`)
+  return parts.join('\n\n')
+}
+
+function sectionCompletion(item) {
+  const parsed = parseKnowledgeSections(item.knowledge_content)
+  const total = formSections.length
+  const completed = formSections.filter(section => parsed.sections[section.key]?.trim()).length
+  return { total, completed }
+}
+
+function interviewExperienceCount(item) {
+  const content = parseKnowledgeSections(item.knowledge_content).sections.interview_experience || ''
+  const matches = content.match(/问题[:：]|Q\d+|面试题|追问/g)
+  if (matches?.length) return matches.length
+  return content.trim() ? 1 : 0
+}
+
+function hasCompanyFocus(item) {
+  const content = parseKnowledgeSections(item.knowledge_content).sections.job_requirements || ''
+  return /公司侧重点|公司要求|大厂|中小|互联网|国企|外企|创业公司|行业侧重点/.test(content)
+}
+
+function auditStatuses(item) {
+  const content = String(item.knowledge_content || '')
+  const matched = auditStatusOptions.filter(status => content.includes(status))
+  return matched.length ? matched : ['待核验']
+}
+
+function auditStatusClass(status) {
+  return {
+    可入库: 'asset-ok',
+    仅参考: 'asset-info',
+    不采用: 'asset-bad',
+    待核验: 'asset-warn'
+  }[status] || 'asset-warn'
+}
+
+function formFromKnowledgeBase(item) {
+  const parsed = parseKnowledgeSections(item.knowledge_content)
+  return {
+    title: item.title || '',
+    target_position: item.target_position || '',
+    sections: {
+      ...emptySections(),
+      ...parsed.sections
+    },
+    legacy_content: parsed.legacy_content || '',
+    focus_points: item.focus_points || '',
+    interviewer_prompt: item.interviewer_prompt || '',
+    is_active: !!item.is_active
+  }
+}
+
+function knowledgePreviewText(item) {
+  const sections = structuredSections(item.knowledge_content)
+  if (sections.length) {
+    return sections
+      .slice(0, 2)
+      .map(section => `${section.title}：${section.content.replace(/\s+/g, ' ').slice(0, 80)}`)
+      .join(' / ')
+  }
+  return item.preview || ''
 }
 
 async function loadItems() {
@@ -348,34 +528,28 @@ function startCreate() {
 
 function handleEdit(item) {
   editingId.value = item.knowledge_base_id
-  form.value = {
-    title: item.title || '',
-    target_position: item.target_position || '',
-    knowledge_content: item.knowledge_content || '',
-    focus_points: item.focus_points || '',
-    interviewer_prompt: item.interviewer_prompt || '',
-    is_active: !!item.is_active
-  }
+  form.value = formFromKnowledgeBase(item)
   msg.value = ''
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 async function handleSubmit() {
   msg.value = ''
-  if (!form.value.title.trim() || !form.value.target_position.trim() || !form.value.knowledge_content.trim()) {
-    msg.value = '标题、目标岗位和画像内容不能为空'
+  const knowledgeContent = buildKnowledgeContent()
+  if (!form.value.title.trim() || !form.value.target_position.trim() || !knowledgeContent.trim()) {
+    msg.value = '标题、目标岗位和至少一个知识库分区不能为空'
     return
   }
 
   saving.value = true
   try {
     const payload = {
-      ...form.value,
       title: form.value.title.trim(),
       target_position: form.value.target_position.trim(),
-      knowledge_content: form.value.knowledge_content.trim(),
+      knowledge_content: knowledgeContent.trim(),
       focus_points: form.value.focus_points.trim(),
-      interviewer_prompt: form.value.interviewer_prompt.trim()
+      interviewer_prompt: form.value.interviewer_prompt.trim(),
+      is_active: form.value.is_active
     }
 
     if (editingId.value) {
@@ -456,6 +630,45 @@ onMounted(loadItems)
 .form-group textarea {
   resize: vertical;
 }
+.section-editor {
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+.section-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.section-editor-head h4 {
+  color: #111827;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+.section-editor-head p {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.section-completion {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 700;
+}
+.section-field textarea {
+  background: #fff;
+}
+.legacy-field textarea {
+  background: #fffbeb;
+}
 .switch-row {
   display: flex;
   align-items: center;
@@ -499,6 +712,38 @@ onMounted(loadItems)
 .kb-preview {
   margin: 14px 0;
   line-height: 1.8;
+}
+.asset-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+.asset-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+}
+.asset-ok {
+  background: #d1fae5;
+  color: #065f46;
+}
+.asset-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+.asset-info {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.asset-bad {
+  background: #fee2e2;
+  color: #991b1b;
 }
 .kb-extra {
   font-size: 14px;
@@ -558,8 +803,8 @@ onMounted(loadItems)
 }
 .structured-section-title {
   padding: 8px 12px;
-  background: #eef2ff;
-  color: #3730a3;
+  background: #f3f4f6;
+  color: #111827;
   font-size: 13px;
   font-weight: 700;
 }

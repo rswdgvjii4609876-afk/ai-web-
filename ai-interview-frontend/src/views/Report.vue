@@ -48,26 +48,32 @@
             </div>
             <p>当前 {{ item.current_level }} / 要求 {{ item.required_level }}，差距 {{ item.gap }}，匹配 {{ item.match_score }}%。</p>
             <p class="ability-gap-evidence">{{ item.evidence_basis }}</p>
+            <button class="task-add-btn" type="button" @click="addGapTask(item)">加入学习任务</button>
           </div>
         </div>
       </div>
 
-      <LearningPlanProgress
-        v-if="learningPlanTasks.length"
-        class="card section-card"
-        :learning-plan="learningPlan"
-        :resume-id="data.resume_id || interviewId"
-        :target-position="learningPlanTarget"
-      />
-
       <div class="card section-card diagnosis-link-card">
         <div>
           <h3>能力提升计划</h3>
-          <p>回到能力诊断页，继续查看岗位差距、学习任务和本地学习进度。</p>
+          <p>报告页只负责把短板加入任务库；学习笔记、完成状态、导入导出统一到学习任务页处理。</p>
+          <p v-if="learningPlanTasks.length" class="task-hint">当前报告可加入 {{ learningPlanTasks.length }} 项系统生成任务。</p>
+          <p v-if="taskMessage" class="task-message">{{ taskMessage }}</p>
         </div>
-        <router-link :to="abilityDiagnosisLink" class="btn-secondary diagnosis-link">
-          回到能力诊断
-        </router-link>
+        <div class="diagnosis-actions">
+          <button v-if="learningPlanTasks.length" class="btn-secondary diagnosis-link" type="button" @click="addLearningPlanTasks">
+            加入全部学习任务
+          </button>
+          <router-link to="/learning-tasks" class="btn-primary diagnosis-link task-link">
+            查看学习任务
+          </router-link>
+          <router-link :to="trainingReviewLink" class="btn-secondary diagnosis-link">
+            进入训练复盘
+          </router-link>
+          <router-link :to="abilityDiagnosisLink" class="btn-secondary diagnosis-link">
+            回到能力诊断
+          </router-link>
+        </div>
       </div>
 
       <div v-if="report.panel_summary?.length" class="card section-card">
@@ -79,15 +85,21 @@
 
       <div v-if="report.training_priorities?.length" class="card section-card">
         <h3>后续求职训练建议</h3>
-        <ul class="panel-list">
-          <li v-for="(item, i) in report.training_priorities" :key="i">{{ formatInsightItem(item) }}</li>
+        <ul class="panel-list action-list">
+          <li v-for="(item, i) in report.training_priorities" :key="i">
+            <span>{{ formatInsightItem(item) }}</span>
+            <button type="button" @click="addTextTask(item, 'report_training', i)">加入学习任务</button>
+          </li>
         </ul>
       </div>
 
       <div v-if="report.common_gaps?.length" class="card section-card">
         <h3>高频短板</h3>
-        <ul class="panel-list">
-          <li v-for="(item, i) in report.common_gaps" :key="i">{{ formatInsightItem(item) }}</li>
+        <ul class="panel-list action-list">
+          <li v-for="(item, i) in report.common_gaps" :key="i">
+            <span>{{ formatInsightItem(item) }}</span>
+            <button type="button" @click="addTextTask(item, 'report_weakness', i)">加入学习任务</button>
+          </li>
         </ul>
       </div>
 
@@ -132,8 +144,11 @@
         </div>
         <div v-if="report.weaknesses?.length" class="card">
           <h3 class="bad-title">不足</h3>
-          <ul class="basic-list">
-            <li v-for="(w, i) in report.weaknesses" :key="i">{{ w }}</li>
+          <ul class="basic-list action-list">
+            <li v-for="(w, i) in report.weaknesses" :key="i">
+              <span>{{ w }}</span>
+              <button type="button" @click="addTextTask(w, 'report_weakness', i)">加入学习任务</button>
+            </li>
           </ul>
         </div>
       </div>
@@ -196,13 +211,20 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getReport } from '../api/interview'
-import LearningPlanProgress from '../components/LearningPlanProgress.vue'
+import {
+  taskFromAbilityGap,
+  taskFromLearningPlan,
+  taskFromText,
+  upsertLearningTask,
+  upsertLearningTasks
+} from '../utils/learningTasks'
 
 const route = useRoute()
 const interviewId = route.params.id
 const data = ref(null)
 const report = ref(null)
 const loading = ref(true)
+const taskMessage = ref('')
 const abilityGapItems = computed(() => {
   const profile = report.value?.matching_metrics?.ability_gap_profile || report.value?.ability_gap_profile
   const topGaps = profile?.top_gaps
@@ -218,6 +240,17 @@ const learningPlanTarget = computed(() => learningPlan.value?.target_position ||
 const abilityDiagnosisLink = computed(() => ({
   path: '/ability-diagnosis',
   query: data.value?.resume_id ? { resume_id: data.value.resume_id } : {}
+}))
+const trainingReviewLink = computed(() => ({
+  path: '/training-review',
+  query: { interview_id: interviewId }
+}))
+
+const taskContext = computed(() => ({
+  target_position: learningPlanTarget.value || data.value?.target_position || '',
+  resume_id: data.value?.resume_id || '',
+  interview_id: interviewId,
+  source_id: interviewId
 }))
 
 function formatInsightItem(item) {
@@ -241,6 +274,40 @@ function semanticSourceLabel(metrics) {
   if (metrics.semantic_backend === 'openai_embedding') return 'OpenAI embedding'
   if (String(metrics.embedding_status || '').startsWith('fallback')) return 'TF-IDF 回退'
   return 'TF-IDF'
+}
+
+function setTaskMessage(text) {
+  taskMessage.value = text
+}
+
+function addGapTask(item) {
+  upsertLearningTask(taskFromAbilityGap(item, {
+    ...taskContext.value,
+    source_type: 'ability_gap',
+    source_id: `${interviewId}_${item.ability_id || item.name || 'gap'}`
+  }))
+  setTaskMessage('已加入学习任务页。')
+}
+
+function addLearningPlanTasks() {
+  const tasks = learningPlanTasks.value.map((task, index) => taskFromLearningPlan(task, {
+    ...taskContext.value,
+    source_type: 'learning_plan',
+    source_id: `${interviewId}_plan_${task.task_id || task.ability_id || index}`
+  }))
+  upsertLearningTasks(tasks)
+  setTaskMessage(`已加入 ${tasks.length} 项学习任务。`)
+}
+
+function addTextTask(item, sourceType, index) {
+  const text = formatInsightItem(item)
+  upsertLearningTask(taskFromText(text, {
+    ...taskContext.value,
+    source_type: sourceType,
+    source_id: `${interviewId}_${sourceType}_${index}`,
+    ability_name: sourceType === 'report_weakness' ? '报告短板' : '训练建议'
+  }))
+  setTaskMessage('已加入学习任务页。')
 }
 
 onMounted(async () => {
@@ -293,6 +360,27 @@ onMounted(async () => {
   border-radius: 8px;
 }
 
+.diagnosis-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.task-link {
+  color: white;
+}
+
+.task-hint,
+.task-message {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.task-message {
+  color: #047857;
+}
+
 .ability-gap-list {
   display: grid;
   gap: 10px;
@@ -330,6 +418,21 @@ onMounted(async () => {
 
 .ability-gap-evidence {
   margin-top: 4px;
+}
+
+.task-add-btn,
+.action-list button {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #e5e7eb;
+  color: #374151;
+  font-size: 12px;
+}
+
+.task-add-btn:hover,
+.action-list button:hover {
+  background: #d1d5db;
 }
 
 .score-card {
@@ -425,6 +528,17 @@ onMounted(async () => {
   padding-left: 16px;
   font-size: 14px;
   line-height: 1.8;
+}
+
+.action-list li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.action-list li span {
+  flex: 1;
 }
 
 .panel-list li::before,

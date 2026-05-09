@@ -5,10 +5,12 @@
         <p class="eyebrow">职启智评工作台</p>
         <h1>多岗位 AI 模拟面试与求职能力评估</h1>
         <p>
-          这里集中管理你的面试记录。新建面试时先上传简历、选择目标岗位和岗位画像，点击“开始面试”后才会生成面试记录。
+          这里集中管理你的面试记录和学习任务。先看能力差距，把要补的能力加入学习任务，再通过模拟面试验证表达和证据。
         </p>
       </div>
       <div class="hero-actions">
+        <router-link to="/learning-tasks" class="btn-secondary hero-link">学习任务</router-link>
+        <router-link to="/training-review" class="btn-secondary hero-link">训练复盘</router-link>
         <router-link to="/ability-diagnosis" class="btn-secondary hero-link">查看能力诊断</router-link>
         <router-link to="/resume/upload" class="btn-primary hero-link primary">开始一次面试</router-link>
       </div>
@@ -22,6 +24,12 @@
         </router-link>
         <router-link to="/ability-diagnosis" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
           能力诊断
+        </router-link>
+        <router-link to="/learning-tasks" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
+          学习任务
+        </router-link>
+        <router-link to="/training-review" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
+          训练复盘
         </router-link>
         <router-link to="/resume/upload" class="btn-primary" style="display:inline-block;padding:10px 24px;color:white;border-radius:8px">
           + 新建面试

@@ -7,6 +7,8 @@
           <router-link to="/dashboard">工作台</router-link>
           <router-link to="/knowledge-base">岗位画像库</router-link>
           <router-link to="/ability-diagnosis">能力诊断</router-link>
+          <router-link to="/learning-tasks">学习任务</router-link>
+          <router-link to="/training-review">训练复盘</router-link>
           <router-link to="/resume/upload">新建面试</router-link>
           <router-link to="/profile" class="nav-user-link">
             <img v-if="authStore.userAvatar && !avatarError" :src="authStore.userAvatar" class="nav-avatar" alt="avatar" @error="avatarError = true" />

@@ -156,16 +156,25 @@
             <h4>下一步学习优先事项</h4>
             <ul><li v-for="(item, i) in learningPrioritySummary" :key="i">{{ item }}</li></ul>
           </div>
-          <LearningPlanProgress
-            v-if="learningPlanTasks.length"
-            class="analysis-section"
-            :learning-plan="learningPlan"
-            :resume-id="resumeId"
-            :target-position="targetPosition"
-          />
+          <div v-if="learningPlanTasks.length" class="analysis-section learning-task-bridge">
+            <h4>能力提升计划</h4>
+            <p>系统已生成 {{ learningPlanTasks.length }} 项学习任务。加入学习任务页后，可统一记录完成状态、学习笔记和导入导出进度。</p>
+            <div class="analysis-actions">
+              <button class="btn-secondary analysis-action-link" type="button" @click="addCurrentLearningPlanTasks">
+                加入学习任务页
+              </button>
+              <router-link to="/learning-tasks" class="btn-secondary analysis-action-link">
+                查看学习任务
+              </router-link>
+            </div>
+            <p v-if="learningTaskMessage" class="learning-task-message">{{ learningTaskMessage }}</p>
+          </div>
           <div v-if="resumeId" class="analysis-actions">
             <router-link :to="abilityDiagnosisLink" class="btn-secondary analysis-action-link">
               查看能力诊断
+            </router-link>
+            <router-link to="/learning-tasks" class="btn-secondary analysis-action-link">
+              学习任务
             </router-link>
           </div>
           <p v-if="analysis.summary" class="analysis-summary">{{ analysis.summary }}</p>
@@ -361,7 +370,7 @@ import { uploadResume, getResume } from '../api/resume'
 import { startInterview } from '../api/interview'
 import { getKnowledgeBases } from '../api/knowledgeBase'
 import { getProfile, testAiConnection } from '../api/user'
-import LearningPlanProgress from '../components/LearningPlanProgress.vue'
+import { taskFromLearningPlan, upsertLearningTasks } from '../utils/learningTasks'
 
 const router = useRouter()
 const route = useRoute()
@@ -381,6 +390,7 @@ const resumeId = ref(null)
 const parsedContent = ref(null)
 const analysis = ref(null)
 const resumeEvidence = ref(null)
+const learningTaskMessage = ref('')
 const evidenceSummary = ref([])
 const knowledgeLoading = ref(false)
 const knowledgeBases = ref([])
@@ -461,6 +471,17 @@ const abilityDiagnosisLink = computed(() => ({
   path: '/ability-diagnosis',
   query: resumeId.value ? { resume_id: resumeId.value } : {}
 }))
+
+function addCurrentLearningPlanTasks() {
+  const tasks = learningPlanTasks.value.map((task, index) => taskFromLearningPlan(task, {
+    target_position: targetPosition.value,
+    resume_id: resumeId.value,
+    source_type: 'learning_plan',
+    source_id: `${resumeId.value || 'resume'}_plan_${task.task_id || task.ability_id || index}`
+  }))
+  upsertLearningTasks(tasks)
+  learningTaskMessage.value = `已加入 ${tasks.length} 项学习任务。`
+}
 
 const selectedKnowledgeBase = computed(() => {
   const id = Number(selectedKnowledgeBaseId.value)
@@ -1113,6 +1134,9 @@ async function handleStart() {
 .analysis-section { margin-bottom: 14px; }
 .analysis-actions {
   margin-bottom: 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .analysis-action-link {
   display: inline-block;
@@ -1121,6 +1145,22 @@ async function handleStart() {
   font-size: 13px;
 }
 .analysis-section h4 { font-size: 14px; margin-bottom: 8px; color: #374151; }
+.learning-task-bridge {
+  padding: 12px;
+  border: 1px solid #d1fae5;
+  border-radius: 8px;
+  background: #f0fdf4;
+}
+.learning-task-bridge p {
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+.learning-task-message {
+  color: #047857 !important;
+  margin-bottom: 0 !important;
+}
 .ability-gap-section {
   padding: 12px;
   border: 1px solid #dbeafe;

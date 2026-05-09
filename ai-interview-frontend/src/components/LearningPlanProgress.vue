@@ -4,10 +4,10 @@
       <div>
         <h4>能力提升计划</h4>
         <p>
-          根据能力差距生成学习任务。进度保存在当前浏览器，可下载 JSON 备份，也可上传 JSON 恢复。
+          根据能力差距生成学习任务。导入、导出和长期进度管理请进入“学习任务”页面统一处理。
         </p>
       </div>
-      <div class="learning-actions">
+      <div v-if="showFileActions" class="learning-actions">
         <button class="learning-btn" type="button" @click="downloadProgress" :disabled="!tasks.length">
           下载进度
         </button>
@@ -97,6 +97,10 @@ const props = defineProps({
   targetPosition: {
     type: String,
     default: ''
+  },
+  showFileActions: {
+    type: Boolean,
+    default: false
   }
 })
 

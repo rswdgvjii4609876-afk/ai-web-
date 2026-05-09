@@ -9,6 +9,7 @@
         </p>
       </div>
       <div class="hero-actions">
+        <router-link to="/learning-tasks" class="btn-secondary hero-btn">学习任务</router-link>
         <router-link to="/resume/upload" class="btn-primary hero-btn primary">新建面试</router-link>
         <router-link to="/dashboard" class="btn-secondary hero-btn">返回工作台</router-link>
       </div>
@@ -64,14 +65,16 @@
                 <div class="level-bar-fill" :style="{ width: `${safePercent(item.match_score)}%` }"></div>
               </div>
               <p>{{ item.evidence_basis || '需要继续补充可验证经历或作品证据。' }}</p>
+              <p v-if="item.source_label" class="gap-source">{{ item.source_label }}</p>
               <div v-if="item.missing_keywords?.length" class="tag-list">
                 <span v-for="keyword in item.missing_keywords.slice(0, 6)" :key="keyword" class="tag tag-missing">
                   {{ keyword }}
                 </span>
               </div>
+              <button class="task-add-btn" type="button" @click="addGapTask(item)">加入学习任务</button>
             </article>
           </div>
-          <p v-else class="muted-text">当前简历没有明显能力差距，建议继续通过模拟面试验证表达和证据完整度。</p>
+          <p v-else class="muted-text">{{ emptyGapMessage }}</p>
         </section>
 
         <section class="card section-card">
@@ -96,17 +99,23 @@
         </section>
       </div>
 
-      <LearningPlanProgress
-        v-if="learningPlanTasks.length"
-        class="diagnosis-learning"
-        :learning-plan="learningPlan"
-        :resume-id="resume.resume_id"
-        :target-position="targetPosition"
-      />
-
-      <div v-else class="card empty-card">
-        <h2>暂无学习计划</h2>
-        <p>这份简历暂时没有生成可执行学习任务，可以重新上传简历或等待后续报告链路补全学习计划。</p>
+      <div class="card diagnosis-learning">
+        <div>
+          <h2>学习任务同步</h2>
+          <p v-if="learningPlanTasks.length">
+            当前简历已有 {{ learningPlanTasks.length }} 项学习计划，可加入学习任务页统一记录完成状态、笔记和进度导入导出。
+          </p>
+          <p v-else>
+            当前简历暂未生成系统学习计划，可以先把上方能力差距加入学习任务页，再通过面试报告继续补充。
+          </p>
+          <p v-if="taskMessage" class="task-message">{{ taskMessage }}</p>
+        </div>
+        <div class="learning-sync-actions">
+          <button v-if="learningPlanTasks.length" class="btn-secondary hero-btn" type="button" @click="addLearningPlanTasks">
+            加入全部学习任务
+          </button>
+          <router-link to="/learning-tasks" class="btn-primary hero-btn primary">查看学习任务</router-link>
+        </div>
       </div>
 
       <div class="card training-card">
@@ -124,12 +133,19 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { getResume, getResumes } from '../api/resume'
-import LearningPlanProgress from '../components/LearningPlanProgress.vue'
+import {
+  taskFromAbilityGap,
+  taskFromLearningPlan,
+  taskFromText,
+  upsertLearningTask,
+  upsertLearningTasks
+} from '../utils/learningTasks'
 
 const route = useRoute()
 const loading = ref(true)
 const error = ref('')
 const resume = ref(null)
+const taskMessage = ref('')
 
 const analysis = computed(() => resume.value?.analysis || {})
 const matchingMetrics = computed(() => analysis.value?.matching_metrics || null)
@@ -140,10 +156,72 @@ const learningPlanTasks = computed(() => {
   return Array.isArray(tasks) ? tasks : []
 })
 const targetPosition = computed(() => resume.value?.target_position || abilityProfile.value?.target_position || learningPlan.value?.target_position || '')
-const topGaps = computed(() => {
+const profileGapItems = computed(() => {
   const profile = abilityProfile.value || {}
   const items = Array.isArray(profile.top_gaps) && profile.top_gaps.length ? profile.top_gaps : profile.items
-  return Array.isArray(items) ? items.slice(0, 5) : []
+  if (!Array.isArray(items)) return []
+  return items
+    .filter(item => Number(item.gap || 0) > 0 || Number(item.match_score || 0) < 90 || item.evidence_basis || item.missing_keywords?.length)
+    .slice(0, 5)
+})
+const fallbackGapItems = computed(() => {
+  if (profileGapItems.value.length) return []
+  const result = []
+  learningPlanTasks.value.slice(0, 5).forEach((task, index) => {
+    result.push({
+      ability_id: task.task_id || `plan-${index}`,
+      name: task.ability_name || task.title || '学习任务',
+      current_level: '-',
+      required_level: '-',
+      gap: '-',
+      match_score: 0,
+      priority_score: task.priority_score ?? '-',
+      evidence_basis: task.practice_task || task.deliverable || '系统已生成学习计划，但缺少结构化能力差距分值。',
+      source_label: '来自学习计划兜底'
+    })
+  })
+  const missing = analysis.value?.missing_keywords
+  if (Array.isArray(missing)) {
+    missing.slice(0, Math.max(0, 5 - result.length)).forEach((keyword, index) => {
+      result.push({
+        ability_id: `missing-${index}-${keyword}`,
+        name: keyword,
+        current_level: '-',
+        required_level: '-',
+        gap: '待补证据',
+        match_score: 0,
+        priority_score: '-',
+        evidence_basis: `当前简历或岗位匹配结果提示缺少“${keyword}”相关证据。`,
+        source_label: '来自缺失关键词兜底',
+        missing_keywords: [keyword]
+      })
+    })
+  }
+  const weaknesses = analysis.value?.weaknesses
+  if (Array.isArray(weaknesses)) {
+    weaknesses.slice(0, Math.max(0, 5 - result.length)).forEach((text, index) => {
+      result.push({
+        ability_id: `weakness-${index}`,
+        name: '报告短板',
+        current_level: '-',
+        required_level: '-',
+        gap: '待补强',
+        match_score: 0,
+        priority_score: '-',
+        evidence_basis: text,
+        source_label: '来自简历分析短板兜底'
+      })
+    })
+  }
+  return result.slice(0, 5)
+})
+const topGaps = computed(() => profileGapItems.value.length ? profileGapItems.value : fallbackGapItems.value)
+const hasStructuredAbilityProfile = computed(() => Boolean(abilityProfile.value))
+const emptyGapMessage = computed(() => {
+  if (!hasStructuredAbilityProfile.value) {
+    return '暂无结构化能力差距数据。当前页面只能展示简历证据和已有学习计划，请重新分析简历或进入报告页补充学习任务。'
+  }
+  return '当前结构化能力图谱没有返回重点短板，但仍建议结合简历证据和模拟面试继续验证表达完整度。'
 })
 const strengths = computed(() => {
   const items = abilityProfile.value?.strengths
@@ -160,6 +238,11 @@ const evidenceItems = computed(() => {
 const resumeUploadLink = computed(() => ({
   path: '/resume/upload',
   query: targetPosition.value ? { target_position: targetPosition.value } : {}
+}))
+const taskContext = computed(() => ({
+  target_position: targetPosition.value,
+  resume_id: resume.value?.resume_id || '',
+  source_id: resume.value?.resume_id || ''
 }))
 
 onMounted(loadDiagnosis)
@@ -220,6 +303,33 @@ function semanticSourceLabel(metrics) {
   if (metrics.semantic_backend === 'openai_embedding') return 'OpenAI embedding'
   if (String(metrics.embedding_status || '').startsWith('fallback')) return 'TF-IDF 回退'
   return 'TF-IDF'
+}
+
+function addGapTask(item) {
+  const task = item.source_label
+    ? taskFromText(item.evidence_basis || item.name, {
+        ...taskContext.value,
+        source_type: 'diagnosis_fallback',
+        source_id: `${taskContext.value.source_id}_${item.ability_id || item.name}`,
+        ability_name: item.name
+      })
+    : taskFromAbilityGap(item, {
+        ...taskContext.value,
+        source_type: 'ability_gap',
+        source_id: `${taskContext.value.source_id}_${item.ability_id || item.name}`
+      })
+  upsertLearningTask(task)
+  taskMessage.value = '已加入学习任务页。'
+}
+
+function addLearningPlanTasks() {
+  const tasks = learningPlanTasks.value.map((task, index) => taskFromLearningPlan(task, {
+    ...taskContext.value,
+    source_type: 'learning_plan',
+    source_id: `${taskContext.value.source_id}_plan_${task.task_id || task.ability_id || index}`
+  }))
+  upsertLearningTasks(tasks)
+  taskMessage.value = `已加入 ${tasks.length} 项学习任务。`
 }
 </script>
 
@@ -394,6 +504,24 @@ function semanticSourceLabel(metrics) {
   line-height: 1.7;
 }
 
+.gap-source {
+  color: #92400e !important;
+  font-size: 12px !important;
+}
+
+.task-add-btn {
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #e5e7eb;
+  color: #374151;
+  font-size: 12px;
+}
+
+.task-add-btn:hover {
+  background: #d1d5db;
+}
+
 .tag-list {
   display: flex;
   flex-wrap: wrap;
@@ -443,8 +571,33 @@ function semanticSourceLabel(metrics) {
   align-items: center;
 }
 
+.diagnosis-learning {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.diagnosis-learning h2 {
+  margin-bottom: 8px;
+}
+
+.learning-sync-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.task-message {
+  margin-top: 8px;
+  color: #047857;
+  font-size: 13px;
+}
+
 @media (max-width: 760px) {
   .diagnosis-hero,
+  .diagnosis-learning,
   .training-card,
   .section-head,
   .gap-title,
