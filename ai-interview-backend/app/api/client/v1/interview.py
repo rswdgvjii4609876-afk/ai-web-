@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.client.deps import get_current_user
 from app.db.session import get_db
+from app.exceptions.http_exceptions import ValidationError
 from app.models.user import User
 from app.schemas.client.interview import AnswerSubmit, InterviewStart
 from app.schemas.response import ApiResponse
@@ -11,6 +15,18 @@ from app.services.client.interview_service import interview_service
 from app.services.common.deepseek_config_service import deepseek_config_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+START_INTERVIEW_ROUTE_ERROR_MESSAGE = (
+    "开始面试失败：后端开始面试链路异常。"
+    "请管理员查看 docker compose logs --tail=300 app 中 /api/v1/interviews/start 附近的第一条异常。"
+)
+
+START_INTERVIEW_ROUTE_DB_ERROR_MESSAGE = (
+    "开始面试失败：数据库读取或写入异常，可能是服务器数据库迁移未完成。"
+    "请管理员执行 alembic upgrade head，并查看后端日志中的第一条数据库异常。"
+)
 
 
 def _build_interview_runtime_config(
@@ -35,21 +51,32 @@ async def start_interview(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await interview_service.start_interview(
-        db=db,
-        user_id=current_user.id,
-        resume_id=data.resume_id,
-        target_position=data.target_position,
-        knowledge_base_id=data.knowledge_base_id,
-        difficulty=data.difficulty,
-        total_questions=data.total_questions,
-        multi_interviewer_enabled=data.multi_interviewer_enabled,
-        ai_config=_build_interview_runtime_config(
-            current_user,
-            data.ai_provider,
-            data.ai_model,
-        ),
-    )
+    try:
+        result = await interview_service.start_interview(
+            db=db,
+            user_id=current_user.id,
+            resume_id=data.resume_id,
+            target_position=data.target_position,
+            knowledge_base_id=data.knowledge_base_id,
+            difficulty=data.difficulty,
+            total_questions=data.total_questions,
+            multi_interviewer_enabled=data.multi_interviewer_enabled,
+            ai_config=_build_interview_runtime_config(
+                current_user,
+                data.ai_provider,
+                data.ai_model,
+            ),
+        )
+    except ValidationError:
+        raise
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Start interview endpoint database error: %s", exc)
+        raise ValidationError(message=START_INTERVIEW_ROUTE_DB_ERROR_MESSAGE) from exc
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Start interview endpoint unexpected error: %s", exc)
+        raise ValidationError(message=START_INTERVIEW_ROUTE_ERROR_MESSAGE) from exc
     return ApiResponse.success(data=result)
 
 

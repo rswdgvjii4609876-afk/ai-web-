@@ -783,6 +783,7 @@ function buildStartErrorTips(message) {
 
   if (
     text.includes('数据库写入异常') ||
+    text.includes('数据库读取或写入异常') ||
     text.includes('数据库迁移') ||
     text.includes('alembic') ||
     text.includes('UndefinedColumn') ||
@@ -793,6 +794,13 @@ function buildStartErrorTips(message) {
     return [
       '这通常不是 API Key 问题，而是服务器数据库表结构没有跟上最新代码。',
       '请管理员在服务器执行 alembic upgrade head，并查看 docker compose logs --tail=300 app 中第一条数据库异常。'
+    ]
+  }
+
+  if (text.includes('后端开始面试链路异常') || text.includes('/api/v1/interviews/start')) {
+    return [
+      '这说明错误发生在开始面试接口内部，不是简历分析本身的问题。',
+      '请管理员查看服务器 docker compose logs --tail=300 app 中 /api/v1/interviews/start 附近的第一条异常。'
     ]
   }
 
