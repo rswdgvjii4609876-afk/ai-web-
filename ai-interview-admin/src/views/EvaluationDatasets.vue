@@ -16,6 +16,10 @@
     <div v-else-if="errorMessage" class="card state-card error-text">{{ errorMessage }}</div>
 
     <template v-else-if="preview">
+      <div v-if="preview.diagnostic?.warning" class="card warning-card">
+        {{ preview.diagnostic.warning }}
+      </div>
+
       <div class="stats-grid" style="margin-bottom:16px">
         <div class="card stat-card">
           <div class="stat-label">Schema</div>
@@ -277,5 +281,12 @@ onMounted(loadPreview)
 .state-card {
   padding: 32px;
   text-align: center;
+}
+.warning-card {
+  margin-bottom: 16px;
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  line-height: 1.7;
 }
 </style>

@@ -1,9 +1,11 @@
 import json
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.backoffice.deps import get_current_admin
@@ -17,6 +19,26 @@ from app.schemas.response import ApiResponse
 from app.services.client.interview_service import interview_service
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _build_empty_evaluation_dataset_bundle(
+    include_user_email: bool,
+    warning_message: Optional[str] = None,
+    error_code: Optional[str] = None,
+):
+    bundle = interview_service.build_evaluation_dataset_bundle(
+        samples=[],
+        include_user_email=include_user_email,
+    )
+    if warning_message:
+        diagnostic = {
+            "warning": warning_message,
+            "error_code": error_code or "evaluation_dataset_preview_error",
+        }
+        bundle["preview"]["diagnostic"] = diagnostic
+        bundle["manifest"]["diagnostic"] = diagnostic
+    return bundle
 
 
 @router.get("")
@@ -98,14 +120,34 @@ async def get_evaluation_dataset_preview(
     current_admin: Admin = Depends(get_current_admin),
 ):
     """Preview offline evaluation datasets derived from reviewed interview samples."""
-    samples = await interview_service.get_completed_training_samples(
-        db=db,
-        include_user_email=include_user_email,
-    )
-    bundle = interview_service.build_evaluation_dataset_bundle(
-        samples=samples,
-        include_user_email=include_user_email,
-    )
+    try:
+        samples = await interview_service.get_completed_training_samples(
+            db=db,
+            include_user_email=include_user_email,
+        )
+        bundle = interview_service.build_evaluation_dataset_bundle(
+            samples=samples,
+            include_user_email=include_user_email,
+        )
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Evaluation dataset preview database error: %s", exc)
+        bundle = _build_empty_evaluation_dataset_bundle(
+            include_user_email=include_user_email,
+            warning_message=(
+                "测评样本暂时无法读取：数据库结构或迁移状态异常，已先显示空预览。"
+                "请在服务器执行 alembic upgrade head，并查看后端日志中的第一条数据库异常。"
+            ),
+            error_code=exc.__class__.__name__,
+        )
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Evaluation dataset preview unexpected error: %s", exc)
+        bundle = _build_empty_evaluation_dataset_bundle(
+            include_user_email=include_user_email,
+            warning_message="测评样本暂时无法读取：后端生成预览时遇到异常，已先显示空预览，请查看后端日志。",
+            error_code=exc.__class__.__name__,
+        )
     return ApiResponse.success(data=bundle["preview"])
 
 
@@ -116,14 +158,34 @@ async def export_evaluation_datasets(
     current_admin: Admin = Depends(get_current_admin),
 ):
     """Export offline evaluation datasets as ZIP + JSONL files."""
-    samples = await interview_service.get_completed_training_samples(
-        db=db,
-        include_user_email=include_user_email,
-    )
-    bundle = interview_service.build_evaluation_dataset_bundle(
-        samples=samples,
-        include_user_email=include_user_email,
-    )
+    try:
+        samples = await interview_service.get_completed_training_samples(
+            db=db,
+            include_user_email=include_user_email,
+        )
+        bundle = interview_service.build_evaluation_dataset_bundle(
+            samples=samples,
+            include_user_email=include_user_email,
+        )
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Evaluation dataset export database error: %s", exc)
+        bundle = _build_empty_evaluation_dataset_bundle(
+            include_user_email=include_user_email,
+            warning_message=(
+                "测评样本导出暂时无法读取真实样本：数据库结构或迁移状态异常，"
+                "本 ZIP 仅包含空评测集和诊断信息。"
+            ),
+            error_code=exc.__class__.__name__,
+        )
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Evaluation dataset export unexpected error: %s", exc)
+        bundle = _build_empty_evaluation_dataset_bundle(
+            include_user_email=include_user_email,
+            warning_message="测评样本导出暂时无法读取真实样本，本 ZIP 仅包含空评测集和诊断信息。",
+            error_code=exc.__class__.__name__,
+        )
     zip_bytes = interview_service.build_evaluation_dataset_zip(bundle)
     return StreamingResponse(
         iter([zip_bytes]),
