@@ -2,6 +2,12 @@ param(
     [switch]$SkipFrontendBuild,
     [switch]$SkipAdminBuild,
     [switch]$SkipPytest,
+    [switch]$StrictClosedLoopRecords,
+    [string]$ClosedLoopCsvPath = "",
+    [int]$MinCases = 5,
+    [int]$MinCompleteFlows = 5,
+    [int]$MinHumanScoredRows = 5,
+    [int]$MinRepeatedCases = 1,
     [switch]$ValidateServerReport,
     [string]$ServerReportPath = "docs\competition\server_validation_reports\stage79_server_verify_latest.md"
 )
@@ -133,8 +139,34 @@ try {
     }
 
     Write-Section "Real closed-loop record schema"
-    Invoke-Checked "validate real closed-loop CSV" {
-        python scripts\validate_real_closed_loop_records.py
+    $closedLoopArgs = @("scripts\validate_real_closed_loop_records.py")
+    if ($ClosedLoopCsvPath) {
+        if ([System.IO.Path]::IsPathRooted($ClosedLoopCsvPath)) {
+            $resolvedClosedLoopCsvPath = $ClosedLoopCsvPath
+        }
+        else {
+            $resolvedClosedLoopCsvPath = Join-Path $RepoRoot $ClosedLoopCsvPath
+        }
+        $closedLoopArgs += @("--csv", $resolvedClosedLoopCsvPath)
+    }
+
+    if ($StrictClosedLoopRecords) {
+        $closedLoopArgs += @(
+            "--strict",
+            "--min-cases", $MinCases,
+            "--min-complete-flows", $MinCompleteFlows,
+            "--min-human-scored-rows", $MinHumanScoredRows,
+            "--min-repeated-cases", $MinRepeatedCases
+        )
+        Invoke-Checked "validate real closed-loop CSV strict thresholds" {
+            python @closedLoopArgs
+        }
+    }
+    else {
+        Invoke-Checked "validate real closed-loop CSV" {
+            python @closedLoopArgs
+        }
+        Write-Host "TIP: add -StrictClosedLoopRecords after real cases, human scores, and repeated runs are complete."
     }
 
     Write-Section "Server validation report"

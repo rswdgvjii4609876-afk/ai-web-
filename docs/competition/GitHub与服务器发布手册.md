@@ -23,6 +23,7 @@ powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1
 - 用户端临时构建
 - 后台端临时构建
 - 真实闭环 CSV 结构
+- 可选检查真实闭环 CSV 严格验收门槛
 - 可选检查服务器验收报告
 - `node_modules`、`dist`、`.vite-build-check` 是否被忽略
 
@@ -32,6 +33,18 @@ powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1
 powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipPytest
 powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipFrontendBuild
 powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipAdminBuild
+```
+
+真实案例、人工评分和重复运行补齐后，可以把严格验收也纳入本地预检：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -StrictClosedLoopRecords
+```
+
+如需临时调整门槛：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -StrictClosedLoopRecords -MinCases 5 -MinCompleteFlows 5 -MinHumanScoredRows 5 -MinRepeatedCases 1
 ```
 
 服务器报告回收后，可以把报告也纳入本地预检：
