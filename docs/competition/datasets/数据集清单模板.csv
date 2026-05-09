@@ -1,0 +1,8 @@
+数据集名称,数据集类型,来源链接,许可,主要字段,项目用途,当前状态,备注
+O*NET Occupation Database,岗位画像/职业任务,https://www.onetcenter.org/database.html,需按官网许可说明使用,"职业,任务,技能,工作活动",补充岗位画像和能力词,待整理,适合抽取结构化职业任务
+ESCO Occupations and Skills,岗位画像/技能词表,https://ec.europa.eu/esco/portal,需按官网许可说明使用,"职业,技能,能力,关系",补充岗位-技能关系,待整理,适合做岗位关键词扩展
+Hugging Face Resume Matching Dataset,简历-JD匹配,https://huggingface.co/datasets/jminc/resume-matching-dataset-v2,以页面实际许可为准,"resume,job_description,label",验证语义匹配与规则评分,待评估,下载前先确认隐私和许可
+Candidate Matching Synthetic,简历-JD匹配/合成,https://huggingface.co/datasets/michaelozon/candidate-matching-synthetic,以页面实际许可为准,"candidate,job,match_score",演示匹配流程,待评估,合成数据只用于流程验证
+Front End Interview Handbook,面试题库/前端,https://github.com/yangshun/front-end-interview-handbook,以仓库 LICENSE 为准,"topic,question,answer_points",补充前端岗位知识库,可摘录改写,不要整段复制
+System Design Primer,面试题库/系统设计,https://systemdesignprimer.com/,以站点/仓库许可为准,"topic,concept,question",补充后端系统设计知识库,可摘录改写,适合后端/架构追问
+项目自产评测样本,AI-人工评分对比,后台导出,团队自有,"resume_summary,position,question,answer,ai_score,human_score",评分对比和微调准备,建设中,最适合答辩展示

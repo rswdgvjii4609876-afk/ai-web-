@@ -1,0 +1,39 @@
+{
+    email <CADDY_ACME_EMAIL>
+}
+
+<PRIMARY_DOMAIN> {
+    encode gzip zstd
+    reverse_proxy ai-interview-portal:80
+}
+
+<HIREMATE_DOMAIN> {
+    encode gzip zstd
+    reverse_proxy hiremate:8501
+}
+
+<AI_INTERVIEW_DOMAIN> {
+    encode gzip zstd
+
+    @backend path /api/* /uploads/* /client/* /backoffice/*
+    handle @backend {
+        reverse_proxy ai-interview-app:8001
+    }
+
+    handle {
+        reverse_proxy ai-interview-frontend:80
+    }
+}
+
+<AI_INTERVIEW_ADMIN_DOMAIN> {
+    encode gzip zstd
+
+    @backend path /api/* /uploads/* /client/* /backoffice/*
+    handle @backend {
+        reverse_proxy ai-interview-app:8001
+    }
+
+    handle {
+        reverse_proxy ai-interview-admin:80
+    }
+}

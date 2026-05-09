@@ -1,0 +1,173 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+    image: ai-interview-backend:prod
+    container_name: ai-interview-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENV: production
+    command: sh -c "uvicorn main:app --host 0.0.0.0 --port ${API_PORT:-8001} --workers ${UVICORN_WORKERS:-1}"
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    expose:
+      - "${API_PORT:-8001}"
+    networks:
+      - app-network
+      - gateway
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import os, urllib.request
+          port = os.getenv("API_PORT", "8001")
+          urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/config/health")
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-interview-postgres
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-interview-redis
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: >
+      sh -c 'if [ -n "$REDIS_PASSWORD" ];
+      then exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD";
+      else exec redis-server --appendonly yes;
+      fi'
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -n \"$REDIS_PASSWORD\" ]; then redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG; else redis-cli ping | grep -q PONG; fi"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+    image: ai-interview-backend:prod
+    container_name: ai-interview-celery-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENV: production
+    command: celery -A app.core.celery_app worker --loglevel=info
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_app inspect ping -d celery@$HOSTNAME | grep -q OK"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+    image: ai-interview-backend:prod
+    container_name: ai-interview-celery-beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENV: production
+    command: celery -A app.core.celery_app beat --loglevel=info --schedule /app/celerybeat-schedule/celerybeat-schedule.db
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+      - celerybeat-data:/app/celerybeat-schedule
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'celery -A app.core.celery_app beat'"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  celerybeat-data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
+  gateway:
+    external: true
+    name: ${SHARED_CADDY_NETWORK:-shared_gateway}

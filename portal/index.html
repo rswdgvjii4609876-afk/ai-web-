@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>项目入口门户</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <span class="eyebrow">统一项目入口 · Production Portal</span>
+        <h1>请选择要进入的业务系统</h1>
+        <p>
+          当前服务器同时承载多个项目。为避免互相干扰，主域名首页仅作为门户入口，
+          你可以从这里进入现有的 HireMate，或进入新上线的 AI-Interview 用户端。
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <span class="badge secondary">已运行项目</span>
+          <h2>HireMate</h2>
+          <p>
+            继续保留现有访问方式与运行链路，作为当前服务器上的既有生产项目，不因本次 AI-Interview 上线而中断。
+          </p>
+          <ul class="points">
+            <li>稳定承载现有业务访问</li>
+            <li>保持原有数据库与应用容器不变</li>
+            <li>仅将入口统一收敛到 Caddy</li>
+          </ul>
+          <div class="actions">
+            <a class="btn primary" href="https://<HIREMATE_DOMAIN>">进入 HireMate</a>
+          </div>
+        </article>
+
+        <article class="card">
+          <span class="badge">新上线项目</span>
+          <h2>AI-Interview</h2>
+          <p>
+            面向求职场景的 AI 面试模拟平台，包含用户端、后台管理端以及 FastAPI + Celery + PostgreSQL + Redis 的完整生产部署链路。
+          </p>
+          <ul class="points">
+            <li>用户端与后台端分域部署</li>
+            <li>后端仅通过 Caddy 反向代理访问</li>
+            <li>数据库与 Redis 不对公网开放</li>
+          </ul>
+          <div class="actions">
+            <a class="btn primary" href="https://<AI_INTERVIEW_DOMAIN>">进入 AI-Interview</a>
+            <a class="btn ghost" href="https://<AI_INTERVIEW_ADMIN_DOMAIN>">后台管理</a>
+          </div>
+        </article>
+      </section>
+
+      <footer class="footer">
+        请将页面中的域名占位符替换为你的正式域名后再上线。
+      </footer>
+    </main>
+  </body>
+</html>
