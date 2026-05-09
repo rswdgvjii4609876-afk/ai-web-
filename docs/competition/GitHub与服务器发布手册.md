@@ -8,6 +8,33 @@
 
 ## 1. 本地提交前检查
 
+推荐使用一键本地预检脚本：
+
+```powershell
+cd D:\apps\ai-interview
+powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1
+```
+
+脚本会检查：
+
+- `git diff --check`
+- 后端 `python -m compileall app`
+- 后端关键测试
+- 用户端临时构建
+- 后台端临时构建
+- 真实闭环 CSV 结构
+- `node_modules`、`dist`、`.vite-build-check` 是否被忽略
+
+如果只是想跳过某一类检查，可用：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipPytest
+powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipFrontendBuild
+powershell -ExecutionPolicy Bypass -File scripts\stage79_local_preflight.ps1 -SkipAdminBuild
+```
+
+手动检查仍可使用：
+
 ```powershell
 cd D:\apps\ai-interview
 git status --short
