@@ -7,6 +7,7 @@ const routes = [
   { path: '/dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true } },
   { path: '/competition-demo', redirect: '/dashboard' },
   { path: '/knowledge-base', name: 'KnowledgeBase', component: () => import('../views/KnowledgeBase.vue'), meta: { auth: true } },
+  { path: '/ability-diagnosis', name: 'AbilityDiagnosis', component: () => import('../views/AbilityDiagnosis.vue'), meta: { auth: true } },
   { path: '/resume/upload', name: 'ResumeUpload', component: () => import('../views/ResumeUpload.vue'), meta: { auth: true } },
   { path: '/interview/:id', name: 'Interview', component: () => import('../views/Interview.vue'), meta: { auth: true } },
   { path: '/interview/:id/report', name: 'Report', component: () => import('../views/Report.vue'), meta: { auth: true } },

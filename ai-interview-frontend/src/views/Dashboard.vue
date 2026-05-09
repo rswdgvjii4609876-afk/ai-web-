@@ -9,6 +9,7 @@
         </p>
       </div>
       <div class="hero-actions">
+        <router-link to="/ability-diagnosis" class="btn-secondary hero-link">查看能力诊断</router-link>
         <router-link to="/resume/upload" class="btn-primary hero-link primary">开始一次面试</router-link>
       </div>
     </div>
@@ -18,6 +19,9 @@
       <div class="header-actions">
         <router-link to="/knowledge-base" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
           岗位画像库
+        </router-link>
+        <router-link to="/ability-diagnosis" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
+          能力诊断
         </router-link>
         <router-link to="/resume/upload" class="btn-primary" style="display:inline-block;padding:10px 24px;color:white;border-radius:8px">
           + 新建面试

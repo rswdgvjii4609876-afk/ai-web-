@@ -6,6 +6,7 @@
         <div class="nav-links">
           <router-link to="/dashboard">工作台</router-link>
           <router-link to="/knowledge-base">岗位画像库</router-link>
+          <router-link to="/ability-diagnosis">能力诊断</router-link>
           <router-link to="/resume/upload">新建面试</router-link>
           <router-link to="/profile" class="nav-user-link">
             <img v-if="authStore.userAvatar && !avatarError" :src="authStore.userAvatar" class="nav-avatar" alt="avatar" @error="avatarError = true" />
@@ -63,7 +64,7 @@ function logout() {
   z-index: 100;
 }
 .nav-content {
-  max-width: 960px;
+  max-width: 1080px;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -78,8 +79,9 @@ function logout() {
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   font-size: 14px;
+  flex-wrap: wrap;
 }
 .nav-links a.router-link-active {
   color: #4f46e5;

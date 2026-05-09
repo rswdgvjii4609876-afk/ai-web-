@@ -60,6 +60,16 @@
         :target-position="learningPlanTarget"
       />
 
+      <div class="card section-card diagnosis-link-card">
+        <div>
+          <h3>能力提升计划</h3>
+          <p>回到能力诊断页，继续查看岗位差距、学习任务和本地学习进度。</p>
+        </div>
+        <router-link :to="abilityDiagnosisLink" class="btn-secondary diagnosis-link">
+          回到能力诊断
+        </router-link>
+      </div>
+
       <div v-if="report.panel_summary?.length" class="card section-card">
         <h3>分视角结论</h3>
         <ul class="panel-list">
@@ -205,6 +215,10 @@ const learningPlanTasks = computed(() => {
   return Array.isArray(tasks) ? tasks : []
 })
 const learningPlanTarget = computed(() => learningPlan.value?.target_position || data.value?.target_position || '')
+const abilityDiagnosisLink = computed(() => ({
+  path: '/ability-diagnosis',
+  query: data.value?.resume_id ? { resume_id: data.value.resume_id } : {}
+}))
 
 function formatInsightItem(item) {
   if (!item) return ''
@@ -256,6 +270,27 @@ onMounted(async () => {
 
 .section-card {
   margin-top: 16px;
+}
+
+.diagnosis-link-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.diagnosis-link-card p {
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.diagnosis-link {
+  flex-shrink: 0;
+  display: inline-block;
+  padding: 9px 14px;
+  border-radius: 8px;
 }
 
 .ability-gap-list {
@@ -484,6 +519,11 @@ onMounted(async () => {
   .score-card {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .diagnosis-link-card {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .two-col {

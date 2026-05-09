@@ -163,6 +163,11 @@
             :resume-id="resumeId"
             :target-position="targetPosition"
           />
+          <div v-if="resumeId" class="analysis-actions">
+            <router-link :to="abilityDiagnosisLink" class="btn-secondary analysis-action-link">
+              查看能力诊断
+            </router-link>
+          </div>
           <p v-if="analysis.summary" class="analysis-summary">{{ analysis.summary }}</p>
           <div class="analysis-section" v-if="analysis.keyword_match?.length">
             <h4>🎯 匹配技能</h4>
@@ -351,7 +356,7 @@
 
 <script setup>
 import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { uploadResume, getResume } from '../api/resume'
 import { startInterview } from '../api/interview'
 import { getKnowledgeBases } from '../api/knowledgeBase'
@@ -359,9 +364,13 @@ import { getProfile, testAiConnection } from '../api/user'
 import LearningPlanProgress from '../components/LearningPlanProgress.vue'
 
 const router = useRouter()
+const route = useRoute()
+const initialTargetPosition = Array.isArray(route.query.target_position)
+  ? route.query.target_position[0]
+  : route.query.target_position
 const step = ref(1)
 const file = ref(null)
-const targetPosition = ref('Python后端开发工程师')
+const targetPosition = ref(initialTargetPosition || 'Python后端开发工程师')
 const difficulty = ref('medium')
 const totalQuestions = ref(5)
 const multiInterviewerEnabled = ref(false)
@@ -448,6 +457,10 @@ const learningPlanTasks = computed(() => {
   const tasks = learningPlan.value?.tasks
   return Array.isArray(tasks) ? tasks : []
 })
+const abilityDiagnosisLink = computed(() => ({
+  path: '/ability-diagnosis',
+  query: resumeId.value ? { resume_id: resumeId.value } : {}
+}))
 
 const selectedKnowledgeBase = computed(() => {
   const id = Number(selectedKnowledgeBaseId.value)
@@ -1098,6 +1111,15 @@ async function handleStart() {
   padding: 10px 14px; background: #f9fafb; border-radius: 8px;
 }
 .analysis-section { margin-bottom: 14px; }
+.analysis-actions {
+  margin-bottom: 14px;
+}
+.analysis-action-link {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
 .analysis-section h4 { font-size: 14px; margin-bottom: 8px; color: #374151; }
 .ability-gap-section {
   padding: 12px;
