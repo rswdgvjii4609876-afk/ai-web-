@@ -42,14 +42,74 @@
           <input v-model="form.target_position" placeholder="例如：Python后端开发工程师" />
         </div>
 
-        <div class="form-group">
-          <label>岗位画像内容</label>
-          <textarea
-            v-model="form.knowledge_content"
-            rows="13"
-            :title="knowledgeTemplatePlaceholder"
-            placeholder="写该岗位的核心能力、典型任务、关键词、常见工作场景和能力要求"
-          />
+        <div class="section-editor">
+          <div class="section-editor-head">
+            <div>
+              <h4>岗位知识库分区</h4>
+              <p>按岗位要求、问答经验、能力模型和面试追问维护，保存时仍写入岗位画像内容。</p>
+            </div>
+            <span class="section-completion">私有画像可编辑</span>
+          </div>
+
+          <div v-for="section in formSections" :key="section.key" class="form-group section-field">
+            <label>{{ section.label }}</label>
+            <template v-if="section.key === 'interview_experience'">
+              <div class="experience-toolbar">
+                <span>每条面经会单独生成知识切片，供后续追问参考。</span>
+                <button class="btn-secondary action-btn" type="button" @click="addInterviewExperience">+ 添加问答经验</button>
+              </div>
+              <div v-if="!form.interview_experiences.length && !form.interview_experience_legacy" class="experience-empty">
+                还没有结构化问答经验。可以先添加一条真实问题、参考回答和复盘反思。
+              </div>
+              <div
+                v-for="(experience, index) in form.interview_experiences"
+                :key="`experience-${index}`"
+                class="experience-card"
+              >
+                <div class="experience-card-head">
+                  <strong>问答经验 {{ index + 1 }}</strong>
+                  <button class="btn-secondary action-btn" type="button" @click="removeInterviewExperience(index)">删除</button>
+                </div>
+                <input v-model="experience.question" placeholder="真实问题，例如：如何排查接口突然变慢？" />
+                <textarea v-model="experience.answer_points" rows="3" placeholder="参考回答要点：定位顺序、关键指标、取舍和结论" />
+                <textarea v-model="experience.reflection" rows="3" placeholder="复盘反思：这道题容易漏掉什么，回答后如何改进" />
+                <div class="experience-grid">
+                  <input v-model="experience.company_context" placeholder="公司/场景，例如：后端线上排障" />
+                  <input v-model="experience.ability" placeholder="考察能力，例如：接口性能排查" />
+                  <select v-model="experience.difficulty">
+                    <option v-for="option in interviewDifficultyOptions" :key="option" :value="option">{{ option }}</option>
+                  </select>
+                  <select v-model="experience.audit_status">
+                    <option v-for="option in interviewAuditStatuses" :key="option" :value="option">{{ option }}</option>
+                  </select>
+                </div>
+                <input v-model="experience.source" placeholder="来源说明，例如：本人面试复盘 / 公开经验归纳 / 待核验" />
+              </div>
+              <textarea
+                v-if="form.interview_experience_legacy"
+                v-model="form.interview_experience_legacy"
+                rows="4"
+                class="legacy-textarea"
+                placeholder="旧格式问答经验会保留在这里，保存时不会丢失。"
+              />
+            </template>
+            <textarea
+              v-else
+              v-model="form.sections[section.key]"
+              :rows="section.rows"
+              :placeholder="section.placeholder"
+            />
+          </div>
+
+          <div v-if="form.legacy_content" class="form-group section-field">
+            <label>旧格式原文</label>
+            <textarea
+              v-model="form.legacy_content"
+              rows="5"
+              class="legacy-textarea"
+              placeholder="无法自动拆分的旧内容会保留在这里，保存时写入“其他内容”分区。"
+            />
+          </div>
         </div>
 
         <div class="form-group">
@@ -209,6 +269,13 @@ import {
   rebuildKnowledgeBaseSlices,
   updateKnowledgeBase
 } from '../api/knowledgeBase'
+import {
+  createEmptyInterviewExperience,
+  interviewAuditStatuses,
+  interviewDifficultyOptions,
+  parseInterviewExperienceMarkdown,
+  serializeInterviewExperiences
+} from '../utils/interviewExperience'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -227,29 +294,52 @@ const sectionLabels = {
   focus_points: '训练重点',
   interviewer_prompt: '面试官要求'
 }
-const knowledgeTemplatePlaceholder = `## 岗位要求
-- 硬性要求：
-- 加分项：
-- 公司侧重点：
-
-## 问答经验
-- 真实问题：
-- 参考回答要点：
-- 复盘反思：
-
-## 能力模型
-- 能力项：
-- 等级标准：
-- 证据线索：
-
-## 面试追问
-- 证据追问规则：
-- 评分关注点：`
-
+const emptySections = () => ({
+  job_requirements: '',
+  interview_experience: '',
+  ability_model: '',
+  followup_rules: ''
+})
+const formSections = [
+  {
+    key: 'job_requirements',
+    label: '岗位要求',
+    rows: 7,
+    placeholder: '- 硬性要求：\n- 加分项：\n- 公司侧重点：'
+  },
+  {
+    key: 'interview_experience',
+    label: '问答经验',
+    rows: 7,
+    placeholder: '用结构化卡片维护真实面试问题、回答要点和复盘反思。'
+  },
+  {
+    key: 'ability_model',
+    label: '能力模型',
+    rows: 7,
+    placeholder: '- 能力项：\n- 等级标准：\n- 证据线索：'
+  },
+  {
+    key: 'followup_rules',
+    label: '面试追问',
+    rows: 7,
+    placeholder: '- 证据追问规则：\n- 评分关注点：'
+  }
+]
+const sectionHeadingMap = {
+  岗位要求: 'job_requirements',
+  问答经验: 'interview_experience',
+  能力模型: 'ability_model',
+  面试追问: 'followup_rules',
+  其他内容: 'legacy_content'
+}
 const defaultForm = () => ({
   title: '',
   target_position: '',
-  knowledge_content: '',
+  sections: emptySections(),
+  interview_experiences: [],
+  interview_experience_legacy: '',
+  legacy_content: '',
   focus_points: '',
   interviewer_prompt: '',
   is_active: true
@@ -261,7 +351,7 @@ const filteredItems = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
   if (!kw) return items.value
   return items.value.filter(item => {
-    return [item.title, item.target_position, item.preview]
+    return [item.title, item.target_position, item.preview, item.knowledge_content]
       .filter(Boolean)
       .some(text => text.toLowerCase().includes(kw))
   })
@@ -316,28 +406,105 @@ function sourceSectionLabel(value) {
   return sectionLabels[value] || value || '通用切片'
 }
 
-function structuredSections(text) {
-  if (!text) return []
-  const matches = []
-  const headingPattern = /^#{1,4}\s*(岗位要求|问答经验|能力模型|面试追问)\s*$/gm
-  let match
-  while ((match = headingPattern.exec(text)) !== null) {
-    matches.push({
-      label: match[1],
-      index: match.index,
-      contentStart: headingPattern.lastIndex
-    })
+function parseKnowledgeSections(text) {
+  const content = String(text || '')
+  const result = {
+    sections: emptySections(),
+    legacy_content: ''
   }
-  return matches.map((entry, index) => {
-    const next = matches[index + 1]
-    const content = text.slice(entry.contentStart, next?.index ?? text.length).trim()
-    const key = Object.entries(sectionLabels).find(([, label]) => label === entry.label)?.[0] || entry.label
-    return {
-      key,
-      label: entry.label,
-      preview: content.split(/\s+/).join(' ').slice(0, 140) || '已建立分区，待补充具体内容'
+  const matches = [...content.matchAll(/^#{1,4}\s*(岗位要求|问答经验|能力模型|面试追问|其他内容)\s*$/gm)]
+  if (!matches.length) {
+    result.legacy_content = content.trim()
+    return result
+  }
+
+  const beforeFirst = content.slice(0, matches[0].index).trim()
+  if (beforeFirst) result.legacy_content = beforeFirst
+
+  matches.forEach((match, index) => {
+    const start = match.index + match[0].length
+    const end = matches[index + 1]?.index ?? content.length
+    const title = match[1]
+    const key = sectionHeadingMap[title]
+    const value = content.slice(start, end).trim()
+    if (key === 'legacy_content') {
+      result.legacy_content = [result.legacy_content, value].filter(Boolean).join('\n\n')
+    } else if (key) {
+      result.sections[key] = value
     }
   })
+
+  return result
+}
+
+function structuredSections(text) {
+  const parsed = parseKnowledgeSections(text)
+  const sections = formSections
+    .map(section => {
+      const content = parsed.sections[section.key]?.trim() || ''
+      const preview = section.key === 'interview_experience'
+        ? `结构化问答经验 ${parseInterviewExperienceMarkdown(content).items.length || (content ? 1 : 0)} 条`
+        : content.split(/\s+/).join(' ').slice(0, 140)
+      return {
+        key: section.key,
+        label: section.label,
+        preview: preview || '已建立分区，待补充具体内容'
+      }
+    })
+    .filter(section => parsed.sections[section.key]?.trim())
+
+  if (parsed.legacy_content?.trim()) {
+    sections.push({
+      key: 'legacy_content',
+      label: '其他内容',
+      preview: parsed.legacy_content.split(/\s+/).join(' ').slice(0, 140)
+    })
+  }
+
+  return sections
+}
+
+function buildKnowledgeContent() {
+  const parts = formSections
+    .map(section => {
+      const content = section.key === 'interview_experience'
+        ? serializeInterviewExperiences(form.value.interview_experiences, form.value.interview_experience_legacy)
+        : form.value.sections[section.key]?.trim() || ''
+      return { title: section.label, content }
+    })
+    .filter(section => section.content)
+    .map(section => `## ${section.title}\n${section.content}`)
+
+  const legacy = form.value.legacy_content?.trim()
+  if (legacy) parts.push(`## 其他内容\n${legacy}`)
+  return parts.join('\n\n')
+}
+
+function formFromKnowledgeBase(item) {
+  const parsed = parseKnowledgeSections(item.knowledge_content)
+  const interviewParsed = parseInterviewExperienceMarkdown(parsed.sections.interview_experience || '')
+  return {
+    title: item.title || '',
+    target_position: item.target_position || '',
+    sections: {
+      ...emptySections(),
+      ...parsed.sections
+    },
+    interview_experiences: interviewParsed.items,
+    interview_experience_legacy: interviewParsed.legacy || '',
+    legacy_content: parsed.legacy_content || '',
+    focus_points: item.focus_points || '',
+    interviewer_prompt: item.interviewer_prompt || '',
+    is_active: !!item.is_active
+  }
+}
+
+function addInterviewExperience() {
+  form.value.interview_experiences.push(createEmptyInterviewExperience())
+}
+
+function removeInterviewExperience(index) {
+  form.value.interview_experiences.splice(index, 1)
 }
 
 async function loadSlices(item, force = false) {
@@ -409,34 +576,28 @@ function resetForm() {
 function handleEdit(item) {
   if (!item.editable) return
   editingId.value = item.knowledge_base_id
-  form.value = {
-    title: item.title || '',
-    target_position: item.target_position || '',
-    knowledge_content: item.knowledge_content || '',
-    focus_points: item.focus_points || '',
-    interviewer_prompt: item.interviewer_prompt || '',
-    is_active: !!item.is_active
-  }
+  form.value = formFromKnowledgeBase(item)
   formMsg.value = ''
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 async function handleSubmit() {
   formMsg.value = ''
-  if (!form.value.title.trim() || !form.value.target_position.trim() || !form.value.knowledge_content.trim()) {
-    formMsg.value = '标题、目标岗位和画像内容不能为空'
+  const knowledgeContent = buildKnowledgeContent()
+  if (!form.value.title.trim() || !form.value.target_position.trim() || !knowledgeContent.trim()) {
+    formMsg.value = '标题、目标岗位和至少一个岗位画像分区不能为空'
     return
   }
 
   saving.value = true
   try {
     const payload = {
-      ...form.value,
       title: form.value.title.trim(),
       target_position: form.value.target_position.trim(),
-      knowledge_content: form.value.knowledge_content.trim(),
+      knowledge_content: knowledgeContent.trim(),
       focus_points: form.value.focus_points.trim(),
-      interviewer_prompt: form.value.interviewer_prompt.trim()
+      interviewer_prompt: form.value.interviewer_prompt.trim(),
+      is_active: form.value.is_active
     }
 
     if (editingId.value) {
@@ -524,6 +685,84 @@ onMounted(loadItems)
   margin-bottom: 6px;
   font-size: 13px;
   font-weight: 600;
+}
+.section-editor {
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f9fafb;
+}
+.section-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.section-editor-head h4 {
+  margin-bottom: 4px;
+  color: #111827;
+  font-size: 15px;
+}
+.section-editor-head p {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.section-completion {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 700;
+}
+.section-field textarea {
+  background: white;
+}
+.experience-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.experience-empty {
+  padding: 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  color: #6b7280;
+  background: #fff;
+  font-size: 13px;
+}
+.experience-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+.experience-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.experience-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.legacy-textarea {
+  background: #fffbeb !important;
 }
 .switch-row {
   display: flex;
@@ -769,7 +1008,8 @@ onMounted(loadItems)
 @media (max-width: 900px) {
   .intro-grid,
   .content-grid,
-  .structured-section-list {
+  .structured-section-list,
+  .experience-grid {
     grid-template-columns: 1fr;
   }
 }

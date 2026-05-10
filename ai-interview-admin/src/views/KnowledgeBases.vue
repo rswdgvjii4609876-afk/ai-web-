@@ -58,7 +58,48 @@
 
           <div v-for="section in formSections" :key="section.key" class="form-group section-field">
             <label>{{ section.label }}</label>
+            <template v-if="section.key === 'interview_experience'">
+              <div class="experience-toolbar">
+                <span>结构化面经会按条生成切片；“不采用 / 待核验”不会进入面试追问。</span>
+                <button class="btn-sm" type="button" @click="addInterviewExperience">+ 添加问答经验</button>
+              </div>
+              <div v-if="!form.interview_experiences.length && !form.interview_experience_legacy" class="experience-empty">
+                暂无结构化问答经验。可录入真实问题、参考回答要点、复盘反思和来源审核状态。
+              </div>
+              <div
+                v-for="(experience, index) in form.interview_experiences"
+                :key="`admin-experience-${index}`"
+                class="experience-card"
+              >
+                <div class="experience-card-head">
+                  <strong>问答经验 {{ index + 1 }}</strong>
+                  <button class="btn-sm" type="button" @click="removeInterviewExperience(index)">删除</button>
+                </div>
+                <input v-model="experience.question" placeholder="真实问题，例如：如何排查接口突然变慢？" />
+                <textarea v-model="experience.answer_points" rows="3" placeholder="参考回答要点：定位顺序、关键指标、取舍和结论" />
+                <textarea v-model="experience.reflection" rows="3" placeholder="复盘反思：这道题容易漏掉什么，回答后如何改进" />
+                <div class="experience-grid">
+                  <input v-model="experience.company_context" placeholder="公司/场景，例如：后端线上排障" />
+                  <input v-model="experience.ability" placeholder="考察能力，例如：接口性能排查" />
+                  <select v-model="experience.difficulty">
+                    <option v-for="option in interviewDifficultyOptions" :key="option" :value="option">{{ option }}</option>
+                  </select>
+                  <select v-model="experience.audit_status">
+                    <option v-for="option in interviewAuditStatuses" :key="option" :value="option">{{ option }}</option>
+                  </select>
+                </div>
+                <input v-model="experience.source" placeholder="来源说明，例如：人工录入 / 公开经验归纳 / 待核验" />
+              </div>
+              <textarea
+                v-if="form.interview_experience_legacy"
+                v-model="form.interview_experience_legacy"
+                rows="4"
+                class="legacy-textarea"
+                placeholder="旧格式问答经验会保留在这里，保存时不会丢失。"
+              />
+            </template>
             <textarea
+              v-else
               v-model="form.sections[section.key]"
               :rows="section.rows"
               :placeholder="section.placeholder"
@@ -207,6 +248,15 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { knowledgeBaseApi } from '../api'
+import {
+  collectInterviewAuditStatuses,
+  countInterviewExperiences,
+  createEmptyInterviewExperience,
+  interviewAuditStatuses,
+  interviewDifficultyOptions,
+  parseInterviewExperienceMarkdown,
+  serializeInterviewExperiences
+} from '../utils/interviewExperience'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -226,6 +276,8 @@ const defaultForm = () => ({
   title: '',
   target_position: '',
   sections: emptySections(),
+  interview_experiences: [],
+  interview_experience_legacy: '',
   legacy_content: '',
   focus_points: '',
   interviewer_prompt: '',
@@ -278,11 +330,14 @@ const sectionHeadingMap = {
   面试追问: 'followup_rules',
   其他内容: 'legacy_content'
 }
-const auditStatusOptions = ['可入库', '仅参考', '不采用', '待核验']
-
 const formCompletion = computed(() => {
   const total = formSections.length
-  const completed = formSections.filter(section => form.value.sections[section.key]?.trim()).length
+  const completed = formSections.filter(section => {
+    if (section.key === 'interview_experience') {
+      return form.value.interview_experiences.length > 0 || !!form.value.interview_experience_legacy?.trim()
+    }
+    return form.value.sections[section.key]?.trim()
+  }).length
   return { total, completed }
 })
 
@@ -387,7 +442,9 @@ function buildKnowledgeContent() {
   const parts = formSections
     .map(section => ({
       title: section.label,
-      content: form.value.sections[section.key]?.trim() || ''
+      content: section.key === 'interview_experience'
+        ? serializeInterviewExperiences(form.value.interview_experiences, form.value.interview_experience_legacy)
+        : form.value.sections[section.key]?.trim() || ''
     }))
     .filter(section => section.content)
     .map(section => `## ${section.title}\n${section.content}`)
@@ -400,15 +457,18 @@ function buildKnowledgeContent() {
 function sectionCompletion(item) {
   const parsed = parseKnowledgeSections(item.knowledge_content)
   const total = formSections.length
-  const completed = formSections.filter(section => parsed.sections[section.key]?.trim()).length
+  const completed = formSections.filter(section => {
+    if (section.key === 'interview_experience') {
+      return countInterviewExperiences(parsed.sections.interview_experience || '') > 0
+    }
+    return parsed.sections[section.key]?.trim()
+  }).length
   return { total, completed }
 }
 
 function interviewExperienceCount(item) {
   const content = parseKnowledgeSections(item.knowledge_content).sections.interview_experience || ''
-  const matches = content.match(/问题[:：]|Q\d+|面试题|追问/g)
-  if (matches?.length) return matches.length
-  return content.trim() ? 1 : 0
+  return countInterviewExperiences(content)
 }
 
 function hasCompanyFocus(item) {
@@ -417,8 +477,8 @@ function hasCompanyFocus(item) {
 }
 
 function auditStatuses(item) {
-  const content = String(item.knowledge_content || '')
-  const matched = auditStatusOptions.filter(status => content.includes(status))
+  const content = parseKnowledgeSections(item.knowledge_content).sections.interview_experience || ''
+  const matched = collectInterviewAuditStatuses(content)
   return matched.length ? matched : ['待核验']
 }
 
@@ -433,6 +493,7 @@ function auditStatusClass(status) {
 
 function formFromKnowledgeBase(item) {
   const parsed = parseKnowledgeSections(item.knowledge_content)
+  const interviewParsed = parseInterviewExperienceMarkdown(parsed.sections.interview_experience || '')
   return {
     title: item.title || '',
     target_position: item.target_position || '',
@@ -440,11 +501,21 @@ function formFromKnowledgeBase(item) {
       ...emptySections(),
       ...parsed.sections
     },
+    interview_experiences: interviewParsed.items,
+    interview_experience_legacy: interviewParsed.legacy || '',
     legacy_content: parsed.legacy_content || '',
     focus_points: item.focus_points || '',
     interviewer_prompt: item.interviewer_prompt || '',
     is_active: !!item.is_active
   }
+}
+
+function addInterviewExperience() {
+  form.value.interview_experiences.push(createEmptyInterviewExperience())
+}
+
+function removeInterviewExperience(index) {
+  form.value.interview_experiences.splice(index, 1)
 }
 
 function knowledgePreviewText(item) {
@@ -669,6 +740,48 @@ onMounted(loadItems)
 .legacy-field textarea {
   background: #fffbeb;
 }
+.legacy-textarea {
+  background: #fffbeb !important;
+}
+.experience-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.experience-empty {
+  padding: 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 13px;
+}
+.experience-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+.experience-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.experience-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
 .switch-row {
   display: flex;
   align-items: center;
@@ -870,6 +983,9 @@ onMounted(loadItems)
   }
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .experience-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

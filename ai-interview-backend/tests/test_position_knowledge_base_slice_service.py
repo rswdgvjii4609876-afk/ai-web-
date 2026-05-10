@@ -67,6 +67,84 @@ def test_build_slice_payloads_recognize_markdown_sections():
 
 
 @pytest.mark.unit
+def test_build_slice_payloads_splits_structured_interview_experience_and_applies_audit_status():
+    knowledge_base = PositionKnowledgeBase(
+        id=303,
+        scope="public",
+        title="Python backend structured interview experience",
+        target_position="Python Backend Engineer",
+        knowledge_content=(
+            "## 问答经验\n"
+            "### 面经 1：如何排查接口变慢？\n"
+            "- 真实问题：如何排查接口变慢？\n"
+            "- 参考回答要点：先看日志、慢 SQL、缓存命中率和外部依赖耗时。\n"
+            "- 复盘反思：回答要说明指标、定位顺序和最后改进。\n"
+            "- 公司/场景：后端线上排障\n"
+            "- 考察能力：接口性能排查\n"
+            "- 难度：中等\n"
+            "- 来源说明：人工录入\n"
+            "- 审核状态：可入库\n\n"
+            "### 面经 2：Redis 缓存一致性怎么处理？\n"
+            "- 真实问题：Redis 缓存一致性怎么处理？\n"
+            "- 参考回答要点：说明更新策略、失效策略和兜底监控。\n"
+            "- 考察能力：缓存设计\n"
+            "- 难度：困难\n"
+            "- 审核状态：仅参考\n\n"
+            "### 面经 3：某公司原题全文，不适合使用\n"
+            "- 真实问题：某公司原题全文，不适合使用\n"
+            "- 参考回答要点：不应进入追问。\n"
+            "- 审核状态：不采用\n"
+        ),
+        focus_points="Focus on evidence.",
+        interviewer_prompt="Probe for evidence.",
+        is_active=True,
+    )
+
+    payloads = position_knowledge_base_slice_service.build_slice_payloads(knowledge_base)
+    experience_payloads = [
+        item for item in payloads if item["source_section"] == "interview_experience"
+    ]
+
+    assert len(experience_payloads) == 3
+    assert all("真实问题" in item["content"] for item in experience_payloads)
+    accepted = next(item for item in experience_payloads if "接口变慢" in item["content"])
+    reference = next(item for item in experience_payloads if "缓存一致性" in item["content"])
+    rejected = next(item for item in experience_payloads if "不适合使用" in item["content"])
+
+    assert accepted["is_enabled"] is True
+    assert reference["is_enabled"] is True
+    assert rejected["is_enabled"] is False
+    assert reference["priority"] < accepted["priority"]
+    assert reference["difficulty"] == "hard"
+
+
+@pytest.mark.unit
+def test_build_slice_payloads_keeps_legacy_interview_experience_text():
+    knowledge_base = PositionKnowledgeBase(
+        id=304,
+        scope="private",
+        title="Legacy interview experience",
+        target_position="Product Assistant",
+        knowledge_content=(
+            "## 问答经验\n"
+            "- 问题：如何判断一个活动是否值得继续投入？回答要点：看目标、成本、转化和复盘。\n"
+        ),
+        focus_points="Focus on product thinking.",
+        interviewer_prompt="Probe for evidence.",
+        is_active=True,
+    )
+
+    payloads = position_knowledge_base_slice_service.build_slice_payloads(knowledge_base)
+    experience_payloads = [
+        item for item in payloads if item["source_section"] == "interview_experience"
+    ]
+
+    assert len(experience_payloads) == 1
+    assert experience_payloads[0]["is_enabled"] is True
+    assert "活动" in experience_payloads[0]["content"]
+
+
+@pytest.mark.unit
 def test_rank_slices_prefers_stage_role_and_scene_matches():
     slices = [
         {

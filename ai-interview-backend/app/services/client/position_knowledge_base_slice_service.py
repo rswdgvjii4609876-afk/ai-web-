@@ -127,6 +127,19 @@ SECTION_TITLES = {
     "knowledge_content": "岗位画像内容",
 }
 
+INTERVIEW_EXPERIENCE_AUDIT_RULES = {
+    "可入库": {"is_enabled": True, "priority_adjustment": 0},
+    "仅参考": {"is_enabled": True, "priority_adjustment": -3},
+    "待核验": {"is_enabled": False, "priority_adjustment": -4},
+    "不采用": {"is_enabled": False, "priority_adjustment": -5},
+}
+
+INTERVIEW_EXPERIENCE_DIFFICULTY = {
+    "基础": "easy",
+    "中等": "medium",
+    "困难": "hard",
+}
+
 
 class PositionKnowledgeBaseSliceService:
     @staticmethod
@@ -307,6 +320,79 @@ class PositionKnowledgeBaseSliceService:
         return min(priority, 10)
 
     @staticmethod
+    def _extract_interview_field(block: str, labels: Sequence[str]) -> str:
+        label_pattern = "|".join(re.escape(label) for label in labels)
+        match = re.search(rf"^\s*[-*]?\s*(?:{label_pattern})[：:]\s*(.+?)\s*$", block, re.MULTILINE)
+        return match.group(1).strip() if match else ""
+
+    @staticmethod
+    def _normalize_interview_audit_status(value: str) -> str:
+        value = (value or "").strip()
+        return value if value in INTERVIEW_EXPERIENCE_AUDIT_RULES else "待核验"
+
+    @staticmethod
+    def _split_interview_experience_blocks(text: str) -> List[Dict[str, object]]:
+        if not text:
+            return []
+        heading_pattern = re.compile(
+            r"^#{3,5}\s*(?:面经|问答|问题)\s*\d*[：:、.\-\s]*(.*?)\s*$",
+            re.MULTILINE,
+        )
+        matches = list(heading_pattern.finditer(text))
+        if not matches:
+            return []
+
+        blocks: List[Dict[str, object]] = []
+        for index, match in enumerate(matches):
+            start = match.end()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            block = text[start:end].strip()
+            heading_question = (match.group(1) or "").strip()
+            question = (
+                PositionKnowledgeBaseSliceService._extract_interview_field(block, ["真实问题", "问题", "面试题"])
+                or heading_question
+                or f"结构化面经 {index + 1}"
+            )
+            answer = PositionKnowledgeBaseSliceService._extract_interview_field(
+                block, ["参考回答要点", "回答要点", "参考回答"]
+            )
+            reflection = PositionKnowledgeBaseSliceService._extract_interview_field(block, ["复盘反思", "反思"])
+            company_context = PositionKnowledgeBaseSliceService._extract_interview_field(
+                block, ["公司/场景", "公司", "场景"]
+            )
+            ability = PositionKnowledgeBaseSliceService._extract_interview_field(block, ["考察能力", "能力"])
+            difficulty_label = PositionKnowledgeBaseSliceService._extract_interview_field(block, ["难度"])
+            source = PositionKnowledgeBaseSliceService._extract_interview_field(block, ["来源说明", "来源"])
+            audit_status = PositionKnowledgeBaseSliceService._normalize_interview_audit_status(
+                PositionKnowledgeBaseSliceService._extract_interview_field(block, ["审核状态"])
+            )
+            audit_rule = INTERVIEW_EXPERIENCE_AUDIT_RULES[audit_status]
+
+            content_lines = [
+                f"真实问题：{question}",
+                f"参考回答要点：{answer}" if answer else "",
+                f"复盘反思：{reflection}" if reflection else "",
+                f"公司/场景：{company_context}" if company_context else "",
+                f"考察能力：{ability}" if ability else "",
+                f"难度：{difficulty_label}" if difficulty_label else "",
+                f"来源说明：{source}" if source else "",
+                f"审核状态：{audit_status}",
+            ]
+            topic_tags = [value for value in [ability, company_context, audit_status] if value]
+            blocks.append(
+                {
+                    "question": question,
+                    "content": "\n".join(line for line in content_lines if line),
+                    "audit_status": audit_status,
+                    "difficulty": INTERVIEW_EXPERIENCE_DIFFICULTY.get(difficulty_label),
+                    "is_enabled": bool(audit_rule["is_enabled"]),
+                    "priority_adjustment": int(audit_rule["priority_adjustment"]),
+                    "topic_tags": topic_tags,
+                }
+            )
+        return blocks
+
+    @staticmethod
     def _build_slice_payload(
         knowledge_base: PositionKnowledgeBase,
         content: str,
@@ -374,6 +460,34 @@ class PositionKnowledgeBaseSliceService:
         for section in PositionKnowledgeBaseSliceService._split_markdown_sections(knowledge_base.knowledge_content):
             source_section = section["source_section"]
             section_title = section["title"]
+            if source_section == "interview_experience":
+                experiences = PositionKnowledgeBaseSliceService._split_interview_experience_blocks(section["content"])
+                if experiences:
+                    for experience in experiences:
+                        payload = PositionKnowledgeBaseSliceService._build_slice_payload(
+                            knowledge_base=knowledge_base,
+                            content=str(experience["content"]),
+                            source_section=source_section,
+                            sort_order=sort_order,
+                            title=f"{knowledge_base.title} - {section_title} - {experience['question']}",
+                            topic_tags=experience.get("topic_tags") or None,
+                        )
+                        payload["is_enabled"] = bool(experience["is_enabled"])
+                        payload["priority"] = max(
+                            1,
+                            min(10, int(payload["priority"]) + int(experience["priority_adjustment"])),
+                        )
+                        if experience.get("difficulty"):
+                            payload["difficulty"] = experience["difficulty"]
+                        payload["keywords"] = sorted(
+                            {
+                                *(payload.get("keywords") or []),
+                                str(experience["audit_status"]).lower(),
+                            }
+                        )[:20]
+                        payloads.append(payload)
+                        sort_order += 1
+                    continue
             for block in PositionKnowledgeBaseSliceService._split_lines(section["content"]):
                 payloads.append(
                     PositionKnowledgeBaseSliceService._build_slice_payload(
