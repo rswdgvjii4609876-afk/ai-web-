@@ -11,10 +11,12 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from app.constants.competition import POSITION_PROFILES
 from app.constants.learning_routes import AI_LEARNING_LOOP, match_learning_route_stage
+
+RouteStageResolver = Callable[[str, str, Optional[str]], Optional[Dict[str, Any]]]
 
 
 class MatchingEngine:
@@ -27,6 +29,7 @@ class MatchingEngine:
         target_position: str,
         llm_analysis: Optional[Dict[str, Any]] = None,
         resume_evidence: Optional[Dict[str, Any]] = None,
+        route_stage_resolver: Optional[RouteStageResolver] = None,
     ) -> Dict[str, Any]:
         profile = cls._resolve_profile(target_position)
         resume_text = cls._resume_to_text(parsed_resume)
@@ -63,6 +66,7 @@ class MatchingEngine:
             ability_gap_profile=ability_gap_profile,
             profile=profile,
             target_position=target_position,
+            route_stage_resolver=route_stage_resolver,
         )
 
         return {
@@ -340,6 +344,7 @@ class MatchingEngine:
         ability_gap_profile: Dict[str, Any],
         profile: Dict[str, Any],
         target_position: str,
+        route_stage_resolver: Optional[RouteStageResolver] = None,
     ) -> Dict[str, Any]:
         top_gaps = (ability_gap_profile or {}).get("top_gaps") or []
         if not top_gaps:
@@ -357,6 +362,7 @@ class MatchingEngine:
                 profile=profile,
                 target_position=target_position,
                 rank=index,
+                route_stage_resolver=route_stage_resolver,
             )
             if task:
                 tasks.append(task)
@@ -387,6 +393,7 @@ class MatchingEngine:
         profile: Dict[str, Any],
         target_position: str,
         rank: int,
+        route_stage_resolver: Optional[RouteStageResolver] = None,
     ) -> Dict[str, Any]:
         ability_id = str(item.get("ability_id") or f"ability_{rank}")
         ability_name = str(item.get("name") or "岗位能力")
@@ -397,15 +404,20 @@ class MatchingEngine:
             ability_name=ability_name,
             missing_keywords=missing_keywords,
             target_position=target_position,
+            route_stage_resolver=route_stage_resolver,
         )
         material_type = route.get("material_type") or route["task_type"]
         material = route["material"]
         focus_terms = missing_keywords[:4] or matched_keywords[:4] or [ability_name]
         focus_text = "、".join(focus_terms)
         priority_score = cls._bounded_float(item.get("priority_score"), default=0.0, lower=0.0, upper=100.0)
-        practice_task = cls._learning_task_practice(route=route, ability_name=ability_name, focus_text=focus_text)
+        practice_task = route.get("practice_task") or cls._learning_task_practice(
+            route=route,
+            ability_name=ability_name,
+            focus_text=focus_text,
+        )
         deliverable = cls._learning_task_deliverable(route=route, ability_name=ability_name)
-        acceptance_criteria = cls._learning_task_acceptance(route=route)
+        acceptance_criteria = route.get("acceptance_criteria") or cls._learning_task_acceptance(route=route)
 
         return {
             "task_id": f"{profile.get('job_id') or 'custom'}_{ability_id}_{rank}",
@@ -444,10 +456,15 @@ class MatchingEngine:
         ability_name: str,
         missing_keywords: List[str],
         target_position: str,
+        route_stage_resolver: Optional[RouteStageResolver] = None,
     ) -> Dict[str, Any]:
         job_id = str(profile.get("job_id") or "")
         category = str(profile.get("category") or "")
         text = cls._normalize_text(" ".join([ability_name, target_position, *missing_keywords]))
+        if route_stage_resolver:
+            route = route_stage_resolver(job_id, text, category)
+            if route:
+                return route
         return match_learning_route_stage(job_id=job_id, text=text, category=category)
 
     @staticmethod

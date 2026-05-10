@@ -9,6 +9,7 @@ from .position_knowledge_base import PositionKnowledgeBase
 from .position_knowledge_base_slice import PositionKnowledgeBaseSlice
 from .learning_task import LearningTask
 from .training_review import TrainingReview
+from .learning_route_stage import LearningRouteStage
 
 __all__ = [
     "User",
@@ -22,4 +23,5 @@ __all__ = [
     "PositionKnowledgeBaseSlice",
     "LearningTask",
     "TrainingReview",
+    "LearningRouteStage",
 ]

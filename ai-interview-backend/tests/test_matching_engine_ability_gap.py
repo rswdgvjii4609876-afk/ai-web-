@@ -6,6 +6,39 @@ from app.services.client.matching_engine import matching_engine
 
 
 @pytest.mark.unit
+def test_learning_plan_prefers_database_route_resolver():
+    def resolver(job_id, text, category=None):
+        if job_id == "python_backend":
+            return {
+                "route_source": "db_learning_route",
+                "route_stage": "db_fastapi_stage",
+                "title": "后台维护 FastAPI 阶段",
+                "material_type": "db_route",
+                "task_type": "project_practice",
+                "estimated_minutes": 90,
+                "keywords": ["fastapi"],
+                "material": "后台维护的 FastAPI 学习材料",
+                "practice_task": "完成一个后台维护路线指定的接口练习。",
+                "acceptance_criteria": ["接口可运行", "能说明设计取舍"],
+            }
+        return None
+
+    metrics = matching_engine.evaluate(
+        parsed_resume={"skills": ["Python"], "projects": [{"description": "Python script"}]},
+        target_position="Python鍚庣寮€鍙戝伐绋嬪笀",
+        llm_analysis={"overall_score": 6},
+        resume_evidence={"projects": ["Python script"]},
+        route_stage_resolver=resolver,
+    )
+
+    tasks = metrics["learning_plan"]["tasks"]
+    assert tasks
+    assert all(task["route_source"] == "db_learning_route" for task in tasks)
+    assert any(task["route_stage"] == "db_fastapi_stage" for task in tasks)
+    assert any("后台维护路线指定" in task["practice_task"] for task in tasks)
+
+
+@pytest.mark.unit
 def test_all_position_profiles_have_ability_model():
     assert len(POSITION_PROFILES) >= 12
     for profile in POSITION_PROFILES:

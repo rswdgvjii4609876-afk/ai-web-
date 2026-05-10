@@ -106,6 +106,11 @@ BACKOFFICE_ROUTES = [
         prefix=f"{settings.API_V1_STR}/backoffice/knowledge-bases",
         tags=["backoffice-knowledge-base"]
     ),
+    RouteConfig(
+        module_path="app.api.backoffice.v1.learning_route",
+        prefix=f"{settings.API_V1_STR}/backoffice/learning-routes",
+        tags=["backoffice-learning-route"]
+    ),
 ]
 
 # 公共路由配置（不分客户端和后台的路由）

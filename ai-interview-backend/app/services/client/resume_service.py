@@ -16,6 +16,7 @@ from app.models.user import User
 from app.services.client.ai_service import AIService
 from app.services.client.embedding_match_service import embedding_match_service
 from app.services.client.matching_engine import matching_engine
+from app.services.backoffice.learning_route_service import learning_route_service
 from app.services.common.deepseek_config_service import deepseek_config_service
 
 logger = logging.getLogger(__name__)
@@ -233,11 +234,15 @@ class ResumeService:
         user_id: Optional[int] = None,
     ) -> Dict:
         payload = dict(analysis or {})
+        route_stage_resolver = None
+        if db is not None:
+            route_stage_resolver = await learning_route_service.build_route_stage_resolver(db)
         metrics = matching_engine.evaluate(
             parsed_resume=parsed_resume,
             target_position=target_position,
             llm_analysis=payload,
             resume_evidence=resume_evidence,
+            route_stage_resolver=route_stage_resolver,
         )
         embedding_candidates: list[Dict] = []
         if db is not None and user_id is not None:

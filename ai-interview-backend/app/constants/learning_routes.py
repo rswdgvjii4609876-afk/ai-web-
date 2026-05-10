@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 
 AI_LEARNING_LOOP = [
@@ -167,6 +167,36 @@ JOB_ROUTE_STAGES = {
     "admin_assistant": ADMIN_ROUTE_STAGES,
 }
 
+CATEGORY_BY_JOB_ID = {
+    "python_backend": "技术岗",
+    "java_backend": "技术岗",
+    "frontend_engineer": "技术岗",
+    "qa_engineer": "技术岗",
+    "algorithm_engineer": "技术岗",
+    "data_analyst": "数据岗",
+    "product_assistant": "产品岗",
+    "operations_assistant": "运营岗",
+    "new_media_operator": "运营岗",
+    "hr_specialist": "职能岗",
+    "recruiting_assistant": "职能岗",
+    "admin_assistant": "职能岗",
+}
+
+JOB_NAME_BY_JOB_ID = {
+    "python_backend": "Python后端开发工程师",
+    "java_backend": "Java后端开发工程师",
+    "frontend_engineer": "前端开发工程师",
+    "qa_engineer": "测试工程师",
+    "algorithm_engineer": "算法工程师",
+    "data_analyst": "数据分析师",
+    "product_assistant": "产品助理",
+    "operations_assistant": "运营助理",
+    "new_media_operator": "新媒体运营",
+    "hr_specialist": "人力资源专员",
+    "recruiting_assistant": "招聘助理",
+    "admin_assistant": "行政管理助理",
+}
+
 CATEGORY_ROUTE_STAGES = {
     "技术岗": TECH_GENERAL_ROUTE_STAGES,
     "数据岗": DATA_ANALYST_ROUTE_STAGES,
@@ -185,6 +215,31 @@ GENERAL_ROUTE_STAGE = {
     "estimated_minutes": 120,
     "material": "岗位画像知识库：结合岗位要求、问答经验、能力模型和面试追问分区进行学习。",
 }
+
+
+def iter_builtin_learning_route_stage_records() -> Iterable[Dict[str, Any]]:
+    """Yield built-in route stages in the same shape used by the DB table."""
+    for job_id, stages in JOB_ROUTE_STAGES.items():
+        for index, stage in enumerate(stages, start=1):
+            yield {
+                **stage,
+                "job_id": job_id,
+                "job_name": JOB_NAME_BY_JOB_ID.get(job_id, job_id),
+                "category": CATEGORY_BY_JOB_ID.get(job_id),
+                "sort_order": index,
+                "is_active": True,
+            }
+
+    for category, stages in CATEGORY_ROUTE_STAGES.items():
+        for index, stage in enumerate(stages, start=1):
+            yield {
+                **stage,
+                "job_id": None,
+                "job_name": None,
+                "category": category,
+                "sort_order": 100 + index,
+                "is_active": True,
+            }
 
 
 def _match_from_stages(stages: List[Dict[str, Any]], normalized: str) -> Dict[str, Any]:
