@@ -471,6 +471,15 @@ def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_defau
                 "followup_worthy": True,
                 "report_actionable": True,
                 "notes": "Good ownership evidence and useful follow-up loop.",
+                "case_id": "R1",
+                "resume_source": "Harvard public tech resume",
+                "human_overall_score": 8.5,
+                "evidence_alignment_score": 8,
+                "question_quality_score": 9,
+                "report_actionability_score": 8,
+                "learning_task_actionability_score": 7.5,
+                "human_score_notes": "Human score is close to the AI score.",
+                "dataset_split": "validation",
                 "reviewed_at": "2026-04-18T12:30:00+00:00",
                 "reviewer_email": "reviewer@example.com",
             },
@@ -546,6 +555,9 @@ def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_defau
     assert sample["evidence_context"]["retrieved_slice_ids"] == [11]
     assert sample["training_sample_review"]["quality_tier"] == "high"
     assert sample["training_sample_review"]["export_recommended"] is True
+    assert sample["training_sample_review"]["case_id"] == "R1"
+    assert sample["training_sample_review"]["human_overall_score"] == 8.5
+    assert sample["training_sample_review"]["dataset_split"] == "validation"
     assert sample["rounds"][0]["answer"] == "I owned the rollout plan and monitored cache hit rate."
     assert sample["rounds"][0]["question_target_gap"] == "ownership clarity"
     assert sample["rounds"][0]["evaluation"]["next_best_followup"]["target_gap"] == "ownership clarity"

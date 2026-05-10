@@ -2,6 +2,7 @@
   <div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
       <router-link to="/interviews" style="color:#6b7280;font-size:14px">← 返回列表</router-link>
+      <router-link to="/cases" style="color:#6b7280;font-size:14px">进入案例标注工作台</router-link>
       <h1 style="font-size:20px">面试详情 #{{ interviewId }}</h1>
     </div>
 

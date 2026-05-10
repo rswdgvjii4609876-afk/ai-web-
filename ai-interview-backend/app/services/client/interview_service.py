@@ -25,6 +25,7 @@ from app.services.client.position_knowledge_base_slice_service import (
 logger = logging.getLogger(__name__)
 
 TRAINING_SAMPLE_QUALITY_TIERS = {"needs_review", "low", "medium", "high"}
+TRAINING_SAMPLE_DATASET_SPLITS = {"", "train", "validation", "test", "holdout", "demo"}
 EVALUATION_DATASET_SCHEMA_VERSION = "ai-interview.evaluation-dataset.v1"
 EVALUATION_DATASET_DEFINITIONS = (
     {
@@ -1432,6 +1433,27 @@ class InterviewService:
         notes = str(raw.get("notes") or "").strip()
         if len(notes) > 2000:
             notes = notes[:2000]
+        human_score_notes = str(raw.get("human_score_notes") or "").strip()
+        if len(human_score_notes) > 2000:
+            human_score_notes = human_score_notes[:2000]
+
+        dataset_split = str(raw.get("dataset_split") or "").strip().lower()
+        if dataset_split not in TRAINING_SAMPLE_DATASET_SPLITS:
+            dataset_split = ""
+
+        def clean_text(key: str, limit: int) -> str:
+            value = str(raw.get(key) or "").strip()
+            return value[:limit] if len(value) > limit else value
+
+        def clean_score(key: str) -> Optional[float]:
+            value = raw.get(key)
+            if value in (None, ""):
+                return None
+            try:
+                score = float(value)
+            except (TypeError, ValueError):
+                return None
+            return max(0.0, min(10.0, round(score, 1)))
 
         normalized = {
             "quality_tier": quality_tier,
@@ -1440,6 +1462,15 @@ class InterviewService:
             "followup_worthy": bool(raw.get("followup_worthy")),
             "report_actionable": bool(raw.get("report_actionable")),
             "notes": notes,
+            "case_id": clean_text("case_id", 64),
+            "resume_source": clean_text("resume_source", 255),
+            "human_overall_score": clean_score("human_overall_score"),
+            "evidence_alignment_score": clean_score("evidence_alignment_score"),
+            "question_quality_score": clean_score("question_quality_score"),
+            "report_actionability_score": clean_score("report_actionability_score"),
+            "learning_task_actionability_score": clean_score("learning_task_actionability_score"),
+            "human_score_notes": human_score_notes,
+            "dataset_split": dataset_split,
             "reviewed_at": raw.get("reviewed_at"),
             "reviewer_email": raw.get("reviewer_email"),
         }
