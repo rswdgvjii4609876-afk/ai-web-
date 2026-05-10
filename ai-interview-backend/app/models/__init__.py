@@ -7,6 +7,8 @@ from .interview import Interview
 from .interview_message import InterviewMessage
 from .position_knowledge_base import PositionKnowledgeBase
 from .position_knowledge_base_slice import PositionKnowledgeBaseSlice
+from .learning_task import LearningTask
+from .training_review import TrainingReview
 
 __all__ = [
     "User",
@@ -18,4 +20,6 @@ __all__ = [
     "InterviewMessage",
     "PositionKnowledgeBase",
     "PositionKnowledgeBaseSlice",
+    "LearningTask",
+    "TrainingReview",
 ]

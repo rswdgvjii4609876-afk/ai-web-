@@ -215,8 +215,8 @@ import {
   taskFromAbilityGap,
   taskFromLearningPlan,
   taskFromText,
-  upsertLearningTask,
-  upsertLearningTasks
+  upsertLearningTaskToServer,
+  upsertLearningTasksToServer
 } from '../utils/learningTasks'
 
 const route = useRoute()
@@ -280,34 +280,46 @@ function setTaskMessage(text) {
   taskMessage.value = text
 }
 
-function addGapTask(item) {
-  upsertLearningTask(taskFromAbilityGap(item, {
-    ...taskContext.value,
-    source_type: 'ability_gap',
-    source_id: `${interviewId}_${item.ability_id || item.name || 'gap'}`
-  }))
-  setTaskMessage('已加入学习任务页。')
+async function addGapTask(item) {
+  try {
+    await upsertLearningTaskToServer(taskFromAbilityGap(item, {
+      ...taskContext.value,
+      source_type: 'ability_gap',
+      source_id: `${interviewId}_${item.ability_id || item.name || 'gap'}`
+    }))
+    setTaskMessage('已加入账号学习任务。')
+  } catch (e) {
+    setTaskMessage(e.message || '加入学习任务失败，请确认登录状态和服务器连接。')
+  }
 }
 
-function addLearningPlanTasks() {
+async function addLearningPlanTasks() {
   const tasks = learningPlanTasks.value.map((task, index) => taskFromLearningPlan(task, {
     ...taskContext.value,
     source_type: 'learning_plan',
     source_id: `${interviewId}_plan_${task.task_id || task.ability_id || index}`
   }))
-  upsertLearningTasks(tasks)
-  setTaskMessage(`已加入 ${tasks.length} 项学习任务。`)
+  try {
+    await upsertLearningTasksToServer(tasks)
+    setTaskMessage(`已加入 ${tasks.length} 项账号学习任务。`)
+  } catch (e) {
+    setTaskMessage(e.message || '批量加入学习任务失败，请确认登录状态和服务器连接。')
+  }
 }
 
-function addTextTask(item, sourceType, index) {
+async function addTextTask(item, sourceType, index) {
   const text = formatInsightItem(item)
-  upsertLearningTask(taskFromText(text, {
-    ...taskContext.value,
-    source_type: sourceType,
-    source_id: `${interviewId}_${sourceType}_${index}`,
-    ability_name: sourceType === 'report_weakness' ? '报告短板' : '训练建议'
-  }))
-  setTaskMessage('已加入学习任务页。')
+  try {
+    await upsertLearningTaskToServer(taskFromText(text, {
+      ...taskContext.value,
+      source_type: sourceType,
+      source_id: `${interviewId}_${sourceType}_${index}`,
+      ability_name: sourceType === 'report_weakness' ? '报告短板' : '训练建议'
+    }))
+    setTaskMessage('已加入账号学习任务。')
+  } catch (e) {
+    setTaskMessage(e.message || '加入学习任务失败，请确认登录状态和服务器连接。')
+  }
 }
 
 onMounted(async () => {

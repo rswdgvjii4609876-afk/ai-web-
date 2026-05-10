@@ -57,6 +57,16 @@ CLIENT_ROUTES = [
         prefix=f"{settings.API_V1_STR}/interviews",
         tags=["client-interview"]
     ),
+    RouteConfig(
+        module_path="app.api.client.v1.learning_task",
+        prefix=f"{settings.API_V1_STR}/learning-tasks",
+        tags=["client-learning-task"]
+    ),
+    RouteConfig(
+        module_path="app.api.client.v1.training_review",
+        prefix=f"{settings.API_V1_STR}/training-reviews",
+        tags=["client-training-review"]
+    ),
 ]
 
 # 后台路由配置

@@ -370,7 +370,7 @@ import { uploadResume, getResume } from '../api/resume'
 import { startInterview } from '../api/interview'
 import { getKnowledgeBases } from '../api/knowledgeBase'
 import { getProfile, testAiConnection } from '../api/user'
-import { taskFromLearningPlan, upsertLearningTasks } from '../utils/learningTasks'
+import { taskFromLearningPlan, upsertLearningTasksToServer } from '../utils/learningTasks'
 
 const router = useRouter()
 const route = useRoute()
@@ -472,15 +472,19 @@ const abilityDiagnosisLink = computed(() => ({
   query: resumeId.value ? { resume_id: resumeId.value } : {}
 }))
 
-function addCurrentLearningPlanTasks() {
+async function addCurrentLearningPlanTasks() {
   const tasks = learningPlanTasks.value.map((task, index) => taskFromLearningPlan(task, {
     target_position: targetPosition.value,
     resume_id: resumeId.value,
     source_type: 'learning_plan',
     source_id: `${resumeId.value || 'resume'}_plan_${task.task_id || task.ability_id || index}`
   }))
-  upsertLearningTasks(tasks)
-  learningTaskMessage.value = `已加入 ${tasks.length} 项学习任务。`
+  try {
+    await upsertLearningTasksToServer(tasks)
+    learningTaskMessage.value = `已加入 ${tasks.length} 项账号学习任务。`
+  } catch (e) {
+    learningTaskMessage.value = e.message || '加入学习任务失败，请确认登录状态和服务器连接。'
+  }
 }
 
 const selectedKnowledgeBase = computed(() => {

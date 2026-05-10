@@ -137,8 +137,8 @@ import {
   taskFromAbilityGap,
   taskFromLearningPlan,
   taskFromText,
-  upsertLearningTask,
-  upsertLearningTasks
+  upsertLearningTaskToServer,
+  upsertLearningTasksToServer
 } from '../utils/learningTasks'
 
 const route = useRoute()
@@ -305,7 +305,7 @@ function semanticSourceLabel(metrics) {
   return 'TF-IDF'
 }
 
-function addGapTask(item) {
+async function addGapTask(item) {
   const task = item.source_label
     ? taskFromText(item.evidence_basis || item.name, {
         ...taskContext.value,
@@ -318,18 +318,26 @@ function addGapTask(item) {
         source_type: 'ability_gap',
         source_id: `${taskContext.value.source_id}_${item.ability_id || item.name}`
       })
-  upsertLearningTask(task)
-  taskMessage.value = '已加入学习任务页。'
+  try {
+    await upsertLearningTaskToServer(task)
+    taskMessage.value = '已加入账号学习任务。'
+  } catch (e) {
+    taskMessage.value = e.message || '加入学习任务失败，请确认登录状态和服务器连接。'
+  }
 }
 
-function addLearningPlanTasks() {
+async function addLearningPlanTasks() {
   const tasks = learningPlanTasks.value.map((task, index) => taskFromLearningPlan(task, {
     ...taskContext.value,
     source_type: 'learning_plan',
     source_id: `${taskContext.value.source_id}_plan_${task.task_id || task.ability_id || index}`
   }))
-  upsertLearningTasks(tasks)
-  taskMessage.value = `已加入 ${tasks.length} 项学习任务。`
+  try {
+    await upsertLearningTasksToServer(tasks)
+    taskMessage.value = `已加入 ${tasks.length} 项账号学习任务。`
+  } catch (e) {
+    taskMessage.value = e.message || '批量加入学习任务失败，请确认登录状态和服务器连接。'
+  }
 }
 </script>
 

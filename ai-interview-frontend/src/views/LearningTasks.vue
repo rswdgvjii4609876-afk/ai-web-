@@ -3,9 +3,10 @@
     <div class="tasks-hero card">
       <div>
         <p class="eyebrow">学习任务</p>
-        <h1>把能力差距变成每天能做的事</h1>
+        <h1>把能力差距变成账号里的长期学习清单</h1>
         <p>
-          报告和能力诊断中勾选的短板会汇总到这里。你可以记录完成状态、学习笔记和薄弱项变化，并用 JSON 备份或迁移进度。
+          报告和能力诊断中加入的短板会同步到服务器。换浏览器、换设备或清缓存后，
+          学习任务、完成状态、学习笔记和薄弱项变化仍会保留。
         </p>
       </div>
       <div class="hero-actions">
@@ -15,12 +16,24 @@
       </div>
     </div>
 
+    <div v-if="legacyCount" class="migration-card card">
+      <div>
+        <strong>检测到旧版本地学习任务</strong>
+        <p>浏览器里还有 {{ legacyCount }} 项旧任务，可以一键迁移到当前账号。迁移后本地备份不会自动删除。</p>
+      </div>
+      <button class="btn-primary" type="button" :disabled="isMigrating" @click="migrateLegacyTasks">
+        {{ isMigrating ? '迁移中...' : '迁移到账号' }}
+      </button>
+    </div>
+
     <div class="task-toolbar card">
       <div>
         <h2>任务库</h2>
-        <p>{{ pendingCount }} 项待完成，{{ doneCount }} 项已完成</p>
+        <p v-if="loading">正在读取服务器学习任务...</p>
+        <p v-else>{{ pendingCount }} 项待完成，{{ doneCount }} 项已完成</p>
       </div>
       <div class="toolbar-actions">
+        <button class="btn-secondary" type="button" @click="loadTasks" :disabled="loading">刷新</button>
         <button class="btn-secondary" type="button" @click="downloadTasks" :disabled="!tasks.length">
           下载进度 JSON
         </button>
@@ -28,19 +41,63 @@
           上传进度 JSON
         </button>
         <button class="btn-secondary danger-outline" type="button" @click="clearTasks" :disabled="!tasks.length">
-          清空本地任务
+          清空账号任务
         </button>
         <input ref="fileInput" class="hidden-input" type="file" accept="application/json,.json" @change="handleImport" />
       </div>
+    </div>
+
+    <div v-if="tasks.length" class="progress-grid">
+      <div class="card progress-card">
+        <span>总任务</span>
+        <strong>{{ tasks.length }}</strong>
+      </div>
+      <div class="card progress-card">
+        <span>完成率</span>
+        <strong>{{ completionRate }}%</strong>
+      </div>
+      <div class="card progress-card">
+        <span>路线阶段</span>
+        <strong>{{ routeStageCount }}</strong>
+      </div>
+      <div class="card progress-card">
+        <span>预计剩余</span>
+        <strong>{{ remainingHoursText }}</strong>
+      </div>
+    </div>
+
+    <div v-if="tasks.length" class="filter-card card">
+      <label>
+        路线阶段
+        <select v-model="stageFilter">
+          <option value="">全部阶段</option>
+          <option v-for="stage in routeStageOptions" :key="stage" :value="stage">{{ stageLabel(stage) }}</option>
+        </select>
+      </label>
+      <label>
+        能力项
+        <select v-model="abilityFilter">
+          <option value="">全部能力</option>
+          <option v-for="ability in abilityOptions" :key="ability" :value="ability">{{ ability }}</option>
+        </select>
+      </label>
+      <label>
+        完成状态
+        <select v-model="statusFilter">
+          <option value="">全部状态</option>
+          <option value="pending">待完成</option>
+          <option value="done">已完成</option>
+        </select>
+      </label>
     </div>
 
     <p v-if="message" :class="messageType === 'error' ? 'message error' : 'message success'">
       {{ message }}
     </p>
 
-    <div v-if="!tasks.length" class="card empty-card">
+    <div v-if="!loading && !tasks.length" class="card empty-card">
       <h2>还没有学习任务</h2>
-      <p>先上传简历生成分析，或在面试报告中把能力短板加入学习任务页。</p>
+      <p>先上传简历生成分析，或在能力诊断、面试报告中把能力短板加入学习任务。</p>
       <div class="empty-actions">
         <router-link to="/resume/upload" class="btn-primary empty-action">上传简历</router-link>
         <router-link to="/ability-diagnosis" class="btn-secondary empty-action">查看能力诊断</router-link>
@@ -48,8 +105,13 @@
       </div>
     </div>
 
+    <div v-else-if="tasks.length && !filteredTasks.length" class="card empty-card">
+      <h2>当前筛选下没有任务</h2>
+      <p>换一个路线阶段、能力项或完成状态再看。</p>
+    </div>
+
     <div v-else class="task-list">
-      <article v-for="task in tasks" :key="task.task_id" class="card task-card">
+      <article v-for="task in filteredTasks" :key="task.task_id" class="card task-card">
         <div class="task-head">
           <label class="task-check">
             <input type="checkbox" :checked="task.done" @change="updateTask(task.task_id, { done: $event.target.checked })" />
@@ -63,12 +125,16 @@
           <span>{{ task.ability_name || '能力项' }}</span>
           <span v-if="task.priority_score !== ''">优先级 {{ task.priority_score }}</span>
           <span>来源：{{ sourceLabel(task.source_type) }}</span>
+          <span v-if="task.route_stage">阶段：{{ stageLabel(task.route_stage) }}</span>
+          <span v-if="task.task_type">类型：{{ taskTypeLabel(task.task_type) }}</span>
+          <span v-if="task.estimated_minutes">预计 {{ minutesText(task.estimated_minutes) }}</span>
         </div>
 
         <div class="task-detail">
           <div>
             <strong>学习材料</strong>
             <p>{{ task.learning_material || '岗位画像知识库与学习路线' }}</p>
+            <p v-if="task.route_source" class="route-source">路线来源：{{ routeSourceLabel(task.route_source) }}</p>
           </div>
           <div>
             <strong>练习任务</strong>
@@ -92,15 +158,15 @@
             <textarea
               :value="task.note"
               placeholder="记录学了什么、哪里还不熟、下一步怎么练。"
-              @input="updateTask(task.task_id, { note: $event.target.value })"
+              @change="updateTask(task.task_id, { note: $event.target.value })"
             ></textarea>
           </label>
           <label>
             薄弱项变化
             <textarea
               :value="task.weak_change"
-              placeholder="例如：已经完成 FastAPI 路由练习，但数据库事务还需要复习。"
-              @input="updateTask(task.task_id, { weak_change: $event.target.value })"
+              placeholder="例如：已完成 FastAPI 路由练习，但数据库事务还需要复习。"
+              @change="updateTask(task.task_id, { weak_change: $event.target.value })"
             ></textarea>
           </label>
         </div>
@@ -110,53 +176,119 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   LEARNING_TASKS_VERSION,
+  loadLearningTasksFromServer,
+  migrateLocalLearningTasksToServer,
   readLearningTaskStore,
-  removeLearningTask,
-  updateLearningTask,
-  validateLearningTaskPayload,
-  writeLearningTaskStore
+  removeLearningTaskFromServer,
+  updateLearningTaskOnServer,
+  upsertLearningTasksToServer,
+  validateLearningTaskPayload
 } from '../utils/learningTasks'
 
 const tasks = ref([])
 const fileInput = ref(null)
 const message = ref('')
 const messageType = ref('success')
+const loading = ref(false)
+const isMigrating = ref(false)
+const legacyCount = ref(0)
+const stageFilter = ref('')
+const abilityFilter = ref('')
+const statusFilter = ref('')
 
 const doneCount = computed(() => tasks.value.filter(task => task.done).length)
 const pendingCount = computed(() => tasks.value.length - doneCount.value)
+const completionRate = computed(() => {
+  if (!tasks.value.length) return 0
+  return Math.round((doneCount.value / tasks.value.length) * 100)
+})
+const routeStageOptions = computed(() => uniqueValues(tasks.value.map(task => task.route_stage)))
+const abilityOptions = computed(() => uniqueValues(tasks.value.map(task => task.ability_name)))
+const routeStageCount = computed(() => routeStageOptions.value.length)
+const remainingMinutes = computed(() => tasks.value
+  .filter(task => !task.done)
+  .reduce((sum, task) => sum + (Number(task.estimated_minutes) || 0), 0))
+const remainingHoursText = computed(() => {
+  if (!remainingMinutes.value) return '-'
+  const hours = Math.round((remainingMinutes.value / 60) * 10) / 10
+  return `${hours}h`
+})
+const filteredTasks = computed(() => tasks.value.filter((task) => {
+  if (stageFilter.value && task.route_stage !== stageFilter.value) return false
+  if (abilityFilter.value && task.ability_name !== abilityFilter.value) return false
+  if (statusFilter.value === 'done' && !task.done) return false
+  if (statusFilter.value === 'pending' && task.done) return false
+  return true
+}))
 
 onMounted(() => {
+  refreshLegacyCount()
   loadTasks()
-  window.addEventListener('zhiqizhice-learning-tasks-updated', loadTasks)
 })
 
-onUnmounted(() => {
-  window.removeEventListener('zhiqizhice-learning-tasks-updated', loadTasks)
-})
-
-function loadTasks() {
-  tasks.value = readLearningTaskStore().tasks
+async function loadTasks() {
+  loading.value = true
+  try {
+    const store = await loadLearningTasksFromServer()
+    tasks.value = store.tasks
+    if (!tasks.value.length) setMessage('', 'success')
+  } catch (e) {
+    setMessage(e.message || '服务器学习任务读取失败，请确认登录状态。', 'error')
+  } finally {
+    loading.value = false
+  }
 }
 
-function updateTask(taskId, patch) {
-  updateLearningTask(taskId, patch)
-  loadTasks()
+function refreshLegacyCount() {
+  legacyCount.value = readLearningTaskStore().tasks.length
 }
 
-function removeTask(taskId) {
-  removeLearningTask(taskId)
-  loadTasks()
-  setMessage('学习任务已移除。')
+async function migrateLegacyTasks() {
+  isMigrating.value = true
+  try {
+    const result = await migrateLocalLearningTasksToServer()
+    await loadTasks()
+    setMessage(`已迁移 ${result.migrated || 0} 项学习任务到账号。`)
+  } catch (e) {
+    setMessage(e.message || '旧版本地任务迁移失败。', 'error')
+  } finally {
+    isMigrating.value = false
+    refreshLegacyCount()
+  }
 }
 
-function clearTasks() {
-  if (!confirm('确定清空本浏览器里的学习任务吗？清空前建议先下载 JSON 备份。')) return
-  writeLearningTaskStore({ tasks: [] })
-  loadTasks()
-  setMessage('本地学习任务已清空。')
+async function updateTask(taskId, patch) {
+  try {
+    const updated = await updateLearningTaskOnServer(taskId, patch)
+    tasks.value = tasks.value.map(task => (task.task_id === taskId ? { ...task, ...updated } : task))
+    setMessage('学习任务已同步。')
+  } catch (e) {
+    setMessage(e.message || '学习任务同步失败。', 'error')
+  }
+}
+
+async function removeTask(taskId) {
+  try {
+    await removeLearningTaskFromServer(taskId)
+    tasks.value = tasks.value.filter(task => task.task_id !== taskId)
+    setMessage('学习任务已移除。')
+  } catch (e) {
+    setMessage(e.message || '学习任务移除失败。', 'error')
+  }
+}
+
+async function clearTasks() {
+  if (!confirm('确定清空当前账号的学习任务吗？清空前建议先下载 JSON 备份。')) return
+  try {
+    await Promise.all(tasks.value.map(task => removeLearningTaskFromServer(task.task_id)))
+    tasks.value = []
+    setMessage('账号学习任务已清空。')
+  } catch (e) {
+    setMessage(e.message || '清空学习任务失败。', 'error')
+  }
 }
 
 function criteriaList(task) {
@@ -171,7 +303,118 @@ function sourceLabel(type) {
     report_training: '报告建议',
     report_weakness: '报告短板',
     diagnosis_fallback: '诊断兜底'
-  }[type] || '本地任务'
+  }[type] || '学习任务'
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'zh-CN'))
+}
+
+function stageLabel(stage) {
+  return {
+    python_basic: 'Python 基础',
+    web_api_foundation: 'Web/API 基础',
+    database_orm: '数据库与 ORM',
+    fastapi_framework: 'FastAPI 框架',
+    middleware_engineering: '中间件与工程化',
+    project_review: '项目复盘',
+    java_foundation: 'Java 基础',
+    spring_boot_api: 'Spring Boot 接口',
+    java_database_cache: '数据库与缓存',
+    jvm_concurrency_ops: 'JVM/并发/排障',
+    frontend_language_foundation: 'JS/TS 基础',
+    frontend_framework_component: '前端框架与组件',
+    frontend_engineering: '前端工程化',
+    frontend_performance_review: '性能优化复盘',
+    qa_case_design: '测试用例设计',
+    qa_api_sql: '接口测试与 SQL',
+    qa_automation: '自动化与回归',
+    qa_bug_review: '缺陷定位复盘',
+    ml_foundation: '机器学习基础',
+    data_feature_engineering: '数据与特征工程',
+    deep_learning_embedding: '深度学习与向量',
+    experiment_deployment_review: '实验与上线风险',
+    data_sql_processing: 'SQL 与数据处理',
+    metric_system: '业务指标体系',
+    visualization_report: '可视化报告',
+    business_diagnosis: '业务归因',
+    product_requirement_analysis: '产品需求分析',
+    prd_prototype: 'PRD 与原型',
+    product_metric_review: '产品指标复盘',
+    product_collaboration: '产品协作推进',
+    operation_execution: '运营执行',
+    user_feedback: '用户反馈',
+    operation_data_review: '运营数据复盘',
+    operation_growth_plan: '增长实验',
+    content_planning: '内容选题',
+    copywriting_output: '文案产出',
+    media_data_review: '内容数据复盘',
+    account_iteration: '账号迭代策略',
+    hr_recruitment_process: '招聘流程',
+    hr_communication: 'HR 沟通',
+    hr_labor_compliance: '劳动合规',
+    hr_data_office: 'HR 数据记录',
+    recruiting_channel: '招聘渠道',
+    resume_screening: '简历筛选',
+    interview_invitation: '面试邀约',
+    recruiting_data_record: '招聘数据复盘',
+    admin_office_tools: '办公文档',
+    admin_process_execution: '行政流程执行',
+    admin_meeting_event: '会议活动支持',
+    admin_service_compliance: '服务与合规',
+    tech_foundation: '技术基础',
+    tech_project_practice: '技术项目练习',
+    tech_debug_review: '问题定位复盘',
+    tech_interview_expression: '技术面试表达',
+    functional_process: '流程执行',
+    functional_communication: '沟通协作',
+    functional_document: '文档与数据',
+    functional_review: '结果复盘',
+    general_position_improvement: '通用岗位提升'
+  }[stage] || stage
+}
+
+function taskTypeLabel(type) {
+  return {
+    theory_demo: '理论 + Demo',
+    demo_practice: 'Demo 练习',
+    project_practice: '项目练习',
+    project_review: '项目复盘',
+    case_practice: '案例练习',
+    document_output: '文档产出',
+    scenario_practice: '情景演练',
+    theory_case: '理论 + 场景',
+    general_practice: '通用练习'
+  }[type] || type
+}
+
+function routeSourceLabel(source) {
+  return {
+    project_builtin_python_backend_route: '内置 Python 后端学习路线',
+    project_builtin_python_basic_route: '内置 Python 基础学习路线',
+    project_builtin_java_backend_route: '内置 Java 后端学习路线',
+    project_builtin_frontend_route: '内置前端开发学习路线',
+    project_builtin_qa_route: '内置测试工程师学习路线',
+    project_builtin_algorithm_route: '内置算法工程师学习路线',
+    project_builtin_data_analyst_route: '内置数据分析学习路线',
+    project_builtin_product_position_route: '岗位画像产品能力路线',
+    project_builtin_operations_route: '岗位画像运营能力路线',
+    project_builtin_new_media_route: '岗位画像新媒体路线',
+    project_builtin_hr_route: '岗位画像 HR 能力路线',
+    project_builtin_recruiting_route: '岗位画像招聘能力路线',
+    project_builtin_admin_route: '岗位画像行政能力路线',
+    project_builtin_tech_general_route: '岗位画像技术通用路线',
+    project_builtin_functional_general_route: '岗位画像职能通用路线',
+    project_builtin_general_position_route: '岗位画像通用路线'
+  }[source] || source
+}
+
+function minutesText(value) {
+  const minutes = Number(value) || 0
+  if (!minutes) return '-'
+  if (minutes < 60) return `${minutes} 分钟`
+  const hours = Math.round((minutes / 60) * 10) / 10
+  return `${hours} 小时`
 }
 
 function downloadTasks() {
@@ -205,11 +448,11 @@ async function handleImport(event) {
       setMessage('上传失败：JSON 结构不符合 learning_tasks_v1。', 'error')
       return
     }
-    writeLearningTaskStore(payload)
-    loadTasks()
-    setMessage('学习任务已导入。')
+    await upsertLearningTasksToServer(payload.tasks, { replaceProgress: true })
+    await loadTasks()
+    setMessage('学习任务已导入当前账号。')
   } catch {
-    setMessage('上传失败：无法解析这个 JSON 文件。', 'error')
+    setMessage('上传失败：无法解析或写入这个 JSON 文件。', 'error')
   } finally {
     event.target.value = ''
   }
@@ -246,6 +489,7 @@ function setMessage(text, type = 'success') {
 
 .tasks-hero p,
 .task-toolbar p,
+.migration-card p,
 .empty-card p,
 .task-detail p,
 .task-detail li {
@@ -273,12 +517,50 @@ function setMessage(text, type = 'success') {
   color: white;
 }
 
+.migration-card,
 .task-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
   margin-bottom: 14px;
+}
+
+.progress-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.progress-card {
+  display: grid;
+  gap: 6px;
+}
+
+.progress-card span {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.progress-card strong {
+  color: #111827;
+  font-size: 24px;
+}
+
+.filter-card {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.filter-card label {
+  display: grid;
+  gap: 6px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .task-toolbar h2 {
@@ -395,6 +677,11 @@ function setMessage(text, type = 'success') {
   font-size: 13px;
 }
 
+.route-source {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
 .task-detail ul {
   margin-left: 18px;
 }
@@ -420,6 +707,7 @@ function setMessage(text, type = 'success') {
 
 @media (max-width: 760px) {
   .tasks-hero,
+  .migration-card,
   .task-toolbar,
   .task-head {
     flex-direction: column;
@@ -427,6 +715,11 @@ function setMessage(text, type = 'success') {
   }
 
   .task-notes {
+    grid-template-columns: 1fr;
+  }
+
+  .progress-grid,
+  .filter-card {
     grid-template-columns: 1fr;
   }
 }

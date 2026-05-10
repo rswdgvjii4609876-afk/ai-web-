@@ -3,9 +3,9 @@
     <div class="review-hero card">
       <div>
         <p class="eyebrow">训练复盘</p>
-        <h1>把学习任务和模拟面试串成闭环</h1>
+        <h1>把学习任务、模拟面试和下一轮目标串成闭环</h1>
         <p>
-          这里汇总一场已完成面试、当前学习任务和你的复盘笔记，帮助你决定下一轮该补什么、练什么、怎么验证。
+          复盘记录会保存到当前账号。即使报告接口暂时失败，也可以先保存自评、复盘笔记和下一轮训练目标。
         </p>
       </div>
       <div class="hero-actions">
@@ -18,7 +18,7 @@
 
     <div v-else-if="!completedInterviews.length" class="card empty-card">
       <h2>还没有可复盘的已完成面试</h2>
-      <p>先完成一次模拟面试，系统生成报告后，这里会自动汇总面试结果和学习任务。</p>
+      <p>先完成一次模拟面试，系统生成报告后，这里会汇总面试结果、学习任务和复盘笔记。</p>
       <router-link to="/resume/upload" class="btn-primary empty-action">开始一次面试</router-link>
     </div>
 
@@ -26,7 +26,7 @@
       <div class="card selector-card">
         <label>
           选择复盘面试
-          <select v-model="selectedInterviewId" @change="loadReport">
+          <select v-model="selectedInterviewId">
             <option v-for="item in completedInterviews" :key="item.interview_id" :value="String(item.interview_id)">
               {{ item.target_position || '未命名岗位' }} · {{ formatDate(item.created_at) }} · 得分 {{ item.overall_score || '-' }}
             </option>
@@ -41,6 +41,7 @@
       </div>
 
       <p v-if="reportError" class="error-text">{{ reportError }}</p>
+      <p v-if="saveMessage" class="save-message top-save-message">{{ saveMessage }}</p>
 
       <div class="review-grid">
         <section class="card review-card">
@@ -105,7 +106,7 @@
 
       <div class="card notes-card">
         <div>
-          <p class="eyebrow">本地复盘记录</p>
+          <p class="eyebrow">账号复盘记录</p>
           <h2>写下这轮训练结论</h2>
         </div>
         <div class="notes-grid">
@@ -118,7 +119,7 @@
           </label>
           <label>
             下一轮目标
-            <input v-model="reviewForm.next_goal" placeholder="例如：补 FastAPI + 数据库事务，再做一次 Python 后端面试" />
+            <input v-model="reviewForm.next_goal" placeholder="例如：补 FastAPI + 数据库事务，再做一次产品助理面试" />
           </label>
         </div>
         <label class="note-field">
@@ -126,7 +127,9 @@
           <textarea v-model="reviewForm.notes" placeholder="记录这轮哪里进步了、哪里还卡、下一次怎么验证。"></textarea>
         </label>
         <div class="note-actions">
-          <button class="btn-primary" type="button" @click="saveReview">保存复盘</button>
+          <button class="btn-primary" type="button" :disabled="saving" @click="saveReview">
+            {{ saving ? '保存中...' : '保存复盘' }}
+          </button>
           <span v-if="saveMessage" class="save-message">{{ saveMessage }}</span>
         </div>
       </div>
@@ -138,12 +141,9 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { getInterviews, getReport } from '../api/interview'
-import { readLearningTaskStore } from '../utils/learningTasks'
-import {
-  buildTrainingReviewSummary,
-  readTrainingReviewRecord,
-  saveTrainingReviewRecord
-} from '../utils/trainingReview'
+import { getTrainingReview, saveTrainingReview } from '../api/trainingReviews'
+import { loadLearningTasksFromServer } from '../utils/learningTasks'
+import { buildTrainingReviewSummary } from '../utils/trainingReview'
 
 const route = useRoute()
 const loading = ref(true)
@@ -155,6 +155,7 @@ const reportData = ref(null)
 const tasks = ref([])
 const reviewForm = ref(createEmptyReview())
 const saveMessage = ref('')
+const saving = ref(false)
 
 const completedInterviews = computed(() => {
   return interviews.value
@@ -173,25 +174,35 @@ const summary = computed(() => buildTrainingReviewSummary({
 
 onMounted(loadPage)
 
-watch(selectedInterviewId, (value) => {
-  reviewForm.value = readTrainingReviewRecord(value)
+watch(selectedInterviewId, async (value) => {
+  if (!value) return
   saveMessage.value = ''
+  await Promise.all([loadReport(), loadReview()])
 })
 
 async function loadPage() {
   loading.value = true
-  tasks.value = readLearningTaskStore().tasks
   try {
+    await loadTasks()
     const data = await getInterviews()
     interviews.value = data.items || []
     const requestedId = firstQueryValue(route.query.interview_id)
     const exists = completedInterviews.value.some(item => String(item.interview_id) === String(requestedId))
     selectedInterviewId.value = exists ? String(requestedId) : String(completedInterviews.value[0]?.interview_id || '')
-    if (selectedInterviewId.value) await loadReport()
+    if (selectedInterviewId.value) await Promise.all([loadReport(), loadReview()])
   } catch (e) {
     reportError.value = e.message || '训练复盘加载失败，请稍后重试。'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadTasks() {
+  try {
+    tasks.value = (await loadLearningTasksFromServer()).tasks
+  } catch (e) {
+    reportError.value = e.message || '学习任务读取失败。'
+    tasks.value = []
   }
 }
 
@@ -200,13 +211,23 @@ async function loadReport() {
   reportLoading.value = true
   reportError.value = ''
   reportData.value = null
-  tasks.value = readLearningTaskStore().tasks
+  await loadTasks()
   try {
     reportData.value = await getReport(selectedInterviewId.value)
   } catch (e) {
-    reportError.value = e.message || '报告读取失败，但仍可填写本地复盘记录。'
+    reportError.value = e.message || '报告读取失败，但仍可填写并保存复盘记录。'
   } finally {
     reportLoading.value = false
+  }
+}
+
+async function loadReview() {
+  if (!selectedInterviewId.value) return
+  try {
+    reviewForm.value = await getTrainingReview(selectedInterviewId.value)
+  } catch (e) {
+    reviewForm.value = createEmptyReview()
+    reportError.value = e.message || '复盘记录读取失败。'
   }
 }
 
@@ -229,9 +250,17 @@ function formatDate(value) {
   return new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function saveReview() {
-  reviewForm.value = saveTrainingReviewRecord(selectedInterviewId.value, reviewForm.value)
-  saveMessage.value = '复盘记录已保存。'
+async function saveReview() {
+  if (!selectedInterviewId.value) return
+  saving.value = true
+  try {
+    reviewForm.value = await saveTrainingReview(selectedInterviewId.value, reviewForm.value)
+    saveMessage.value = '复盘记录已保存到账号。'
+  } catch (e) {
+    saveMessage.value = e.message || '复盘记录保存失败。'
+  } finally {
+    saving.value = false
+  }
 }
 </script>
 
@@ -447,6 +476,10 @@ function saveReview() {
   color: #047857;
   font-size: 13px;
   align-self: center;
+}
+
+.top-save-message {
+  margin-bottom: 12px;
 }
 
 @media (max-width: 760px) {
