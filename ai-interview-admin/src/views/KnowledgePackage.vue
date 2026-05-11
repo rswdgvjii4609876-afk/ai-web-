@@ -11,13 +11,20 @@
         <button class="btn-secondary" type="button" @click="loadTemplate">载入模板</button>
         <button class="btn-secondary" type="button" @click="downloadTemplate">下载模板 JSON</button>
         <button class="btn-secondary" type="button" @click="triggerImport">载入资料包 JSON</button>
+        <button class="btn-secondary" type="button" @click="saveDraft">保存草稿</button>
+        <button class="btn-secondary" type="button" @click="restoreDraft">恢复草稿</button>
+        <button class="btn-secondary" type="button" @click="clearDraft">清空草稿</button>
+        <button class="btn-secondary" type="button" @click="exportPreflightReport">导出预检报告</button>
         <input ref="fileInput" class="hidden-input" type="file" accept="application/json,.json" @change="handleFile" />
       </div>
     </header>
 
     <section class="notice-card">
       <strong>当前策略</strong>
-      <span>资料先人工总结，再统一上传。本页面只做预检和 Markdown 预览，不创建公共岗位画像，也不重建切片。</span>
+      <span>
+        资料先人工总结，再统一上传。本页面只做预检和 Markdown 预览，不创建公共岗位画像，也不重建切片。
+        <template v-if="hasDraft">浏览器本地已有草稿。</template>
+      </span>
     </section>
 
     <section class="layout">
@@ -98,7 +105,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 const fileInput = ref(null)
 const rawJson = ref('')
@@ -108,8 +115,10 @@ const issues = ref({ errors: [], warnings: [] })
 const selectedIndex = ref(0)
 const message = ref('')
 const messageType = ref('success')
+const hasDraft = ref(false)
 
 const AUDIT_STATUSES = ['可入库', '仅参考', '待核验', '不采用']
+const DRAFT_KEY = 'zhiqizhice:knowledge-package-draft:v1'
 
 const templatePackage = {
   version: 'knowledge_package_v1',
@@ -153,6 +162,10 @@ const summary = computed(() => {
 const selectedItem = computed(() => items.value[selectedIndex.value] || null)
 const selectedMarkdown = computed(() => selectedItem.value ? buildMarkdown(selectedItem.value) : '')
 
+onMounted(() => {
+  refreshDraftState()
+})
+
 function setMessage(text, type = 'success') {
   message.value = text
   messageType.value = type
@@ -165,6 +178,48 @@ function loadTemplate() {
 
 function downloadTemplate() {
   downloadJson(templatePackage, `knowledge-package-template-${new Date().toISOString().slice(0, 10)}.json`)
+}
+
+function saveDraft() {
+  const content = rawJson.value.trim()
+  if (!content) {
+    setMessage('当前没有可保存的资料包草稿。', 'error')
+    return
+  }
+  localStorage.setItem(DRAFT_KEY, rawJson.value)
+  refreshDraftState()
+  setMessage('资料包草稿已保存到当前浏览器。')
+}
+
+function restoreDraft() {
+  const draft = localStorage.getItem(DRAFT_KEY)
+  if (!draft) {
+    setMessage('当前浏览器没有资料包草稿。', 'error')
+    return
+  }
+  rawJson.value = draft
+  validatePackage()
+  setMessage('已恢复本地资料包草稿。')
+}
+
+function clearDraft() {
+  localStorage.removeItem(DRAFT_KEY)
+  refreshDraftState()
+  setMessage('本地资料包草稿已清空。')
+}
+
+function refreshDraftState() {
+  hasDraft.value = Boolean(localStorage.getItem(DRAFT_KEY))
+}
+
+function exportPreflightReport() {
+  if (!items.value.length && !issues.value.errors.length) {
+    setMessage('请先载入并预检资料包，再导出报告。', 'error')
+    return
+  }
+  const report = buildPreflightReport()
+  downloadJson(report, `knowledge-package-preflight-${new Date().toISOString().slice(0, 10)}.json`)
+  setMessage('预检报告已导出。')
 }
 
 function triggerImport() {
@@ -215,6 +270,34 @@ function validatePackage() {
     setMessage(`预检完成：发现 ${nextIssues.errors.length} 个错误，暂不建议入库。`, 'error')
   } else {
     setMessage(`预检完成：${packageItems.length} 个岗位条目可进入人工复核。`, 'success')
+  }
+}
+
+function buildPreflightReport() {
+  return {
+    version: 'knowledge_package_preflight_report_v1',
+    generated_at: new Date().toISOString(),
+    package_version: parsed.value?.version || '',
+    summary: summary.value,
+    errors: issues.value.errors,
+    warnings: issues.value.warnings,
+    items: items.value.map((item, index) => {
+      const experiences = normalizedExperiences(item)
+      const completion = sectionCompletion(item)
+      return {
+        index: index + 1,
+        title: item.title || '',
+        target_position: item.target_position || '',
+        section_completion: completion,
+        interview_experience_total: experiences.length,
+        approved_experience_total: experiences.filter(exp => exp.audit_status === '可入库').length,
+        pending_experience_total: experiences.filter(exp => exp.audit_status === '待核验').length,
+        reference_only_total: experiences.filter(exp => exp.audit_status === '仅参考').length,
+        rejected_total: experiences.filter(exp => exp.audit_status === '不采用').length,
+        missing_source_total: experiences.filter(exp => !exp.source).length,
+        markdown_preview: buildMarkdown(item)
+      }
+    })
   }
 }
 
