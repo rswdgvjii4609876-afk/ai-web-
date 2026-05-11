@@ -56,6 +56,9 @@
               <div class="gap-title">
                 <strong>{{ item.name }}</strong>
                 <span>优先级 {{ item.priority_score ?? '-' }}</span>
+                <span class="evidence-status" :class="evidenceStatusClass(item.evidence_status)">
+                  {{ evidenceStatusLabel(item.evidence_status) }}
+                </span>
               </div>
               <div class="level-line">
                 <span>当前 {{ item.current_level }} / 要求 {{ item.required_level }}</span>
@@ -65,6 +68,9 @@
                 <div class="level-bar-fill" :style="{ width: `${safePercent(item.match_score)}%` }"></div>
               </div>
               <p>{{ item.evidence_basis || '需要继续补充可验证经历或作品证据。' }}</p>
+              <p v-if="item.evidence_status === 'claimed_only' || item.evidence_status === 'indirect'" class="evidence-status-hint">
+                {{ evidenceStatusHint(item.evidence_status) }}
+              </p>
               <p v-if="item.source_label" class="gap-source">{{ item.source_label }}</p>
               <div v-if="item.missing_keywords?.length" class="tag-list">
                 <span v-for="keyword in item.missing_keywords.slice(0, 6)" :key="keyword" class="tag tag-missing">
@@ -140,6 +146,7 @@ import {
   upsertLearningTaskToServer,
   upsertLearningTasksToServer
 } from '../utils/learningTasks'
+import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '../utils/evidenceStatus'
 
 const route = useRoute()
 const loading = ref(true)
@@ -551,6 +558,28 @@ async function addLearningPlanTasks() {
 .tag-strength {
   color: #065f46;
   background: #d1fae5;
+}
+
+.evidence-status {
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px !important;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.evidence-status-direct { color: #065f46 !important; background: #d1fae5; }
+.evidence-status-indirect { color: #1d4ed8 !important; background: #dbeafe; }
+.evidence-status-claimed_only,
+.evidence-status-needs_verification { color: #92400e !important; background: #fef3c7; }
+.evidence-status-missing { color: #991b1b !important; background: #fee2e2; }
+
+.evidence-status-hint {
+  color: #92400e !important;
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+  padding: 6px 8px;
+  border-radius: 6px;
 }
 
 .evidence-list p {

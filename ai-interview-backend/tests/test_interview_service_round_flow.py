@@ -284,6 +284,61 @@ def test_route_question_plan_accepts_structured_resume_sections():
 
 
 @pytest.mark.unit
+def test_route_question_plan_prioritizes_declared_but_unproven_ability():
+    question_plan = InterviewService._build_question_plan(total_questions=2, difficulty="medium")
+    knowledge_base = {
+        "slices": [
+            {
+                "slice_id": 31,
+                "title": "Redis verification",
+                "content": "Redis cache consistency distributed lock troubleshooting",
+                "priority": 8,
+                "stage_tags": ["technical"],
+                "role_tags": ["technical_deep_dive"],
+                "scene_tags": ["technical_depth"],
+                "topic_tags": ["Redis", "cache"],
+                "skill_tags": ["redis", "cache"],
+                "keywords": ["redis", "cache"],
+                "source_section": "interview_experience",
+                "difficulty": "medium",
+                "is_enabled": True,
+            }
+        ]
+    }
+    matching_metrics = {
+        "ability_gap_profile": {
+            "top_gaps": [
+                {
+                    "ability_id": "backend_cache",
+                    "name": "缓存与 Redis 应用",
+                    "evidence_status": "claimed_only",
+                    "verification_priority": "high",
+                    "priority_score": 18,
+                    "verification_keywords": ["Redis"],
+                    "interview_probe_reason": "简历只声明熟悉 Redis，但缺少项目证据。",
+                }
+            ]
+        }
+    }
+
+    routed = InterviewService._route_question_plan(
+        question_plan=question_plan,
+        knowledge_base=knowledge_base,
+        parsed_resume={"skills": ["熟悉 Redis"], "projects": []},
+        target_position="Python后端开发工程师",
+        difficulty="medium",
+        matching_metrics=matching_metrics,
+    )
+
+    assert routed[0]["verification_target"]["ability_name"] == "缓存与 Redis 应用"
+    assert routed[0]["verification_target"]["evidence_status"] == "claimed_only"
+    assert "验证缓存与 Redis 应用掌握程度" in routed[0]["evaluation_focus"]
+    assert "Redis" in routed[0]["question_target_gap"]
+    qa_data = InterviewService._build_qa_data([{**routed[0], "question": "How have you used Redis?", "answer": "I used it in cache."}])
+    assert qa_data[0]["verification_target"]["ability_name"] == "缓存与 Redis 应用"
+
+
+@pytest.mark.unit
 def test_apply_blueprint_to_question_plan_adds_track_and_traceable_fields():
     question_plan = [
         {

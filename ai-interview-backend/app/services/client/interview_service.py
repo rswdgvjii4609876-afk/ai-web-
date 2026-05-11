@@ -696,6 +696,53 @@ class InterviewService:
         return "\n".join(part for part in parts if part)
 
     @staticmethod
+    def _ability_verification_targets(matching_metrics: Optional[Dict]) -> List[Dict]:
+        profile = (matching_metrics or {}).get("ability_gap_profile") or {}
+        raw_items = profile.get("top_gaps") or profile.get("items") or []
+        if not isinstance(raw_items, list):
+            return []
+        priority_rank = {"high": 0, "medium": 1, "low": 2}
+        targets: List[Dict] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            evidence_status = item.get("evidence_status") or "needs_verification"
+            verification_keywords = item.get("verification_keywords") or []
+            related_matches = item.get("related_matches") or []
+            missing_keywords = item.get("missing_keywords") or []
+            should_verify = (
+                evidence_status in {"claimed_only", "indirect", "missing", "needs_verification"}
+                or verification_keywords
+                or related_matches
+                or missing_keywords
+            )
+            if not should_verify:
+                continue
+            keywords = [
+                str(value).strip()
+                for value in [*verification_keywords, *related_matches, *missing_keywords]
+                if str(value).strip()
+            ]
+            targets.append(
+                {
+                    "ability_id": item.get("ability_id"),
+                    "ability_name": item.get("name") or item.get("ability_name") or "岗位关键能力",
+                    "evidence_status": evidence_status,
+                    "verification_priority": item.get("verification_priority") or "medium",
+                    "priority_score": item.get("priority_score") or 0,
+                    "reason": item.get("interview_probe_reason") or item.get("evidence_basis") or "",
+                    "keywords": keywords[:8],
+                }
+            )
+        return sorted(
+            targets,
+            key=lambda item: (
+                priority_rank.get(str(item.get("verification_priority") or "medium"), 1),
+                -float(item.get("priority_score") or 0),
+            ),
+        )[:8]
+
+    @staticmethod
     def _build_question_plan(total_questions: int, difficulty: str) -> List[Dict]:
         order = QUESTION_ORDERS.get(difficulty, QUESTION_ORDERS["medium"])
         plan = []
@@ -712,24 +759,61 @@ class InterviewService:
         parsed_resume: Dict,
         target_position: str,
         difficulty: str,
+        matching_metrics: Optional[Dict] = None,
     ) -> List[Dict]:
+        verification_targets = InterviewService._ability_verification_targets(matching_metrics)
+
+        def target_for(index: int) -> Optional[Dict]:
+            if not verification_targets:
+                return None
+            return verification_targets[index % len(verification_targets)]
+
+        def enrich_item(item: Dict, index: int, selected: Optional[List[Dict]] = None) -> Dict:
+            verification_target = target_for(index)
+            evaluation_focus = list(item.get("evaluation_focus") or [])
+            if verification_target:
+                ability_name = verification_target.get("ability_name") or "岗位关键能力"
+                focus_text = f"验证{ability_name}掌握程度"
+                if focus_text not in evaluation_focus:
+                    evaluation_focus.append(focus_text)
+            return {
+                **item,
+                "evaluation_focus": evaluation_focus,
+                "verification_target": verification_target,
+                "question_target_gap": (verification_target or {}).get("reason") or item.get("question_target_gap"),
+                "question_reason": (verification_target or {}).get("reason") or item.get("question_reason"),
+                "selected_slices": selected or [],
+            }
+
         if not knowledge_base:
-            return [{**item, "selected_slices": []} for item in question_plan]
+            return [enrich_item(item, index) for index, item in enumerate(question_plan)]
 
         slices = knowledge_base.get("slices") or []
         if not slices:
-            return [{**item, "selected_slices": []} for item in question_plan]
+            return [enrich_item(item, index) for index, item in enumerate(question_plan)]
 
         routed = []
         top_k = 2 if len(question_plan) >= 7 else 3
         resume_text = InterviewService._resume_route_text(parsed_resume)
         resume_skills = InterviewService._route_values_to_texts(parsed_resume.get("skills"), 12)
         resume_projects = InterviewService._route_values_to_texts(parsed_resume.get("projects"), 6)
-        for item in question_plan:
+        for index, item in enumerate(question_plan):
+            verification_target = target_for(index)
+            verification_text = ""
+            if verification_target:
+                verification_text = "\n".join(
+                    [
+                        str(verification_target.get("ability_name") or ""),
+                        str(verification_target.get("evidence_status") or ""),
+                        str(verification_target.get("reason") or ""),
+                        " ".join(verification_target.get("keywords") or []),
+                    ]
+                )
             query_text = "\n".join(
                 [
                     target_position,
                     resume_text,
+                    verification_text,
                     item.get("intent") or "",
                     " ".join(item.get("evaluation_focus") or []),
                 ]
@@ -761,12 +845,7 @@ class InterviewService:
                 knowledge_base["slice_count"] = 0
                 knowledge_base["routing_strategy"] = "full_text_fallback"
                 selected = []
-            routed.append(
-                {
-                    **item,
-                    "selected_slices": [InterviewService._compact_slice(slice_item) for slice_item in selected],
-                }
-            )
+            routed.append(enrich_item(item, index, [InterviewService._compact_slice(slice_item) for slice_item in selected]))
         return routed
 
     @staticmethod
@@ -839,10 +918,11 @@ class InterviewService:
                 "difficulty_hint": raw.get("difficulty_hint"),
                 "panel_context": raw.get("panel_context") or {},
                 "panel_reasoning_summary": raw.get("panel_reasoning_summary"),
-                "question_target_gap": raw.get("question_target_gap"),
+                "verification_target": raw.get("verification_target") or plan.get("verification_target"),
+                "question_target_gap": raw.get("question_target_gap") or plan.get("question_target_gap"),
                 "question_target_evidence": raw.get("question_target_evidence") or [],
                 "question_target_evidence_ids": raw.get("question_target_evidence_ids") or [],
-                "question_reason": raw.get("question_reason"),
+                "question_reason": raw.get("question_reason") or plan.get("question_reason"),
                 "interview_mode": interview_mode,
                 "answer": None,
                 "score": None,
@@ -914,6 +994,7 @@ class InterviewService:
                     "evidence_trace": question.get("evidence_trace") or [],
                     "evidence_summary": question.get("evidence_summary") or [],
                     "question_target_gap": question.get("question_target_gap"),
+                    "verification_target": question.get("verification_target"),
                     "question_target_evidence": question.get("question_target_evidence") or [],
                     "question_target_evidence_ids": question.get("question_target_evidence_ids") or [],
                     "question_reason": question.get("question_reason"),
@@ -1976,6 +2057,12 @@ class InterviewService:
             raise ValidationError(message="简历尚未解析完成")
 
         parsed_resume = InterviewService._load_resume_payload(resume)
+        resume_analysis = InterviewService._load_resume_analysis_payload(resume)
+        matching_metrics = resume_analysis.get("matching_metrics") if isinstance(resume_analysis, dict) else {}
+        if not isinstance(matching_metrics, dict):
+            matching_metrics = {}
+        if resume_analysis.get("ability_gap_profile") and not matching_metrics.get("ability_gap_profile"):
+            matching_metrics["ability_gap_profile"] = resume_analysis["ability_gap_profile"]
         knowledge_base_context = await InterviewService._resolve_knowledge_base(
             db=db,
             user_id=user_id,
@@ -1988,6 +2075,7 @@ class InterviewService:
             parsed_resume=parsed_resume,
             target_position=target_position,
             difficulty=difficulty,
+            matching_metrics=matching_metrics,
         )
         resume_evidence = InterviewService._load_resume_evidence(resume)
         try:

@@ -21,6 +21,47 @@ RouteStageResolver = Callable[[str, str, Optional[str]], Optional[Dict[str, Any]
 
 class MatchingEngine:
     VERSION = "lightweight_matching_v1"
+    KEYWORD_ALIASES: Dict[str, List[str]] = {
+        "sql": ["mysql", "postgresql", "sqlite", "数据库", "索引", "事务", "查询", "sqlalchemy", "orm"],
+        "mysql": ["sql", "数据库", "索引", "事务"],
+        "postgresql": ["sql", "数据库", "索引", "事务"],
+        "数据库": ["sql", "mysql", "postgresql", "索引", "事务", "查询", "orm"],
+        "fastapi": ["pythonweb", "python web", "后端接口", "接口开发", "api", "rest", "django", "flask"],
+        "python": ["py", "pandas", "脚本", "自动化脚本"],
+        "redis": ["缓存", "cache", "分布式锁", "缓存一致性", "kv"],
+        "缓存": ["redis", "cache", "缓存一致性"],
+        "docker": ["容器", "容器化", "compose", "dockercompose", "部署"],
+        "celery": ["异步任务", "任务队列", "消息队列", "队列"],
+        "异步": ["async", "asyncio", "异步任务", "celery"],
+        "接口": ["api", "rest", "http", "后端接口", "接口设计", "接口开发"],
+        "http": ["接口", "api", "rest", "网络"],
+        "并发": ["线程", "多线程", "协程", "asyncio", "并行"],
+        "系统设计": ["架构", "高并发", "可扩展", "限流", "降级", "分布式"],
+        "线上排障": ["排障", "故障", "日志", "监控", "定位问题", "debug", "troubleshooting"],
+        "java": ["jvm", "spring", "spring boot", "springboot", "后端"],
+        "spring": ["spring boot", "springboot", "spring mvc", "spring cloud", "java后端"],
+        "jvm": ["gc", "垃圾回收", "内存", "虚拟机", "java"],
+        "线程": ["并发", "多线程", "线程池", "thread", "executor"],
+        "消息队列": ["mq", "kafka", "rabbitmq", "rocketmq", "celery", "队列"],
+        "javascript": ["js", "typescript", "ts", "ecmascript"],
+        "typescript": ["javascript", "js", "ts"],
+        "vue": ["vue2", "vue3", "vue.js", "pinia", "vuex"],
+        "react": ["react.js", "hooks", "next.js"],
+        "测试用例": ["用例设计", "测试设计", "testcase", "case design"],
+        "接口测试": ["api测试", "postman", "pytest", "自动化测试"],
+        "自动化": ["pytest", "selenium", "playwright", "自动化测试", "脚本"],
+        "机器学习": ["ml", "sklearn", "scikit-learn", "模型", "算法"],
+        "深度学习": ["dl", "pytorch", "tensorflow", "神经网络"],
+        "embedding": ["向量", "语义向量", "rag", "检索增强"],
+        "excel": ["表格", "数据透视表", "vlookup", "函数", "透视表"],
+        "可视化": ["dashboard", "图表", "bi", "tableau", "powerbi", "报表"],
+        "产品": ["prd", "原型", "用户故事", "需求"],
+        "需求": ["需求分析", "prd", "用户故事", "痛点"],
+        "原型": ["axure", "figma", "墨刀", "交互稿"],
+        "运营": ["活动", "用户增长", "社群", "内容", "转化"],
+        "招聘": ["候选人", "简历筛选", "邀约", "面试安排"],
+        "行政": ["会议", "办公软件", "资产", "采购", "流程"],
+    }
 
     @classmethod
     def evaluate(
@@ -36,9 +77,14 @@ class MatchingEngine:
         profile_text = cls._profile_to_text(profile, target_position)
         keywords = cls._profile_keywords(profile, target_position)
 
-        matched_keywords = cls._matched_keywords(resume_text, keywords)
-        missing_keywords = [item for item in keywords if item not in matched_keywords]
-        keyword_coverage_value = round(len(matched_keywords) / max(len(keywords), 1), 4)
+        keyword_breakdown = cls._keyword_match_breakdown(
+            parsed_resume=parsed_resume,
+            resume_evidence=resume_evidence,
+            keywords=keywords,
+        )
+        matched_keywords = keyword_breakdown["matched"]
+        missing_keywords = keyword_breakdown["missing"]
+        keyword_coverage_value = round(keyword_breakdown["weighted_score"] / 100, 4)
         keyword_score = round(keyword_coverage_value * 100, 1)
         semantic_score = cls._tfidf_cosine_score(resume_text, profile_text)
         rule_score = cls._rule_score(
@@ -50,10 +96,10 @@ class MatchingEngine:
         )
         llm_score = cls._extract_llm_score(llm_analysis)
         final_score = round(
-            keyword_score * 0.30
-            + semantic_score * 0.30
+            keyword_score * 0.20
+            + semantic_score * 0.35
             + rule_score * 0.30
-            + (llm_score if llm_score is not None else rule_score) * 0.10,
+            + (llm_score if llm_score is not None else rule_score) * 0.15,
             1,
         )
         ability_gap_profile = cls._ability_gap_profile(
@@ -85,13 +131,17 @@ class MatchingEngine:
                 "total": len(keywords),
                 "matched": matched_keywords[:12],
                 "missing": missing_keywords[:12],
+                "direct_matches": keyword_breakdown["direct_matches"][:12],
+                "related_matches": keyword_breakdown["related_matches"][:12],
+                "verification_needed": keyword_breakdown["verification_needed"][:12],
+                "evidence_statuses": keyword_breakdown["evidence_statuses"][:24],
             },
             "tfidf_semantic_score": semantic_score,
             "semantic_score": semantic_score,
             "rule_score": rule_score,
             "llm_score_reference": llm_score,
             "final_score": final_score,
-            "score_formula": "30% keyword coverage + 30% semantic similarity (embedding preferred, TF-IDF fallback) + 30% rule score + 10% LLM reference score",
+            "score_formula": "20% normalized keyword evidence + 35% semantic similarity (embedding preferred, TF-IDF fallback) + 30% rule score + 15% LLM reference score",
             "evidence_basis": cls._evidence_basis(
                 parsed_resume=parsed_resume,
                 matched_keywords=matched_keywords,
@@ -133,10 +183,10 @@ class MatchingEngine:
         except (TypeError, ValueError):
             llm_component = float(rule_score or 0)
         return round(
-            float(keyword_score) * 0.30
-            + semantic * 0.30
+            float(keyword_score) * 0.20
+            + semantic * 0.35
             + float(rule_score) * 0.30
-            + llm_component * 0.10,
+            + llm_component * 0.15,
             1,
         )
 
@@ -196,6 +246,45 @@ class MatchingEngine:
         walk(parsed_resume or {})
         return " ".join(chunks)
 
+    @classmethod
+    def _resume_evidence_sections(
+        cls,
+        parsed_resume: Dict[str, Any],
+        resume_evidence: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        proof_keys = (
+            "projects",
+            "project_experience",
+            "experience",
+            "work_experience",
+            "internships",
+            "employment",
+            "jobs",
+            "research",
+            "portfolio",
+        )
+        claim_keys = (
+            "skills",
+            "technical_skills",
+            "summary",
+            "certifications",
+            "education",
+            "awards",
+        )
+        proof_parts = [cls._resume_to_text(parsed_resume.get(key) or {}) for key in proof_keys if isinstance(parsed_resume, dict)]
+        claim_parts = [cls._resume_to_text(parsed_resume.get(key) or {}) for key in claim_keys if isinstance(parsed_resume, dict)]
+        evidence = resume_evidence if isinstance(resume_evidence, dict) else {}
+        proof_parts.extend(cls._resume_to_text(evidence.get(key) or {}) for key in ("projects", "metrics", "followup_candidates"))
+        claim_parts.extend(cls._resume_to_text(evidence.get(key) or {}) for key in ("skills", "ambiguity_flags", "missing_evidence_flags"))
+        all_text = cls._resume_to_text(parsed_resume or {})
+        if evidence:
+            all_text = " ".join([all_text, cls._resume_to_text(evidence)])
+        return {
+            "proof": " ".join(part for part in proof_parts if part),
+            "claim": " ".join(part for part in claim_parts if part),
+            "all": all_text,
+        }
+
     @staticmethod
     def _profile_to_text(profile: Dict[str, Any], target_position: str) -> str:
         parts: List[str] = [target_position or "", profile.get("job_name", "")]
@@ -216,6 +305,86 @@ class MatchingEngine:
             if item and item not in ordered:
                 ordered.append(item)
         return ordered[:24]
+
+    @classmethod
+    def _keyword_terms(cls, keyword: str) -> List[str]:
+        base = str(keyword or "").strip()
+        normalized = cls._normalize_text(base)
+        aliases = list(cls.KEYWORD_ALIASES.get(normalized, []))
+        for key, values in cls.KEYWORD_ALIASES.items():
+            if normalized in [cls._normalize_text(value) for value in values] and key not in aliases:
+                aliases.append(key)
+        terms: List[str] = []
+        for item in [base, *aliases]:
+            text = str(item or "").strip()
+            if text and text not in terms:
+                terms.append(text)
+        return terms
+
+    @classmethod
+    def _contains_term(cls, text: str, term: str) -> bool:
+        normalized_term = cls._normalize_text(term)
+        return bool(normalized_term and normalized_term in cls._normalize_text(text or ""))
+
+    @classmethod
+    def _keyword_evidence_status(cls, sections: Dict[str, str], keyword: str) -> Dict[str, Any]:
+        terms = cls._keyword_terms(keyword)
+        base = terms[0] if terms else str(keyword)
+        aliases = terms[1:]
+        direct_terms = [term for term in [base] if cls._contains_term(sections.get("proof", ""), term)]
+        related_terms = [term for term in aliases if cls._contains_term(sections.get("proof", ""), term)]
+        claimed_terms = [
+            term for term in terms
+            if cls._contains_term(sections.get("claim", ""), term)
+            or (cls._contains_term(sections.get("all", ""), term) and term not in direct_terms and term not in related_terms)
+        ]
+        if direct_terms:
+            status = "direct"
+            weight = 1.0
+            matched_term = direct_terms[0]
+        elif related_terms:
+            status = "indirect"
+            weight = 0.75
+            matched_term = related_terms[0]
+        elif claimed_terms:
+            status = "claimed_only"
+            weight = 0.45
+            matched_term = claimed_terms[0]
+        else:
+            status = "missing"
+            weight = 0.0
+            matched_term = ""
+        return {
+            "keyword": str(keyword),
+            "status": status,
+            "matched_term": matched_term,
+            "matched_terms": [*direct_terms, *related_terms, *claimed_terms],
+            "weight": weight,
+        }
+
+    @classmethod
+    def _keyword_match_breakdown(
+        cls,
+        parsed_resume: Dict[str, Any],
+        resume_evidence: Optional[Dict[str, Any]],
+        keywords: List[str],
+    ) -> Dict[str, Any]:
+        sections = cls._resume_evidence_sections(parsed_resume, resume_evidence)
+        statuses = [cls._keyword_evidence_status(sections, keyword) for keyword in keywords]
+        direct = [item["keyword"] for item in statuses if item["status"] == "direct"]
+        related = [item["keyword"] for item in statuses if item["status"] == "indirect"]
+        verification = [item["keyword"] for item in statuses if item["status"] == "claimed_only"]
+        missing = [item["keyword"] for item in statuses if item["status"] == "missing"]
+        weighted_score = round(sum(item["weight"] for item in statuses) / max(len(statuses), 1) * 100, 1)
+        return {
+            "weighted_score": weighted_score,
+            "matched": [*direct, *related, *verification],
+            "direct_matches": direct,
+            "related_matches": related,
+            "verification_needed": verification,
+            "missing": missing,
+            "evidence_statuses": statuses,
+        }
 
     @classmethod
     def _ability_model(cls, profile: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -274,20 +443,39 @@ class MatchingEngine:
             improvability = cls._bounded_float(ability.get("improvability"), default=1.0, lower=0.1, upper=2.0)
             keywords = cls._clean_string_list(ability.get("keywords"))
             evidence_hints = cls._clean_string_list(ability.get("evidence_hints"))
-            matched_keywords = cls._matched_keywords(evidence_text, keywords)
+            keyword_breakdown = cls._keyword_match_breakdown(
+                parsed_resume=parsed_resume or {},
+                resume_evidence=resume_evidence,
+                keywords=keywords,
+            )
+            direct_keywords = keyword_breakdown["direct_matches"]
+            related_keywords = keyword_breakdown["related_matches"]
+            verification_keywords = keyword_breakdown["verification_needed"]
+            matched_keywords = keyword_breakdown["matched"]
             matched_hints = cls._matched_keywords(evidence_text, evidence_hints)
-            keyword_ratio = len(matched_keywords) / max(len(keywords), 1)
+            keyword_ratio = keyword_breakdown["weighted_score"] / 100
+            proof_ratio = (len(direct_keywords) + len(related_keywords) * 0.75) / max(len(keywords), 1)
+            claimed_ratio = len(verification_keywords) / max(len(keywords), 1)
             hint_bonus = min(len(matched_hints) * 0.35, 0.8)
-            current_level = 1.0 + keyword_ratio * 3.2 + hint_bonus
-            if matched_keywords and keyword_ratio >= 0.75:
+            current_level = 1.0 + proof_ratio * 3.0 + claimed_ratio * 1.0 + hint_bonus
+            if matched_keywords and proof_ratio >= 0.75:
                 current_level += 0.3
             if not matched_keywords and not matched_hints:
                 current_level = 1.0
+            if verification_keywords and not direct_keywords and not related_keywords:
+                current_level = min(current_level, 2.3)
             current_level = round(min(max(current_level, 1.0), 5.0), 1)
             gap = round(max(required_level - current_level, 0.0), 1)
             match_score = round(min(current_level / max(required_level, 1.0), 1.0) * 100, 1)
-            priority_score = round(weight * gap * improvability * 20, 1)
-            missing_keywords = [item for item in keywords if item not in matched_keywords]
+            verification_bonus = 0.7 if verification_keywords else 0.3 if related_keywords and gap > 0 else 0.0
+            priority_score = round(weight * (gap + verification_bonus) * improvability * 20, 1)
+            missing_keywords = keyword_breakdown["missing"]
+            evidence_status = cls._ability_evidence_status(
+                direct_keywords=direct_keywords,
+                related_keywords=related_keywords,
+                verification_keywords=verification_keywords,
+                missing_keywords=missing_keywords,
+            )
             weighted_total += match_score * weight
             weight_sum += weight
             results.append(
@@ -302,9 +490,24 @@ class MatchingEngine:
                     "priority_score": priority_score,
                     "match_score": match_score,
                     "matched_keywords": matched_keywords[:8],
+                    "direct_matches": direct_keywords[:8],
+                    "related_matches": related_keywords[:8],
+                    "verification_keywords": verification_keywords[:8],
                     "missing_keywords": missing_keywords[:8],
+                    "evidence_status": evidence_status,
+                    "verification_priority": cls._verification_priority(evidence_status, priority_score),
+                    "interview_probe_reason": cls._interview_probe_reason(
+                        ability_name=str(ability.get("name") or "岗位能力"),
+                        evidence_status=evidence_status,
+                        verification_keywords=verification_keywords,
+                        related_keywords=related_keywords,
+                        missing_keywords=missing_keywords,
+                    ),
                     "evidence_basis": cls._ability_evidence_basis(
-                        matched_keywords=matched_keywords,
+                        direct_keywords=direct_keywords,
+                        related_keywords=related_keywords,
+                        verification_keywords=verification_keywords,
+                        missing_keywords=missing_keywords,
                         matched_hints=matched_hints,
                         gap=gap,
                     ),
@@ -523,16 +726,70 @@ class MatchingEngine:
 
     @staticmethod
     def _ability_evidence_basis(
-        matched_keywords: List[str],
+        direct_keywords: List[str],
+        related_keywords: List[str],
+        verification_keywords: List[str],
+        missing_keywords: List[str],
         matched_hints: List[str],
         gap: float,
     ) -> str:
-        if matched_keywords or matched_hints:
-            evidence = "、".join([*matched_keywords[:4], *matched_hints[:2]])
+        if direct_keywords:
+            evidence = "、".join([*direct_keywords[:4], *matched_hints[:2]])
             if gap > 0:
-                return f"已有部分证据：{evidence}；但仍需补充更直接的项目、任务或结果证明。"
-            return f"已有较充分证据：{evidence}。"
+                return f"已有直接证据：{evidence}；仍需通过面试确认掌握深度、责任边界和结果。"
+            return f"已有较充分直接证据：{evidence}。"
+        if related_keywords:
+            evidence = "、".join([*related_keywords[:4], *matched_hints[:2]])
+            return f"已有间接相关证据：{evidence}；不能直接等同于完全掌握，建议面试追问迁移能力。"
+        if verification_keywords:
+            evidence = "、".join(verification_keywords[:4])
+            return f"简历声明涉及：{evidence}；但缺少项目、职责或结果支撑，应通过面试验证掌握程度。"
+        if missing_keywords:
+            evidence = "、".join(missing_keywords[:4])
+            return f"简历暂未提供足够证据：{evidence}；建议用基础理解题和场景题继续验证。"
         return "简历中暂未识别到直接证据，后续应通过学习任务、项目补充或面试追问继续验证。"
+
+    @staticmethod
+    def _ability_evidence_status(
+        direct_keywords: List[str],
+        related_keywords: List[str],
+        verification_keywords: List[str],
+        missing_keywords: List[str],
+    ) -> str:
+        if direct_keywords and not missing_keywords:
+            return "direct"
+        if direct_keywords or related_keywords:
+            return "indirect"
+        if verification_keywords:
+            return "claimed_only"
+        return "missing"
+
+    @staticmethod
+    def _verification_priority(evidence_status: str, priority_score: float) -> str:
+        if evidence_status in {"claimed_only", "indirect"}:
+            return "high" if priority_score >= 12 else "medium"
+        if evidence_status == "missing":
+            return "medium" if priority_score >= 10 else "low"
+        return "low"
+
+    @staticmethod
+    def _interview_probe_reason(
+        ability_name: str,
+        evidence_status: str,
+        verification_keywords: List[str],
+        related_keywords: List[str],
+        missing_keywords: List[str],
+    ) -> str:
+        if evidence_status == "claimed_only":
+            terms = "、".join(verification_keywords[:4]) or ability_name
+            return f"简历声明涉及 {terms}，但缺少项目或职责证据，面试需验证真实掌握程度。"
+        if evidence_status == "indirect":
+            terms = "、".join(related_keywords[:4]) or ability_name
+            return f"简历存在 {terms} 等间接证据，面试需追问是否能迁移到目标岗位要求。"
+        if evidence_status == "missing":
+            terms = "、".join(missing_keywords[:4]) or ability_name
+            return f"简历暂未提供 {terms} 的明确证据，面试需用基础理解和场景题确认学习空间。"
+        return f"简历已有较直接证据，面试可继续深挖 {ability_name} 的责任边界、技术取舍和结果。"
 
     @staticmethod
     def _normalize_text(text: str) -> str:
@@ -614,10 +871,10 @@ class MatchingEngine:
         llm_component = llm_score if llm_score is not None else 65
 
         return round(
-            keyword_score * 0.28
-            + semantic_score * 0.22
+            keyword_score * 0.18
+            + semantic_score * 0.27
             + completeness * 0.20
-            + evidence_strength * 0.20
+            + evidence_strength * 0.25
             + llm_component * 0.10,
             1,
         )

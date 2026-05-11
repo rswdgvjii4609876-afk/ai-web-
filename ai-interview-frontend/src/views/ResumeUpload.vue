@@ -144,11 +144,17 @@
                 <div class="ability-gap-head">
                   <strong>{{ item.name }}</strong>
                   <span>优先级 {{ item.priority_score }}</span>
+                  <span class="evidence-status" :class="evidenceStatusClass(item.evidence_status)">
+                    {{ evidenceStatusLabel(item.evidence_status) }}
+                  </span>
                 </div>
                 <div class="ability-gap-meta">
                   当前 {{ item.current_level }} / 要求 {{ item.required_level }} · 差距 {{ item.gap }} · 匹配 {{ item.match_score }}%
                 </div>
                 <p>{{ item.evidence_basis }}</p>
+                <p v-if="item.evidence_status === 'claimed_only' || item.evidence_status === 'indirect'" class="evidence-status-hint">
+                  {{ evidenceStatusHint(item.evidence_status) }}
+                </p>
               </div>
             </div>
           </div>
@@ -370,6 +376,7 @@ import { uploadResume, getResume } from '../api/resume'
 import { startInterview } from '../api/interview'
 import { getKnowledgeBases } from '../api/knowledgeBase'
 import { getProfile, testAiConnection } from '../api/user'
+import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '../utils/evidenceStatus'
 import { taskFromLearningPlan, upsertLearningTasksToServer } from '../utils/learningTasks'
 
 const router = useRouter()
@@ -1209,6 +1216,24 @@ async function handleStart() {
 .tag { padding: 3px 10px; border-radius: 12px; font-size: 12px; }
 .tag-green { background: #d1fae5; color: #065f46; }
 .tag-red { background: #fee2e2; color: #991b1b; }
+.evidence-status {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px !important;
+  font-weight: 600;
+}
+.evidence-status-direct { color: #065f46 !important; background: #d1fae5; }
+.evidence-status-indirect { color: #1d4ed8 !important; background: #dbeafe; }
+.evidence-status-claimed_only,
+.evidence-status-needs_verification { color: #92400e !important; background: #fef3c7; }
+.evidence-status-missing { color: #991b1b !important; background: #fee2e2; }
+.evidence-status-hint {
+  color: #92400e !important;
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
 .analysis-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px; }
 .analysis-two-col ul, .analysis-section ul { list-style: none; padding: 0; }
 .analysis-two-col li, .analysis-section li {

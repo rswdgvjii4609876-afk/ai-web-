@@ -206,3 +206,136 @@ def test_non_technical_learning_plan_uses_case_or_document_tasks_not_demo():
     assert all(task["route_source"] == "project_builtin_product_position_route" for task in tasks)
     assert any(task["task_type"] in {"case_practice", "document_output", "scenario_practice"} for task in tasks)
     assert all("小 Demo" not in task["practice_task"] for task in tasks)
+
+
+@pytest.mark.unit
+def test_sql_aliases_do_not_mark_database_evidence_as_missing():
+    metrics = matching_engine.evaluate(
+        parsed_resume={
+            "skills": ["Python", "MySQL", "PostgreSQL"],
+            "projects": [
+                {
+                    "name": "Backend service",
+                    "description": "Built database access layer with MySQL indexes, PostgreSQL transactions, and ORM models.",
+                }
+            ],
+        },
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 6},
+        resume_evidence={"projects": ["MySQL indexes and PostgreSQL transactions"]},
+    )
+
+    coverage = metrics["keyword_coverage"]
+    assert "SQL" in coverage["direct_matches"] or "SQL" in coverage["related_matches"]
+    assert "SQL" not in coverage["missing"]
+
+
+@pytest.mark.unit
+def test_claimed_redis_requires_interview_verification_not_full_credit():
+    metrics = matching_engine.evaluate(
+        parsed_resume={
+            "skills": ["Python", "熟悉 Redis"],
+            "projects": [{"name": "Campus site", "description": "Built static pages and collected user feedback."}],
+        },
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 5},
+        resume_evidence={"skills": ["熟悉 Redis"]},
+    )
+
+    coverage = metrics["keyword_coverage"]
+    assert "Redis" in coverage["verification_needed"]
+    assert "Redis" not in coverage["direct_matches"]
+    redis_items = [
+        item
+        for item in metrics["ability_gap_profile"]["items"]
+        if "Redis" in item.get("verification_keywords", []) or "缓存" in item.get("verification_keywords", [])
+    ]
+    assert redis_items
+    assert any(item["evidence_status"] == "claimed_only" for item in redis_items)
+
+
+@pytest.mark.unit
+def test_backend_project_without_fastapi_can_be_related_evidence():
+    metrics = matching_engine.evaluate(
+        parsed_resume={
+            "skills": ["Python", "SQL"],
+            "projects": [
+                {
+                    "name": "Internal API",
+                    "description": "Designed REST API endpoints, database queries, and backend service logic in Python.",
+                }
+            ],
+        },
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 6},
+        resume_evidence={"projects": ["REST API backend service with database queries"]},
+    )
+
+    coverage = metrics["keyword_coverage"]
+    assert "FastAPI" in coverage["related_matches"]
+    assert "FastAPI" not in coverage["missing"]
+
+
+@pytest.mark.unit
+def test_frontend_aliases_treat_typescript_as_javascript_evidence():
+    metrics = matching_engine.evaluate(
+        parsed_resume={
+            "skills": ["TypeScript", "React", "Vite"],
+            "projects": [
+                {
+                    "name": "Component library",
+                    "description": "Built React hooks and Vite components with TypeScript.",
+                }
+            ],
+        },
+        target_position="前端开发工程师",
+        llm_analysis={"overall_score": 6},
+        resume_evidence={"projects": ["React hooks and Vite components with TypeScript"]},
+    )
+
+    coverage = metrics["keyword_coverage"]
+    assert "JavaScript" in coverage["related_matches"] or "JavaScript" in coverage["direct_matches"]
+    assert "JavaScript" not in coverage["missing"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("target_position", "parsed_resume", "expected_keyword"),
+    [
+        (
+            "Java后端开发工程师",
+            {
+                "skills": ["Java", "Spring Boot", "JVM"],
+                "projects": [{"description": "Built Spring Boot service and tuned JVM memory usage."}],
+            },
+            "Spring",
+        ),
+        (
+            "测试工程师",
+            {
+                "skills": ["Postman", "Pytest"],
+                "projects": [{"description": "Used Postman for API checks and Pytest for automated regression scripts."}],
+            },
+            "接口测试",
+        ),
+        (
+            "数据分析师",
+            {
+                "skills": ["Excel", "PowerBI"],
+                "projects": [{"description": "Created Excel pivot tables and PowerBI dashboard for conversion analysis."}],
+            },
+            "可视化",
+        ),
+    ],
+)
+def test_multi_position_aliases_reduce_false_missing(target_position, parsed_resume, expected_keyword):
+    metrics = matching_engine.evaluate(
+        parsed_resume=parsed_resume,
+        target_position=target_position,
+        llm_analysis={"overall_score": 6},
+        resume_evidence={"projects": parsed_resume.get("projects") or []},
+    )
+
+    coverage = metrics["keyword_coverage"]
+    assert expected_keyword in coverage["direct_matches"] or expected_keyword in coverage["related_matches"]
+    assert expected_keyword not in coverage["missing"]

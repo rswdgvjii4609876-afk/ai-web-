@@ -45,9 +45,15 @@
             <div class="ability-gap-head">
               <strong>{{ item.name }}</strong>
               <span>优先级 {{ item.priority_score }}</span>
+              <span class="evidence-status" :class="evidenceStatusClass(item.evidence_status)">
+                {{ evidenceStatusLabel(item.evidence_status) }}
+              </span>
             </div>
             <p>当前 {{ item.current_level }} / 要求 {{ item.required_level }}，差距 {{ item.gap }}，匹配 {{ item.match_score }}%。</p>
             <p class="ability-gap-evidence">{{ item.evidence_basis }}</p>
+            <p v-if="item.evidence_status === 'claimed_only' || item.evidence_status === 'indirect'" class="evidence-status-hint">
+              {{ evidenceStatusHint(item.evidence_status) }}
+            </p>
             <button class="task-add-btn" type="button" @click="addGapTask(item)">加入学习任务</button>
           </div>
         </div>
@@ -218,6 +224,7 @@ import {
   upsertLearningTaskToServer,
   upsertLearningTasksToServer
 } from '../utils/learningTasks'
+import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '../utils/evidenceStatus'
 
 const route = useRoute()
 const interviewId = route.params.id
@@ -420,6 +427,27 @@ onMounted(async () => {
   color: #1d4ed8;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.evidence-status {
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px !important;
+  font-weight: 600;
+}
+
+.evidence-status-direct { color: #065f46 !important; background: #d1fae5; }
+.evidence-status-indirect { color: #1d4ed8 !important; background: #dbeafe; }
+.evidence-status-claimed_only,
+.evidence-status-needs_verification { color: #92400e !important; background: #fef3c7; }
+.evidence-status-missing { color: #991b1b !important; background: #fee2e2; }
+
+.evidence-status-hint {
+  color: #92400e !important;
+  background: #fffbeb;
+  border-left: 3px solid #f59e0b;
+  padding: 6px 8px;
+  border-radius: 6px;
 }
 
 .ability-gap-item p {
