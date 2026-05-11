@@ -11,6 +11,7 @@ from app.constants.competition import POSITION_PROFILES
 from app.constants.learning_routes import iter_builtin_learning_route_stage_records
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.models.learning_route_stage import LearningRouteStage
+from app.utils.db_error_messages import user_facing_db_error
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +45,17 @@ class LearningRouteService:
 
     @classmethod
     def _normalize_payload(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        route_kind = cls._text(data.get("route_kind"), 30) or "template"
+        if route_kind not in {"template", "mature_plan"}:
+            route_kind = "template"
         return {
             "job_id": cls._text(data.get("job_id"), 100),
             "job_name": cls._text(data.get("job_name"), 255),
             "category": cls._text(data.get("category"), 100),
             "route_source": cls._text(data.get("route_source"), 120) or "backoffice_learning_route",
             "route_stage": cls._text(data.get("route_stage"), 120) or "custom_stage",
+            "route_kind": route_kind,
+            "plan_group": cls._text(data.get("plan_group"), 120),
             "stage_title": cls._text(data.get("stage_title") or data.get("title"), 255) or "学习路线阶段",
             "material_type": cls._text(data.get("material_type"), 100) or "custom_route",
             "task_type": cls._text(data.get("task_type"), 80) or "case_practice",
@@ -58,6 +64,8 @@ class LearningRouteService:
             "learning_material": cls._text(data.get("learning_material") or data.get("material")),
             "practice_task": cls._text(data.get("practice_task")),
             "acceptance_criteria": cls._string_list(data.get("acceptance_criteria")),
+            "resource_requirement": cls._text(data.get("resource_requirement")),
+            "generation_prompt": cls._text(data.get("generation_prompt")),
             "is_active": bool(data.get("is_active", True)),
             "sort_order": cls._int_or_zero(data.get("sort_order")),
         }
@@ -138,6 +146,8 @@ class LearningRouteService:
             return {
                 "route_source": item.get("route_source") or "backoffice_learning_route",
                 "route_stage": item.get("route_stage") or "custom_stage",
+                "route_kind": item.get("route_kind") or "template",
+                "plan_group": item.get("plan_group") or "",
                 "title": item.get("stage_title") or item.get("title") or "学习路线阶段",
                 "material_type": item.get("material_type") or "custom_route",
                 "task_type": item.get("task_type") or "case_practice",
@@ -146,10 +156,14 @@ class LearningRouteService:
                 "material": item.get("learning_material") or item.get("material") or "后台维护学习路线",
                 "practice_task": item.get("practice_task") or "",
                 "acceptance_criteria": cls._string_list(item.get("acceptance_criteria")),
+                "resource_requirement": item.get("resource_requirement") or "",
+                "generation_prompt": item.get("generation_prompt") or "",
             }
         return {
             "route_source": item.route_source,
             "route_stage": item.route_stage,
+            "route_kind": item.route_kind or "template",
+            "plan_group": item.plan_group or "",
             "title": item.stage_title,
             "material_type": item.material_type,
             "task_type": item.task_type,
@@ -158,6 +172,8 @@ class LearningRouteService:
             "material": item.learning_material or "后台维护学习路线",
             "practice_task": item.practice_task or "",
             "acceptance_criteria": cls._string_list(item.acceptance_criteria),
+            "resource_requirement": item.resource_requirement or "",
+            "generation_prompt": item.generation_prompt or "",
         }
 
     @classmethod
@@ -171,6 +187,8 @@ class LearningRouteService:
             "category": item.category or "",
             "route_source": route["route_source"],
             "route_stage": route["route_stage"],
+            "route_kind": route["route_kind"],
+            "plan_group": route["plan_group"],
             "stage_title": route["title"],
             "title": route["title"],
             "material_type": route["material_type"],
@@ -181,6 +199,8 @@ class LearningRouteService:
             "material": route["material"],
             "practice_task": route["practice_task"],
             "acceptance_criteria": route["acceptance_criteria"],
+            "resource_requirement": route["resource_requirement"],
+            "generation_prompt": route["generation_prompt"],
             "is_active": bool(item.is_active),
             "sort_order": item.sort_order,
             "quality_hints": cls.quality_hints(item),
@@ -206,6 +226,8 @@ class LearningRouteService:
             "job_id": normalized.get("job_id"),
             "category": normalized.get("category"),
             "route_stage": normalized.get("route_stage"),
+            "route_kind": normalized.get("route_kind") or "template",
+            "plan_group": normalized.get("plan_group"),
             "task_type": normalized.get("task_type"),
             "normalized": normalized,
         }
@@ -218,6 +240,8 @@ class LearningRouteService:
                 **data,
                 "route_stage": f"{data.get('route_stage') or 'route'}_copy_{item.id}",
                 "stage_title": f"{data.get('stage_title') or '学习路线阶段'} 副本",
+                "route_kind": data.get("route_kind") or "template",
+                "plan_group": data.get("plan_group") or "",
                 "is_active": False,
                 "sort_order": (data.get("sort_order") or 0) + 1,
             }
@@ -381,12 +405,18 @@ class LearningRouteService:
         job_id: Optional[str] = None,
         category: Optional[str] = None,
         task_type: Optional[str] = None,
+        route_kind: Optional[str] = None,
         is_active: Optional[bool] = None,
         keyword: Optional[str] = None,
     ) -> Dict[str, Any]:
-        seeded = await cls.ensure_seeded_from_builtins(db)
-        all_result = await db.execute(select(LearningRouteStage))
-        all_items = list(all_result.scalars().all())
+        try:
+            seeded = await cls.ensure_seeded_from_builtins(db)
+            all_result = await db.execute(select(LearningRouteStage))
+            all_items = list(all_result.scalars().all())
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route list failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
         query = select(LearningRouteStage)
         if job_id:
@@ -395,6 +425,8 @@ class LearningRouteService:
             query = query.where(LearningRouteStage.category == category)
         if task_type:
             query = query.where(LearningRouteStage.task_type == task_type)
+        if route_kind:
+            query = query.where(LearningRouteStage.route_kind == route_kind)
         if is_active is not None:
             query = query.where(LearningRouteStage.is_active.is_(is_active))
         if keyword:
@@ -413,8 +445,13 @@ class LearningRouteService:
             LearningRouteStage.sort_order.asc(),
             LearningRouteStage.id.asc(),
         )
-        result = await db.execute(query)
-        items = list(result.scalars().all())
+        try:
+            result = await db.execute(query)
+            items = list(result.scalars().all())
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route filtered query failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
         return {
             "total": len(all_items),
             "active_total": len([item for item in all_items if item.is_active]),
@@ -427,51 +464,72 @@ class LearningRouteService:
                 "job_ids": sorted({item.job_id for item in all_items if item.job_id}),
                 "categories": sorted({item.category for item in all_items if item.category}),
                 "task_types": sorted({item.task_type for item in all_items if item.task_type}),
+                "route_kinds": sorted({item.route_kind for item in all_items if item.route_kind}),
             },
         }
 
     @classmethod
     async def route_coverage(cls, db: AsyncSession) -> Dict[str, Any]:
-        await cls.ensure_seeded_from_builtins(db)
-        result = await db.execute(
-            select(LearningRouteStage).order_by(
-                LearningRouteStage.job_id.asc(),
-                LearningRouteStage.category.asc(),
-                LearningRouteStage.sort_order.asc(),
-                LearningRouteStage.id.asc(),
+        try:
+            await cls.ensure_seeded_from_builtins(db)
+            result = await db.execute(
+                select(LearningRouteStage).order_by(
+                    LearningRouteStage.job_id.asc(),
+                    LearningRouteStage.category.asc(),
+                    LearningRouteStage.sort_order.asc(),
+                    LearningRouteStage.id.asc(),
+                )
             )
-        )
-        records = [cls.serialize(item) for item in result.scalars().all()]
+            records = [cls.serialize(item) for item in result.scalars().all()]
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route coverage failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
         return cls.coverage_matrix(records)
 
     @classmethod
     async def create_route(cls, db: AsyncSession, data: Dict[str, Any]) -> Dict[str, Any]:
-        item = LearningRouteStage(**cls._normalize_payload(data))
-        db.add(item)
-        await db.commit()
-        await db.refresh(item)
-        return cls.serialize(item)
+        try:
+            item = LearningRouteStage(**cls._normalize_payload(data))
+            db.add(item)
+            await db.commit()
+            await db.refresh(item)
+            return cls.serialize(item)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route create failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
     @classmethod
     async def update_route(cls, db: AsyncSession, route_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
-        item = await db.get(LearningRouteStage, route_id)
-        if not item:
-            raise NotFoundError(message="学习路线阶段不存在")
-        normalized = cls._normalize_payload({**cls.serialize(item), **data})
-        for key, value in normalized.items():
-            setattr(item, key, value)
-        await db.commit()
-        await db.refresh(item)
-        return cls.serialize(item)
+        try:
+            item = await db.get(LearningRouteStage, route_id)
+            if not item:
+                raise NotFoundError(message="学习路线阶段不存在")
+            normalized = cls._normalize_payload({**cls.serialize(item), **data})
+            for key, value in normalized.items():
+                setattr(item, key, value)
+            await db.commit()
+            await db.refresh(item)
+            return cls.serialize(item)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route update failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
     @classmethod
     async def delete_route(cls, db: AsyncSession, route_id: int) -> Dict[str, Any]:
-        item = await db.get(LearningRouteStage, route_id)
-        if not item:
-            raise NotFoundError(message="学习路线阶段不存在")
-        await db.delete(item)
-        await db.commit()
-        return {"deleted": True, "route_id": route_id}
+        try:
+            item = await db.get(LearningRouteStage, route_id)
+            if not item:
+                raise NotFoundError(message="学习路线阶段不存在")
+            await db.delete(item)
+            await db.commit()
+            return {"deleted": True, "route_id": route_id}
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route delete failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
     @classmethod
     async def bulk_upsert_routes(cls, db: AsyncSession, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -494,8 +552,13 @@ class LearningRouteService:
 
             query = select(LearningRouteStage).where(
                 LearningRouteStage.route_stage == identity["route_stage"],
+                LearningRouteStage.route_kind == identity["route_kind"],
                 LearningRouteStage.task_type == identity["task_type"],
             )
+            if identity["plan_group"]:
+                query = query.where(LearningRouteStage.plan_group == identity["plan_group"])
+            else:
+                query = query.where(LearningRouteStage.plan_group.is_(None))
             if identity["job_id"]:
                 query = query.where(LearningRouteStage.job_id == identity["job_id"])
             else:
@@ -505,7 +568,12 @@ class LearningRouteService:
             else:
                 query = query.where(LearningRouteStage.category.is_(None))
 
-            result = await db.execute(query)
+            try:
+                result = await db.execute(query)
+            except SQLAlchemyError as exc:
+                await db.rollback()
+                logger.exception("Learning route bulk upsert lookup failed: %s", exc)
+                raise ValidationError(message=user_facing_db_error(exc)) from exc
             item = result.scalars().first()
             if item:
                 for key, value in identity["normalized"].items():
@@ -517,9 +585,14 @@ class LearningRouteService:
                 created += 1
             imported_items.append(item)
 
-        await db.commit()
-        for item in imported_items:
-            await db.refresh(item)
+        try:
+            await db.commit()
+            for item in imported_items:
+                await db.refresh(item)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route bulk upsert commit failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
         return {
             "version": "learning_routes_v1",
             "created_total": created,
@@ -530,14 +603,19 @@ class LearningRouteService:
 
     @classmethod
     async def duplicate_route(cls, db: AsyncSession, route_id: int) -> Dict[str, Any]:
-        item = await db.get(LearningRouteStage, route_id)
-        if not item:
-            raise NotFoundError(message="学习路线阶段不存在")
-        copy = LearningRouteStage(**cls._duplicate_payload(item))
-        db.add(copy)
-        await db.commit()
-        await db.refresh(copy)
-        return cls.serialize(copy)
+        try:
+            item = await db.get(LearningRouteStage, route_id)
+            if not item:
+                raise NotFoundError(message="学习路线阶段不存在")
+            copy = LearningRouteStage(**cls._duplicate_payload(item))
+            db.add(copy)
+            await db.commit()
+            await db.refresh(copy)
+            return cls.serialize(copy)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route duplicate failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
     @classmethod
     def preview_task_from_route(
@@ -582,35 +660,40 @@ class LearningRouteService:
 
     @classmethod
     async def preview_task(cls, db: AsyncSession, data: Dict[str, Any]) -> Dict[str, Any]:
-        await cls.ensure_seeded_from_builtins(db)
-        route_id = cls._positive_int(data.get("route_id"))
-        include_inactive = bool(data.get("include_inactive"))
-        target_position = cls._text(data.get("target_position"), 255) or "目标岗位"
-        job_id = cls._text(data.get("job_id"), 100)
-        category = cls._text(data.get("category"), 100)
-        ability_name = cls._text(data.get("ability_name"), 120) or "岗位能力"
-        missing_keywords = cls._string_list(data.get("missing_keywords"))
+        try:
+            await cls.ensure_seeded_from_builtins(db)
+            route_id = cls._positive_int(data.get("route_id"))
+            include_inactive = bool(data.get("include_inactive"))
+            target_position = cls._text(data.get("target_position"), 255) or "目标岗位"
+            job_id = cls._text(data.get("job_id"), 100)
+            category = cls._text(data.get("category"), 100)
+            ability_name = cls._text(data.get("ability_name"), 120) or "岗位能力"
+            missing_keywords = cls._string_list(data.get("missing_keywords"))
 
-        if route_id:
-            item = await db.get(LearningRouteStage, route_id)
-            if not item:
-                raise NotFoundError(message="学习路线阶段不存在")
-            if not item.is_active and not include_inactive:
-                raise ValidationError(message="该路线已停用，如需预览请勾选预览停用路线")
-            route = cls._route_dict(item)
-            selected = cls.serialize(item)
-        else:
-            result = await db.execute(
-                select(LearningRouteStage)
-                .where(LearningRouteStage.is_active.is_(True))
-                .order_by(LearningRouteStage.sort_order.asc(), LearningRouteStage.id.asc())
-            )
-            records = [cls.serialize(item) for item in result.scalars().all()]
-            text = " ".join([target_position, ability_name, *missing_keywords])
-            route = cls.match_loaded_routes(records=records, job_id=job_id or "", text=text, category=category)
-            if not route:
-                raise ValidationError(message="未找到可用于预览的启用学习路线")
-            selected = route
+            if route_id:
+                item = await db.get(LearningRouteStage, route_id)
+                if not item:
+                    raise NotFoundError(message="学习路线阶段不存在")
+                if not item.is_active and not include_inactive:
+                    raise ValidationError(message="该路线已停用，如需预览请勾选预览停用路线")
+                route = cls._route_dict(item)
+                selected = cls.serialize(item)
+            else:
+                result = await db.execute(
+                    select(LearningRouteStage)
+                    .where(LearningRouteStage.is_active.is_(True))
+                    .order_by(LearningRouteStage.sort_order.asc(), LearningRouteStage.id.asc())
+                )
+                records = [cls.serialize(item) for item in result.scalars().all()]
+                text = " ".join([target_position, ability_name, *missing_keywords])
+                route = cls.match_loaded_routes(records=records, job_id=job_id or "", text=text, category=category)
+                if not route:
+                    raise ValidationError(message="未找到可用于预览的启用学习路线")
+                selected = route
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Learning route preview failed: %s", exc)
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
         task = cls.preview_task_from_route(
             route,

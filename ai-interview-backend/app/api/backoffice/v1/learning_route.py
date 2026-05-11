@@ -23,6 +23,7 @@ async def list_learning_routes(
     job_id: Optional[str] = Query(default=None),
     category: Optional[str] = Query(default=None),
     task_type: Optional[str] = Query(default=None),
+    route_kind: Optional[str] = Query(default=None),
     is_active: Optional[bool] = Query(default=None),
     keyword: Optional[str] = Query(default=None),
     db: AsyncSession = Depends(get_db),
@@ -33,6 +34,7 @@ async def list_learning_routes(
         job_id=job_id,
         category=category,
         task_type=task_type,
+        route_kind=route_kind,
         is_active=is_active,
         keyword=keyword,
     )

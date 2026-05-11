@@ -26,6 +26,88 @@
       </button>
     </div>
 
+    <div class="plan-generator card">
+      <div class="generator-head">
+        <div>
+          <p class="eyebrow">生成学习计划</p>
+          <h2>把缺失能力生成可编辑任务</h2>
+          <p>
+            可以选择 AI 根据后台基础路线生成，也可以直接使用后台维护的成熟计划。补充资料只适合放链接、摘要和小段文本，不要上传大型文件。
+          </p>
+        </div>
+        <button class="btn-secondary" type="button" :disabled="planOptionsLoading" @click="loadPlanOptions">
+          {{ planOptionsLoading ? '读取中...' : '刷新路线选项' }}
+        </button>
+      </div>
+
+      <div class="generator-grid">
+        <label>
+          目标岗位
+          <input v-model="planForm.target_position" placeholder="例如：Python后端开发工程师 / 产品助理" />
+        </label>
+        <label>
+          生成方式
+          <select v-model="planForm.mode">
+            <option value="ai_generate">AI 生成初步计划</option>
+            <option value="mature_plan">使用后台成熟计划</option>
+          </select>
+        </label>
+        <label>
+          缺失能力
+          <textarea
+            v-model="planForm.abilities_text"
+            rows="4"
+            placeholder="每行一个能力，例如：FastAPI 接口设计&#10;SQL 查询与事务&#10;项目复盘表达"
+          ></textarea>
+        </label>
+        <label>
+          补充轻量资料
+          <textarea
+            v-model="planForm.supplemental_materials"
+            rows="4"
+            placeholder="可填链接、学习资料摘要、小段文本。不要粘贴大型文件全文。"
+          ></textarea>
+        </label>
+      </div>
+
+      <div class="generator-actions">
+        <label class="switch-inline">
+          <input v-model="planForm.allow_web_search" type="checkbox" />
+          <span>允许使用 OpenAI 联网搜索补充资料来源</span>
+        </label>
+        <button class="btn-primary" type="button" :disabled="generatingPlan" @click="handleGeneratePlan">
+          {{ generatingPlan ? '生成中...' : '生成学习计划草稿' }}
+        </button>
+        <button class="btn-secondary" type="button" :disabled="!draftTasks.length || savingDraft" @click="saveDraftTasks">
+          {{ savingDraft ? '保存中...' : '保存草稿到学习任务' }}
+        </button>
+      </div>
+
+      <div v-if="planOptions.templates?.length || planOptions.mature_plans?.length" class="generator-meta">
+        <span>基础模板 {{ planOptions.templates?.length || 0 }}</span>
+        <span>成熟计划 {{ planOptions.mature_plans?.length || 0 }}</span>
+        <span>{{ planOptions.web_search_available ? 'OpenAI 联网可用' : '未检测到 OpenAI Key，联网不可用' }}</span>
+      </div>
+
+      <div v-if="draftTasks.length" class="draft-list">
+        <article v-for="(task, index) in draftTasks" :key="`${task.task_id || task.title}-${index}`" class="draft-item">
+          <div class="draft-head">
+            <strong>任务 {{ index + 1 }}</strong>
+            <button type="button" class="remove-btn" @click="draftTasks.splice(index, 1)">移除</button>
+          </div>
+          <label>任务标题<input v-model="task.title" /></label>
+          <label>学习材料<textarea v-model="task.learning_material" rows="3"></textarea></label>
+          <label>练习任务<textarea v-model="task.practice_task" rows="3"></textarea></label>
+          <div class="draft-grid">
+            <label>预计耗时（分钟）<input v-model.number="task.estimated_minutes" type="number" min="1" /></label>
+            <label>截止日期<input v-model="task.due_date" type="date" /></label>
+          </div>
+          <label>验收方式<textarea v-model="task.acceptanceText" rows="3" placeholder="每行一条验收标准"></textarea></label>
+          <label>备注<textarea v-model="task.note" rows="2"></textarea></label>
+        </article>
+      </div>
+    </div>
+
     <div class="task-toolbar card">
       <div>
         <h2>任务库</h2>
@@ -177,6 +259,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { generateLearningPlan, getLearningPlanOptions } from '../api/learningPlans'
 import {
   LEARNING_TASKS_VERSION,
   loadLearningTasksFromServer,
@@ -198,6 +281,18 @@ const legacyCount = ref(0)
 const stageFilter = ref('')
 const abilityFilter = ref('')
 const statusFilter = ref('')
+const planOptionsLoading = ref(false)
+const generatingPlan = ref(false)
+const savingDraft = ref(false)
+const planOptions = ref({ templates: [], mature_plans: [], ability_options: [] })
+const planForm = ref({
+  target_position: '',
+  mode: 'ai_generate',
+  abilities_text: '',
+  supplemental_materials: '',
+  allow_web_search: false
+})
+const draftTasks = ref([])
 
 const doneCount = computed(() => tasks.value.filter(task => task.done).length)
 const pendingCount = computed(() => tasks.value.length - doneCount.value)
@@ -227,6 +322,7 @@ const filteredTasks = computed(() => tasks.value.filter((task) => {
 onMounted(() => {
   refreshLegacyCount()
   loadTasks()
+  loadPlanOptions()
 })
 
 async function loadTasks() {
@@ -239,6 +335,116 @@ async function loadTasks() {
     setMessage(e.message || '服务器学习任务读取失败，请确认登录状态。', 'error')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadPlanOptions() {
+  planOptionsLoading.value = true
+  try {
+    const options = await getLearningPlanOptions({
+      target_position: planForm.value.target_position || undefined
+    })
+    planOptions.value = options || { templates: [], mature_plans: [], ability_options: [] }
+    if (!planForm.value.target_position && options?.target_position) {
+      planForm.value.target_position = options.target_position
+    }
+    if (!planForm.value.abilities_text && Array.isArray(options?.ability_options) && options.ability_options.length) {
+      planForm.value.abilities_text = options.ability_options
+        .slice(0, 5)
+        .map(item => item.ability_name || item.name || item.title)
+        .filter(Boolean)
+        .join('\n')
+    }
+  } catch (e) {
+    setMessage(e.message || '学习路线选项读取失败，请确认数据库迁移是否完成。', 'error')
+  } finally {
+    planOptionsLoading.value = false
+  }
+}
+
+function planAbilities() {
+  return String(planForm.value.abilities_text || '')
+    .split(/\r?\n|,|，/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .map((name, index) => ({ ability_id: `manual_${index + 1}`, name, missing_keywords: [name] }))
+}
+
+function normalizeDraftTask(task, index) {
+  const criteria = Array.isArray(task.acceptance_criteria)
+    ? task.acceptance_criteria
+    : String(task.acceptance_criteria || task.deliverable || '')
+      .split(/\r?\n/)
+      .map(item => item.trim())
+      .filter(Boolean)
+  return {
+    ...task,
+    task_key: task.task_key || task.task_id || `generated_plan_${Date.now()}_${index}`,
+    task_id: task.task_id || task.task_key || `generated_plan_${Date.now()}_${index}`,
+    title: task.title || `补强${task.ability_name || '岗位能力'}`,
+    target_position: task.target_position || planForm.value.target_position,
+    source_type: task.source_type || 'generated_learning_plan',
+    learning_material: task.learning_material || task.material || '',
+    practice_task: task.practice_task || task.practice || '',
+    estimated_minutes: Number(task.estimated_minutes) || 120,
+    acceptance_criteria: criteria,
+    acceptanceText: criteria.join('\n'),
+    note: task.note || ''
+  }
+}
+
+async function handleGeneratePlan() {
+  const abilities = planAbilities()
+  if (!planForm.value.target_position.trim()) {
+    setMessage('请先填写目标岗位。', 'error')
+    return
+  }
+  if (!abilities.length) {
+    setMessage('请至少填写 1 个缺失能力。', 'error')
+    return
+  }
+  generatingPlan.value = true
+  try {
+    const plan = await generateLearningPlan({
+      target_position: planForm.value.target_position.trim(),
+      abilities,
+      mode: planForm.value.mode,
+      allow_web_search: planForm.value.allow_web_search,
+      supplemental_materials: planForm.value.supplemental_materials
+    })
+    draftTasks.value = (plan.tasks || []).map(normalizeDraftTask)
+    const searchNote = plan.web_search_status === 'used' ? '，已使用联网搜索补充来源' : ''
+    setMessage(`已生成 ${draftTasks.value.length} 个学习任务草稿${searchNote}。请检查后保存。`)
+  } catch (e) {
+    setMessage(e.message || '学习计划生成失败，请稍后重试。', 'error')
+  } finally {
+    generatingPlan.value = false
+  }
+}
+
+async function saveDraftTasks() {
+  if (!draftTasks.value.length) return
+  savingDraft.value = true
+  try {
+    const payload = draftTasks.value.map(task => ({
+      ...task,
+      acceptance_criteria: String(task.acceptanceText || '')
+        .split(/\r?\n/)
+        .map(item => item.trim())
+        .filter(Boolean),
+      task_metadata: {
+        ...(task.task_metadata || {}),
+        saved_from: 'learning_plan_generator'
+      }
+    }))
+    await upsertLearningTasksToServer(payload, { replaceProgress: false })
+    draftTasks.value = []
+    await loadTasks()
+    setMessage('学习计划草稿已保存到账号学习任务。')
+  } catch (e) {
+    setMessage(e.message || '学习计划保存失败。', 'error')
+  } finally {
+    savingDraft.value = false
   }
 }
 
@@ -526,6 +732,102 @@ function setMessage(text, type = 'success') {
   margin-bottom: 14px;
 }
 
+.plan-generator {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 14px;
+  border-left: 4px solid #111827;
+}
+
+.generator-head,
+.generator-actions,
+.draft-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.generator-head h2 {
+  margin: 0 0 8px;
+  color: #111827;
+  font-size: 20px;
+}
+
+.generator-head p,
+.generator-meta {
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+.generator-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.generator-grid label,
+.draft-item label {
+  display: grid;
+  gap: 6px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.generator-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.switch-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.switch-inline input {
+  width: auto;
+}
+
+.generator-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.generator-meta span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.draft-list {
+  display: grid;
+  gap: 12px;
+}
+
+.draft-item {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.draft-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .progress-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -709,6 +1011,8 @@ function setMessage(text, type = 'success') {
   .tasks-hero,
   .migration-card,
   .task-toolbar,
+  .generator-head,
+  .generator-actions,
   .task-head {
     flex-direction: column;
     align-items: stretch;
@@ -719,7 +1023,9 @@ function setMessage(text, type = 'success') {
   }
 
   .progress-grid,
-  .filter-card {
+  .filter-card,
+  .generator-grid,
+  .draft-grid {
     grid-template-columns: 1fr;
   }
 }

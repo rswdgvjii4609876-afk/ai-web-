@@ -63,6 +63,11 @@ CLIENT_ROUTES = [
         tags=["client-learning-task"]
     ),
     RouteConfig(
+        module_path="app.api.client.v1.learning_plan",
+        prefix=f"{settings.API_V1_STR}/learning-plans",
+        tags=["client-learning-plan"]
+    ),
+    RouteConfig(
         module_path="app.api.client.v1.training_review",
         prefix=f"{settings.API_V1_STR}/training-reviews",
         tags=["client-training-review"]

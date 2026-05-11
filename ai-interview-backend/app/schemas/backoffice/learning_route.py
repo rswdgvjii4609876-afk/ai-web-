@@ -11,6 +11,8 @@ class LearningRouteStageCreate(BaseSchema):
     category: Optional[str] = Field(default=None, max_length=100)
     route_source: str = Field(min_length=1, max_length=120)
     route_stage: str = Field(min_length=1, max_length=120)
+    route_kind: str = Field(default="template", max_length=30)
+    plan_group: Optional[str] = Field(default=None, max_length=120)
     stage_title: str = Field(min_length=1, max_length=255)
     material_type: str = Field(min_length=1, max_length=100)
     task_type: str = Field(min_length=1, max_length=80)
@@ -19,6 +21,8 @@ class LearningRouteStageCreate(BaseSchema):
     learning_material: Optional[str] = None
     practice_task: Optional[str] = None
     acceptance_criteria: Optional[List[str]] = None
+    resource_requirement: Optional[str] = None
+    generation_prompt: Optional[str] = None
     is_active: bool = True
     sort_order: int = 0
 
@@ -29,6 +33,8 @@ class LearningRouteStageUpdate(BaseSchema):
     category: Optional[str] = Field(default=None, max_length=100)
     route_source: Optional[str] = Field(default=None, max_length=120)
     route_stage: Optional[str] = Field(default=None, max_length=120)
+    route_kind: Optional[str] = Field(default=None, max_length=30)
+    plan_group: Optional[str] = Field(default=None, max_length=120)
     stage_title: Optional[str] = Field(default=None, max_length=255)
     material_type: Optional[str] = Field(default=None, max_length=100)
     task_type: Optional[str] = Field(default=None, max_length=80)
@@ -37,6 +43,8 @@ class LearningRouteStageUpdate(BaseSchema):
     learning_material: Optional[str] = None
     practice_task: Optional[str] = None
     acceptance_criteria: Optional[List[str]] = None
+    resource_requirement: Optional[str] = None
+    generation_prompt: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
 
@@ -45,6 +53,7 @@ class LearningRouteStageListQuery(BaseSchema):
     job_id: Optional[str] = None
     category: Optional[str] = None
     task_type: Optional[str] = None
+    route_kind: Optional[str] = None
     is_active: Optional[bool] = None
     keyword: Optional[str] = None
 

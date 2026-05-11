@@ -88,6 +88,13 @@
           <div class="form-grid two">
             <label>路线来源<input v-model="form.route_source" placeholder="例如 backoffice_python_route" /></label>
             <label>阶段编码<input v-model="form.route_stage" placeholder="例如 fastapi_framework" /></label>
+            <label>
+              路线类型
+              <select v-model="form.route_kind">
+                <option v-for="kind in routeKindOptions" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
+              </select>
+            </label>
+            <label>计划分组<input v-model="form.plan_group" placeholder="成熟计划可填写同一套计划名称" /></label>
             <label>阶段名称<input v-model="form.stage_title" placeholder="例如 FastAPI 接口与工程结构" /></label>
             <label>材料类型<input v-model="form.material_type" placeholder="例如 python_backend_route" /></label>
             <label>
@@ -103,6 +110,8 @@
           <label>学习材料<textarea v-model="form.learning_material" rows="4" placeholder="写清学习材料、资料来源或学习说明"></textarea></label>
           <label>练习任务<textarea v-model="form.practice_task" rows="4" placeholder="写成可执行任务，例如完成一个接口练习并记录异常处理"></textarea></label>
           <label>验收方式<textarea v-model="criteriaText" rows="4" placeholder="每行一条，例如：能独立说明接口设计取舍"></textarea></label>
+          <label>资料要求<textarea v-model="form.resource_requirement" rows="3" placeholder="说明用户需要补充什么轻量资料，例如链接、摘要、小段文本"></textarea></label>
+          <label>AI 生成提示词<textarea v-model="form.generation_prompt" rows="3" placeholder="说明 AI 生成学习计划时应遵循的路线规则"></textarea></label>
 
           <label class="switch-row">
             <input v-model="form.is_active" type="checkbox" />
@@ -169,6 +178,13 @@
             </select>
           </label>
           <label>
+            路线类型
+            <select v-model="filters.route_kind" @change="loadRoutes">
+              <option value="">全部路线</option>
+              <option v-for="kind in routeKindOptions" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
+            </select>
+          </label>
+          <label>
             状态
             <select v-model="filters.is_active" @change="loadRoutes">
               <option value="">全部状态</option>
@@ -196,6 +212,8 @@
             </div>
 
             <div class="route-meta">
+              <span>{{ routeKindLabel(item.route_kind) }}</span>
+              <span v-if="item.plan_group">计划：{{ item.plan_group }}</span>
               <span>{{ item.route_source }}</span>
               <span>{{ taskTypeLabel(item.task_type) }}</span>
               <span>{{ item.estimated_minutes || '-' }} 分钟</span>
@@ -226,12 +244,18 @@
                   <li v-if="!item.acceptance_criteria.length">未填写</li>
                 </ul>
               </div>
+              <div v-if="item.resource_requirement || item.generation_prompt">
+                <strong>生成规则</strong>
+                <p v-if="item.resource_requirement">资料要求：{{ item.resource_requirement }}</p>
+                <p v-if="item.generation_prompt">提示词：{{ item.generation_prompt }}</p>
+              </div>
             </details>
 
             <div class="item-actions">
               <button class="btn-secondary" type="button" @click="handleEdit(item)">编辑</button>
               <button class="btn-secondary" type="button" @click="preparePreview(item)">预览</button>
               <button class="btn-secondary" type="button" @click="handleDuplicate(item)">复制</button>
+              <button class="btn-secondary" type="button" @click="handleDuplicateAsMature(item)">复制为成熟计划</button>
               <button class="btn-secondary" type="button" @click="toggleActive(item)">{{ item.is_active ? '停用' : '启用' }}</button>
               <button class="btn-danger" type="button" @click="handleDelete(item)">删除</button>
             </div>
@@ -252,6 +276,8 @@ const defaultForm = () => ({
   category: '',
   route_source: 'backoffice_learning_route',
   route_stage: '',
+  route_kind: 'template',
+  plan_group: '',
   stage_title: '',
   material_type: 'custom_route',
   task_type: 'case_practice',
@@ -260,6 +286,8 @@ const defaultForm = () => ({
   learning_material: '',
   practice_task: '',
   acceptance_criteria: [],
+  resource_requirement: '',
+  generation_prompt: '',
   is_active: true,
   sort_order: 0
 })
@@ -276,6 +304,11 @@ const taskTypeOptions = [
   { value: 'general_practice', label: '通用练习' }
 ]
 
+const routeKindOptions = [
+  { value: 'template', label: '基础学习路线模板' },
+  { value: 'mature_plan', label: '成熟学习计划' }
+]
+
 const loading = ref(false)
 const saving = ref(false)
 const previewing = ref(false)
@@ -289,8 +322,8 @@ const coverageLoading = ref(false)
 const coverageSummary = ref({})
 const coverageItems = ref([])
 const selectedCoverageJob = ref('')
-const filterOptions = ref({ job_ids: [], categories: [], task_types: [] })
-const filters = ref({ job_id: '', category: '', task_type: '', is_active: '', keyword: '' })
+const filterOptions = ref({ job_ids: [], categories: [], task_types: [], route_kinds: [] })
+const filters = ref({ job_id: '', category: '', task_type: '', route_kind: '', is_active: '', keyword: '' })
 const form = ref(defaultForm())
 const importInput = ref(null)
 const previewResult = ref(null)
@@ -354,6 +387,10 @@ function taskTypeLabel(type) {
   return taskTypeOptions.find(item => item.value === type)?.label || type || '未设置'
 }
 
+function routeKindLabel(kind) {
+  return routeKindOptions.find(item => item.value === kind)?.label || kind || '基础学习路线模板'
+}
+
 function qualityLabel(item) {
   if (!item.quality_hints?.length) return '完整'
   if (item.quality_hints.includes('缺少练习任务') || item.quality_hints.includes('缺少验收方式')) return '不建议启用'
@@ -365,6 +402,7 @@ function apiFilters() {
     job_id: filters.value.job_id || undefined,
     category: filters.value.category || undefined,
     task_type: filters.value.task_type || undefined,
+    route_kind: filters.value.route_kind || undefined,
     is_active: filters.value.is_active === '' ? undefined : filters.value.is_active === 'true',
     keyword: filters.value.keyword || undefined
   }
@@ -386,7 +424,7 @@ async function loadRoutes() {
       category_coverage_total: data.category_coverage_total || 0
     }
     qualitySummary.value = { ...defaultQualitySummary(), ...(data.quality_summary || {}) }
-    filterOptions.value = data.filters || { job_ids: [], categories: [], task_types: [] }
+    filterOptions.value = data.filters || { job_ids: [], categories: [], task_types: [], route_kinds: [] }
   } catch (e) {
     setMessage(e.message || '学习路线读取失败', 'error')
   } finally {
@@ -429,6 +467,8 @@ function handleEdit(item) {
     category: item.category || '',
     route_source: item.route_source || 'backoffice_learning_route',
     route_stage: item.route_stage || '',
+    route_kind: item.route_kind || 'template',
+    plan_group: item.plan_group || '',
     stage_title: item.stage_title || '',
     material_type: item.material_type || 'custom_route',
     task_type: item.task_type || 'case_practice',
@@ -437,6 +477,8 @@ function handleEdit(item) {
     learning_material: item.learning_material || '',
     practice_task: item.practice_task || '',
     acceptance_criteria: item.acceptance_criteria || [],
+    resource_requirement: item.resource_requirement || '',
+    generation_prompt: item.generation_prompt || '',
     is_active: !!item.is_active,
     sort_order: item.sort_order || 0
   }
@@ -500,6 +542,22 @@ async function handleDuplicate(item) {
     await loadAll()
   } catch (e) {
     setMessage(e.message || '复制失败', 'error')
+  }
+}
+
+async function handleDuplicateAsMature(item) {
+  try {
+    const copy = await learningRouteApi.duplicate(item.route_id)
+    await learningRouteApi.update(copy.route_id, {
+      ...copy,
+      route_kind: 'mature_plan',
+      plan_group: copy.plan_group || item.job_name || item.category || '成熟学习计划',
+      is_active: false
+    })
+    setMessage('已复制为成熟学习计划草稿，默认停用，请编辑确认后再启用')
+    await loadAll()
+  } catch (e) {
+    setMessage(e.message || '复制为成熟计划失败', 'error')
   }
 }
 
@@ -869,7 +927,7 @@ textarea {
 
 .filter-panel {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
   margin-bottom: 12px;

@@ -2,12 +2,14 @@ import re
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.models.interview import Interview
 from app.models.learning_task import LearningTask
 from app.models.resume import Resume
+from app.utils.db_error_messages import user_facing_db_error
 
 
 LEARNING_TASKS_VERSION = "learning_tasks_v1"
@@ -187,12 +189,16 @@ class LearningTaskService:
 
     @staticmethod
     async def list_tasks(db: AsyncSession, user_id: int) -> Dict[str, Any]:
-        result = await db.execute(
-            select(LearningTask)
-            .where(LearningTask.user_id == user_id)
-            .order_by(LearningTask.done.asc(), LearningTask.updated_at.desc())
-        )
-        return LearningTaskService._list_response(result.scalars().all())
+        try:
+            result = await db.execute(
+                select(LearningTask)
+                .where(LearningTask.user_id == user_id)
+                .order_by(LearningTask.done.asc(), LearningTask.updated_at.desc())
+            )
+            return LearningTaskService._list_response(result.scalars().all())
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
     @staticmethod
     async def bulk_upsert(
@@ -201,92 +207,104 @@ class LearningTaskService:
         tasks: List[Dict[str, Any]],
         replace_progress: bool = False,
     ) -> Dict[str, Any]:
-        normalized_items = [LearningTaskService._normalize_input(item) for item in tasks]
-        for item in normalized_items:
-            await LearningTaskService._validate_sources(db, user_id, item)
+        try:
+            normalized_items = [LearningTaskService._normalize_input(item) for item in tasks]
+            for item in normalized_items:
+                await LearningTaskService._validate_sources(db, user_id, item)
 
-        touched: List[LearningTask] = []
-        for item in normalized_items:
-            result = await db.execute(
-                select(LearningTask).where(
-                    LearningTask.user_id == user_id,
-                    LearningTask.task_key == item["task_key"],
+            touched: List[LearningTask] = []
+            for item in normalized_items:
+                result = await db.execute(
+                    select(LearningTask).where(
+                        LearningTask.user_id == user_id,
+                        LearningTask.task_key == item["task_key"],
+                    )
                 )
-            )
-            entity = result.scalar_one_or_none()
-            if entity is None:
-                if item.get("done") is None:
-                    item["done"] = False
-                entity = LearningTask(user_id=user_id, **item)
-                db.add(entity)
-            else:
-                for key, value in item.items():
-                    if key in {"done", "note", "weak_change"} and not replace_progress:
-                        continue
-                    if key in {"done", "note", "weak_change"} and value in (None, ""):
-                        continue
-                    setattr(entity, key, value)
-            touched.append(entity)
+                entity = result.scalar_one_or_none()
+                if entity is None:
+                    if item.get("done") is None:
+                        item["done"] = False
+                    entity = LearningTask(user_id=user_id, **item)
+                    db.add(entity)
+                else:
+                    for key, value in item.items():
+                        if key in {"done", "note", "weak_change"} and not replace_progress:
+                            continue
+                        if key in {"done", "note", "weak_change"} and value in (None, ""):
+                            continue
+                        setattr(entity, key, value)
+                touched.append(entity)
 
-        await db.commit()
-        for item in touched:
-            await db.refresh(item)
-        return LearningTaskService._list_response(touched)
+            await db.commit()
+            for item in touched:
+                await db.refresh(item)
+            return LearningTaskService._list_response(touched)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
     @staticmethod
     async def patch_task(db: AsyncSession, user_id: int, task_key: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        result = await db.execute(
-            select(LearningTask).where(LearningTask.user_id == user_id, LearningTask.task_key == task_key)
-        )
-        item = result.scalar_one_or_none()
-        if not item:
-            raise NotFoundError(message="学习任务不存在")
+        try:
+            result = await db.execute(
+                select(LearningTask).where(LearningTask.user_id == user_id, LearningTask.task_key == task_key)
+            )
+            item = result.scalar_one_or_none()
+            if not item:
+                raise NotFoundError(message="学习任务不存在")
 
-        patch = LearningTaskService._normalize_input({"title": item.title, "task_key": task_key, **data})
-        await LearningTaskService._validate_sources(db, user_id, patch)
+            patch = LearningTaskService._normalize_input({"title": item.title, "task_key": task_key, **data})
+            await LearningTaskService._validate_sources(db, user_id, patch)
 
-        allowed_fields = {
-            "title",
-            "ability_name",
-            "target_position",
-            "source_type",
-            "source_id",
-            "resume_id",
-            "interview_id",
-            "priority_score",
-            "route_source",
-            "route_stage",
-            "task_type",
-            "estimated_minutes",
-            "due_date",
-            "learning_material",
-            "practice_task",
-            "acceptance_criteria",
-            "task_metadata",
-            "evidence_basis",
-            "done",
-            "note",
-            "weak_change",
-        }
-        for key in allowed_fields:
-            if key in data:
-                setattr(item, key, patch.get(key))
+            allowed_fields = {
+                "title",
+                "ability_name",
+                "target_position",
+                "source_type",
+                "source_id",
+                "resume_id",
+                "interview_id",
+                "priority_score",
+                "route_source",
+                "route_stage",
+                "task_type",
+                "estimated_minutes",
+                "due_date",
+                "learning_material",
+                "practice_task",
+                "acceptance_criteria",
+                "task_metadata",
+                "evidence_basis",
+                "done",
+                "note",
+                "weak_change",
+            }
+            for key in allowed_fields:
+                if key in data:
+                    setattr(item, key, patch.get(key))
 
-        await db.commit()
-        await db.refresh(item)
-        return LearningTaskService._serialize(item)
+            await db.commit()
+            await db.refresh(item)
+            return LearningTaskService._serialize(item)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
     @staticmethod
     async def delete_task(db: AsyncSession, user_id: int, task_key: str) -> Dict[str, Any]:
-        result = await db.execute(
-            select(LearningTask).where(LearningTask.user_id == user_id, LearningTask.task_key == task_key)
-        )
-        item = result.scalar_one_or_none()
-        if not item:
-            raise NotFoundError(message="学习任务不存在")
-        await db.delete(item)
-        await db.commit()
-        return {"deleted": True, "task_key": task_key}
+        try:
+            result = await db.execute(
+                select(LearningTask).where(LearningTask.user_id == user_id, LearningTask.task_key == task_key)
+            )
+            item = result.scalar_one_or_none()
+            if not item:
+                raise NotFoundError(message="学习任务不存在")
+            await db.delete(item)
+            await db.commit()
+            return {"deleted": True, "task_key": task_key}
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
 
 
 learning_task_service = LearningTaskService()
