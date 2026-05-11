@@ -193,4 +193,44 @@ def test_rank_slices_prefers_stage_role_and_scene_matches():
     assert ranked[0]["slice_id"] == 1
     assert ranked[0]["routing_score"] > 0
     assert ranked[0]["routing_reasons"]
+    assert ranked[0]["routing_heads"]["stage_role"] > 0
+    assert ranked[0]["routing_heads"]["skill_topic"] > 0
+    assert ranked[0]["grounding_confidence"] == "high"
+    assert ranked[0]["grounding_warnings"] == []
     assert any("匹配阶段" in item for item in ranked[0]["routing_reasons"])
+
+
+@pytest.mark.unit
+def test_rank_slices_marks_generic_overlap_as_low_confidence():
+    slices = [
+        {
+            "slice_id": 3,
+            "content": "Interview communication and general learning attitude.",
+            "priority": 1,
+            "stage_tags": ["behavior"],
+            "role_tags": ["behavior_expression"],
+            "scene_tags": ["behavior_case"],
+            "topic_tags": ["communication"],
+            "skill_tags": [],
+            "keywords": ["learning"],
+            "source_section": "overview",
+            "difficulty": "general",
+            "is_enabled": True,
+        }
+    ]
+
+    ranked = position_knowledge_base_slice_service.rank_slices(
+        slices=slices,
+        query_text="learning attitude",
+        stage="technical",
+        role="technical_deep_dive",
+        scene="technical_depth",
+        skills=["redis"],
+        topics=["Python Backend Engineer"],
+        top_k=1,
+    )
+
+    assert ranked
+    assert ranked[0]["grounding_confidence"] == "low"
+    assert "no_skill_or_topic_match" in ranked[0]["grounding_warnings"]
+    assert "generic_source_section" in ranked[0]["grounding_warnings"]

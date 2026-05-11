@@ -142,9 +142,13 @@ def test_reroute_question_slices_and_report_signals_capture_round_metadata():
     assert 11 in selected_ids
     assert 11 in routed["used_slice_ids"]
     assert 11 in routed["panel_context"]["metadata"]["retrieved_slice_ids"]
+    assert routed["selected_slices"][0]["grounding_confidence"] in {"high", "medium"}
+    assert routed["selected_slices"][0]["routing_heads"]["skill_topic"] > 0
+    assert routed["panel_context"]["metadata"]["grounding_confidence_summary"]["counts"]["high"] >= 1
     assert routed["evidence_summary"]
     assert routed["evidence_trace"]
     assert routed["evidence_trace"][0]["reason_summary"]
+    assert routed["evidence_trace"][0]["grounding_confidence"] in {"high", "medium"}
 
     questions = [
         {
@@ -219,6 +223,7 @@ def test_reroute_question_slices_and_report_signals_capture_round_metadata():
     assert any(item["role"] == "technical_deep_dive" for item in report_signals["panel_summary"])
     assert report_signals["common_strengths"][0] == "technical depth"
     assert report_signals["evidence_summary"]
+    assert report_signals["grounding_confidence_summary"]["counts"]["high"] >= 1
     assert report_signals["followup_loop_summary"]
     assert report_signals["claim_confidence_summary"]
     assert merged_report["evidence_summary"] == report_signals["evidence_summary"]
@@ -226,6 +231,7 @@ def test_reroute_question_slices_and_report_signals_capture_round_metadata():
     assert merged_report["common_strengths"] == report_signals["common_strengths"]
     assert merged_report["followup_loop_summary"] == report_signals["followup_loop_summary"]
     assert merged_report["claim_confidence_summary"] == report_signals["claim_confidence_summary"]
+    assert merged_report["grounding_confidence_summary"] == report_signals["grounding_confidence_summary"]
     assert merged_report["panel_summary"] == report_signals["panel_summary"]
 
 

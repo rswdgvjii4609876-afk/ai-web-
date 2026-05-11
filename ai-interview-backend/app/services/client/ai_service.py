@@ -1746,10 +1746,13 @@ class AIService:
         stage = "/".join((item.get("stage_tags") or [])[:2]) or "-"
         role = "/".join((item.get("role_tags") or [])[:2]) or "-"
         scene = "/".join((item.get("scene_tags") or [])[:2]) or "-"
+        confidence = item.get("grounding_confidence") or "unknown"
+        warnings = ",".join((item.get("grounding_warnings") or [])[:2]) or "-"
         return (
             f"[slice#{item.get('slice_id', '?')}] "
             f"[{item.get('source_section') or item.get('slice_type') or 'knowledge'}] "
             f"[stage={stage}] [role={role}] [scene={scene}] "
+            f"[grounding={confidence}] [warnings={warnings}] "
             f"{AIService._trim_text(item.get('content'), limit)}"
         )
     @staticmethod
@@ -1794,6 +1797,8 @@ class AIService:
             "Grounding rules:",
             "- Do not invent candidate experience, metrics, incidents, architecture details, business impact, or project facts.",
             "- Treat the resume, routed slices, chat history, and answer content as the only trusted evidence sources.",
+            "- Position knowledge and routed RAG slices calibrate what to ask; they are not proof that the candidate has that experience or skill.",
+            "- Low-confidence routed evidence must be phrased as a verification target, not as a factual conclusion.",
         ]
         if task in {"question", "panel_question"}:
             rules.extend(
@@ -1979,6 +1984,17 @@ class AIService:
             lines.append(
                 f"- Retrieved slice ids: {', '.join(str(item) for item in report_signals.get('retrieved_slice_ids') or [])}"
             )
+        if report_signals.get("grounding_confidence_summary"):
+            summary = report_signals.get("grounding_confidence_summary") or {}
+            counts = summary.get("counts") or {}
+            warnings = summary.get("warnings") or []
+            lines.append(
+                "- Grounding confidence: "
+                f"high={counts.get('high', 0)}, medium={counts.get('medium', 0)}, "
+                f"low={counts.get('low', 0)}"
+            )
+            if warnings:
+                lines.append(f"- Grounding warnings: {', '.join(warnings[:4])}")
         if report_signals.get("evidence_stats"):
             stats = report_signals.get("evidence_stats") or {}
             lines.append(

@@ -198,9 +198,12 @@ def test_grounding_rules_require_conservative_output_without_evidence():
 
     assert "did not provide enough evidence/details" in rules
     assert "Do not invent candidate experience" in rules
+    assert "Position knowledge and routed RAG slices calibrate what to ask" in rules
+    assert "not proof that the candidate has that experience or skill" in rules
 
     report_rules = AIService._build_grounding_rules("report", has_report_evidence=False)
     assert "insufficient evidence" in report_rules
+    assert "Low-confidence routed evidence must be phrased as a verification target" in report_rules
 
 
 @pytest.mark.unit

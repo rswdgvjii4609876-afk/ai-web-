@@ -573,6 +573,37 @@ class InterviewService:
             "keywords": item.get("keywords") or [],
             "routing_score": item.get("routing_score"),
             "routing_reasons": item.get("routing_reasons") or [],
+            "routing_heads": item.get("routing_heads") or {},
+            "grounding_confidence": item.get("grounding_confidence"),
+            "grounding_warnings": item.get("grounding_warnings") or [],
+        }
+
+    @staticmethod
+    def _grounding_confidence_summary(selected_slices: Sequence[Dict]) -> Dict:
+        counts = {"high": 0, "medium": 0, "low": 0, "unknown": 0}
+        warnings: List[str] = []
+        low_confidence_slice_ids: List[int] = []
+        for item in selected_slices or []:
+            confidence = str(item.get("grounding_confidence") or "unknown").lower()
+            if confidence not in counts:
+                confidence = "unknown"
+            counts[confidence] += 1
+            if confidence == "low":
+                try:
+                    low_confidence_slice_ids.append(int(item.get("slice_id")))
+                except (TypeError, ValueError):
+                    pass
+            for warning in item.get("grounding_warnings") or []:
+                warning_text = str(warning).strip()
+                if warning_text and warning_text not in warnings:
+                    warnings.append(warning_text)
+        ordered = ["low", "medium", "high", "unknown"]
+        lowest_confidence = next((key for key in ordered if counts.get(key)), "unknown")
+        return {
+            "counts": counts,
+            "lowest_confidence": lowest_confidence,
+            "warnings": warnings[:6],
+            "low_confidence_slice_ids": low_confidence_slice_ids[:6],
         }
 
     @staticmethod
@@ -608,6 +639,9 @@ class InterviewService:
                     "source_section": item.get("source_section") or item.get("slice_type"),
                     "reason_summary": "；".join(reasons[:3]),
                     "reasons": reasons[:4],
+                    "routing_heads": item.get("routing_heads") or {},
+                    "grounding_confidence": item.get("grounding_confidence"),
+                    "grounding_warnings": item.get("grounding_warnings") or [],
                     "quote": str(item.get("content") or "").strip()[:120],
                     "is_selected": bool(slice_id and slice_id in selected_ids) if selected_ids else True,
                 }
@@ -882,6 +916,15 @@ class InterviewService:
                 ]
                 if matched:
                     selected_slices = matched
+            panel_context = dict(raw.get("panel_context") or {})
+            metadata = dict(panel_context.get("metadata") or {})
+            if selected_slices:
+                metadata["grounding_confidence_summary"] = InterviewService._grounding_confidence_summary(
+                    selected_slices
+                )
+                if requested_ids:
+                    metadata["retrieved_slice_ids"] = requested_ids
+                panel_context["metadata"] = metadata
 
             question_item = {
                 "index": index,
@@ -916,7 +959,7 @@ class InterviewService:
                 or [],
                 "selected_followups": raw.get("selected_followups") or [],
                 "difficulty_hint": raw.get("difficulty_hint"),
-                "panel_context": raw.get("panel_context") or {},
+                "panel_context": panel_context,
                 "panel_reasoning_summary": raw.get("panel_reasoning_summary"),
                 "verification_target": raw.get("verification_target") or plan.get("verification_target"),
                 "question_target_gap": raw.get("question_target_gap") or plan.get("question_target_gap"),
@@ -1268,6 +1311,9 @@ class InterviewService:
         panel_context = dict(next_meta.get("panel_context") or {})
         metadata = dict(panel_context.get("metadata") or {})
         metadata["retrieved_slice_ids"] = next_meta["used_slice_ids"]
+        metadata["grounding_confidence_summary"] = InterviewService._grounding_confidence_summary(
+            next_meta["selected_slices"]
+        )
         if metadata:
             panel_context["metadata"] = metadata
             next_meta["panel_context"] = panel_context
@@ -1335,6 +1381,9 @@ class InterviewService:
         evidence_summary: List[str] = []
         followup_loop_summary: List[str] = []
         claim_confidence_summary: List[str] = []
+        grounding_counts: Counter = Counter()
+        grounding_warnings: List[str] = []
+        low_confidence_slice_ids: List[int] = []
         evidence_question_count = 0
 
         for question in questions:
@@ -1417,6 +1466,18 @@ class InterviewService:
                 for item in question_evidence_summary:
                     if item not in evidence_summary:
                         evidence_summary.append(item)
+            grounding_summary = InterviewService._grounding_confidence_summary(
+                question.get("selected_slices") or []
+            )
+            for level, count in (grounding_summary.get("counts") or {}).items():
+                if count:
+                    grounding_counts[level] += count
+            for warning in grounding_summary.get("warnings") or []:
+                if warning not in grounding_warnings:
+                    grounding_warnings.append(warning)
+            for slice_id in grounding_summary.get("low_confidence_slice_ids") or []:
+                if slice_id not in low_confidence_slice_ids:
+                    low_confidence_slice_ids.append(slice_id)
 
             for item in evaluation.get("panel_views") or []:
                 if not isinstance(item, dict):
@@ -1448,6 +1509,11 @@ class InterviewService:
             "evidence_summary": evidence_summary[:6],
             "followup_loop_summary": followup_loop_summary[:6],
             "claim_confidence_summary": claim_confidence_summary[:6],
+            "grounding_confidence_summary": {
+                "counts": dict(grounding_counts),
+                "warnings": grounding_warnings[:6],
+                "low_confidence_slice_ids": low_confidence_slice_ids[:6],
+            },
             "evidence_stats": {
                 "questions_with_evidence": evidence_question_count,
                 "total_questions": len(questions),
@@ -1480,6 +1546,8 @@ class InterviewService:
             merged["followup_loop_summary"] = report_signals["followup_loop_summary"]
         if not merged.get("claim_confidence_summary") and report_signals.get("claim_confidence_summary"):
             merged["claim_confidence_summary"] = report_signals["claim_confidence_summary"]
+        if not merged.get("grounding_confidence_summary") and report_signals.get("grounding_confidence_summary"):
+            merged["grounding_confidence_summary"] = report_signals["grounding_confidence_summary"]
         if not merged.get("evidence_stats") and report_signals.get("evidence_stats"):
             merged["evidence_stats"] = report_signals["evidence_stats"]
         return merged

@@ -556,6 +556,50 @@ class PositionKnowledgeBaseSliceService:
         return f"{prefix}：{' / '.join(cleaned[:limit])}"
 
     @staticmethod
+    def _grounding_confidence(routing_heads: Dict[str, float]) -> str:
+        signal_heads = [
+            routing_heads.get("lexical", 0),
+            routing_heads.get("stage_role", 0),
+            routing_heads.get("skill_topic", 0),
+            routing_heads.get("weakness", 0),
+        ]
+        active_signal_count = sum(1 for value in signal_heads if value > 0)
+        if (
+            routing_heads.get("skill_topic", 0) > 0
+            and active_signal_count >= 3
+            and routing_heads.get("lexical", 0) >= 2.4
+        ):
+            return "high"
+        if routing_heads.get("skill_topic", 0) > 0 or (
+            active_signal_count >= 2 and routing_heads.get("lexical", 0) > 0
+        ):
+            return "medium"
+        return "low"
+
+    @staticmethod
+    def _grounding_warnings(
+        routing_heads: Dict[str, float],
+        confidence: str,
+        source_section: str,
+    ) -> List[str]:
+        warnings: List[str] = []
+        if confidence == "low":
+            warnings.append("low_grounding_confidence")
+        if routing_heads.get("skill_topic", 0) <= 0:
+            warnings.append("no_skill_or_topic_match")
+        if routing_heads.get("lexical", 0) <= 0:
+            warnings.append("no_query_overlap")
+        if source_section not in {
+            "job_requirements",
+            "interview_experience",
+            "ability_model",
+            "followup_rules",
+            "focus_points",
+        }:
+            warnings.append("generic_source_section")
+        return warnings
+
+    @staticmethod
     async def rebuild_for_knowledge_base(db: AsyncSession, knowledge_base: PositionKnowledgeBase) -> List[Dict]:
         payloads = PositionKnowledgeBaseSliceService.build_slice_payloads(knowledge_base)
         await db.execute(
@@ -611,7 +655,16 @@ class PositionKnowledgeBaseSliceService:
         for item in slices:
             if not item.get("is_enabled", True):
                 continue
-            score = float(item.get("priority") or 0)
+            source_section = item.get("source_section") or ""
+            source_quality = float(item.get("priority") or 0)
+            score = source_quality
+            routing_heads = {
+                "lexical": 0.0,
+                "stage_role": 0.0,
+                "skill_topic": 0.0,
+                "weakness": 0.0,
+                "source_quality": round(source_quality, 2),
+            }
             reasons: List[str] = []
             stage_tags = item.get("stage_tags") or []
             role_tags = item.get("role_tags") or []
@@ -627,29 +680,38 @@ class PositionKnowledgeBaseSliceService:
                 ]
             )
             overlap = len(query_tokens & PositionKnowledgeBaseSliceService._tokenize(searchable))
-            score += min(overlap, 6) * 1.2
+            lexical_score = min(overlap, 6) * 1.2
+            score += lexical_score
+            routing_heads["lexical"] += lexical_score
             if overlap:
                 reasons.append(f"命中内容关键词 {min(overlap, 6)} 项")
             if stage and stage in stage_tags:
                 score += 4
+                routing_heads["stage_role"] += 4
                 reasons.append(f"匹配阶段：{stage}")
             if role and role in role_tags:
                 score += 3
+                routing_heads["stage_role"] += 3
                 reasons.append(f"匹配角色：{role}")
             if scene and scene in scene_tags:
                 score += 2.5
+                routing_heads["stage_role"] += 2.5
                 reasons.append(f"匹配场景：{scene}")
             if difficulty:
                 if slice_difficulty == difficulty:
                     score += 2
+                    routing_heads["stage_role"] += 2
                     reasons.append(f"匹配难度：{difficulty}")
                 elif slice_difficulty == "general":
                     score += 1
+                    routing_heads["stage_role"] += 1
             matched_skill_terms = sorted(
                 skill_terms & PositionKnowledgeBaseSliceService._normalize_terms(item.get("skill_tags"))
             )
             if matched_skill_terms:
-                score += min(len(matched_skill_terms), 4) * 1.5
+                skill_score = min(len(matched_skill_terms), 4) * 1.5
+                score += skill_score
+                routing_heads["skill_topic"] += skill_score
                 reason = PositionKnowledgeBaseSliceService._format_reason("命中技能", matched_skill_terms)
                 if reason:
                     reasons.append(reason)
@@ -657,7 +719,9 @@ class PositionKnowledgeBaseSliceService:
                 topic_terms & PositionKnowledgeBaseSliceService._normalize_terms(item.get("topic_tags"))
             )
             if matched_topic_terms:
-                score += min(len(matched_topic_terms), 4) * 1.2
+                topic_score = min(len(matched_topic_terms), 4) * 1.2
+                score += topic_score
+                routing_heads["skill_topic"] += topic_score
                 reason = PositionKnowledgeBaseSliceService._format_reason("命中主题", matched_topic_terms)
                 if reason:
                     reasons.append(reason)
@@ -665,17 +729,33 @@ class PositionKnowledgeBaseSliceService:
                 weakness_tokens & PositionKnowledgeBaseSliceService._normalize_terms(item.get("keywords"))
             )
             if matched_weakness_terms:
-                score += min(len(matched_weakness_terms), 4) * 1.4
+                weakness_score = min(len(matched_weakness_terms), 4) * 1.4
+                score += weakness_score
+                routing_heads["weakness"] += weakness_score
                 reason = PositionKnowledgeBaseSliceService._format_reason("命中薄弱点", matched_weakness_terms)
                 if reason:
                     reasons.append(reason)
             if item.get("source_section") == "focus_points":
                 score += 1.5
+                routing_heads["source_quality"] += 1.5
                 reasons.append("来自重点训练项")
+            elif source_section in {"job_requirements", "interview_experience", "ability_model", "followup_rules"}:
+                score += 1.0
+                routing_heads["source_quality"] += 1.0
+            routing_heads = {key: round(value, 2) for key, value in routing_heads.items()}
+            grounding_confidence = PositionKnowledgeBaseSliceService._grounding_confidence(routing_heads)
+            grounding_warnings = PositionKnowledgeBaseSliceService._grounding_warnings(
+                routing_heads,
+                grounding_confidence,
+                source_section,
+            )
             enriched_item = {
                 **item,
                 "routing_score": round(score, 2),
                 "routing_reasons": reasons[:6],
+                "routing_heads": routing_heads,
+                "grounding_confidence": grounding_confidence,
+                "grounding_warnings": grounding_warnings,
             }
             ranked.append((score, enriched_item))
 
