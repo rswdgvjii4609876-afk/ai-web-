@@ -6,6 +6,7 @@ const routes = [
   { path: '/', name: 'Dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true } },
   { path: '/users', name: 'Users', component: () => import('../views/Users.vue'), meta: { auth: true } },
   { path: '/knowledge-bases', name: 'KnowledgeBases', component: () => import('../views/KnowledgeBases.vue'), meta: { auth: true } },
+  { path: '/knowledge-package', name: 'KnowledgePackage', component: () => import('../views/KnowledgePackage.vue'), meta: { auth: true } },
   { path: '/learning-routes', name: 'LearningRoutes', component: () => import('../views/LearningRoutes.vue'), meta: { auth: true } },
   { path: '/cases', name: 'Cases', component: () => import('../views/Cases.vue'), meta: { auth: true } },
   { path: '/evaluation-datasets', name: 'EvaluationDatasets', component: () => import('../views/EvaluationDatasets.vue'), meta: { auth: true } },

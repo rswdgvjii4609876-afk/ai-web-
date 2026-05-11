@@ -13,6 +13,9 @@
         <router-link to="/knowledge-bases" active-class="active">
           <span class="nav-icon">🧠</span> 公共岗位画像
         </router-link>
+        <router-link to="/knowledge-package" active-class="active">
+          <span class="nav-icon">▤</span> 资料包预检
+        </router-link>
         <router-link to="/learning-routes" active-class="active">
           <span class="nav-icon">▣</span> 学习路线管理
         </router-link>
