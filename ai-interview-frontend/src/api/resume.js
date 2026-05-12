@@ -22,3 +22,9 @@ export function getResume(resumeId) {
 export function getResumes() {
   return api.get('/resumes')
 }
+
+export function polishResume(resumeId, payload) {
+  return api.post(`/resumes/${resumeId}/polish`, payload, {
+    timeout: 120000
+  })
+}

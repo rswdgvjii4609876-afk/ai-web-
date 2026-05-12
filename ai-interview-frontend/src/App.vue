@@ -4,6 +4,7 @@
       <div class="nav-content">
         <router-link to="/dashboard" class="nav-logo">职启智评</router-link>
         <div class="nav-links">
+          <router-link to="/resume-polish">简历润色</router-link>
           <router-link to="/dashboard">工作台</router-link>
           <router-link to="/knowledge-base">岗位画像库</router-link>
           <router-link to="/ability-diagnosis">能力诊断</router-link>

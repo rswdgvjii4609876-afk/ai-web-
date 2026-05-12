@@ -20,3 +20,9 @@ class ResumeDetail(BaseSchema):
     evidence_summary: Optional[list[str]] = None
     error_message: Optional[str] = None
     created_at: Optional[str] = None
+
+
+class ResumePolishRequest(BaseSchema):
+    polish_mode: str = Field(default="job_aligned", max_length=40)
+    target_position: Optional[str] = Field(default=None, max_length=255)
+    user_notes: Optional[str] = Field(default=None, max_length=2000)

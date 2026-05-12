@@ -2317,6 +2317,224 @@ class AIService:
             'JSON object with keys: overall_score, strengths, weaknesses, suggestions, keyword_match, missing_keywords, summary',
             ai_config=ai_config,
         )
+
+    @staticmethod
+    def _normalize_resume_polish_payload(
+        payload: Any,
+        target_position: str,
+        analysis: Optional[Dict],
+        polish_mode: str,
+    ) -> Dict[str, Any]:
+        data = payload if isinstance(payload, dict) else {}
+        analysis = analysis or {}
+        metrics = analysis.get("matching_metrics") or {}
+        ability_profile = analysis.get("ability_gap_profile") or metrics.get("ability_gap_profile") or {}
+        top_gaps = ability_profile.get("top_gaps") or ability_profile.get("items") or []
+        if not isinstance(top_gaps, list):
+            top_gaps = []
+
+        baseline = data.get("baseline") if isinstance(data.get("baseline"), dict) else {}
+        baseline.update(
+            {
+                "target_position": target_position,
+                "final_score": metrics.get("final_score", analysis.get("final_score")),
+                "keyword_coverage": metrics.get("keyword_coverage", analysis.get("keyword_coverage")),
+                "semantic_score": metrics.get("semantic_score", analysis.get("semantic_score")),
+                "rule_score": metrics.get("rule_score", analysis.get("rule_score")),
+            }
+        )
+
+        suggestions: List[Dict[str, Any]] = []
+        raw_suggestions = (
+            data.get("section_suggestions")
+            or data.get("suggestions")
+            or data.get("polish_suggestions")
+            or []
+        )
+        if isinstance(raw_suggestions, dict):
+            raw_suggestions = [raw_suggestions]
+        if isinstance(raw_suggestions, str):
+            raw_suggestions = [{"section": "整体表达", "issue": raw_suggestions}]
+
+        for item in raw_suggestions or []:
+            if isinstance(item, str):
+                item = {"section": "整体表达", "issue": item}
+            if not isinstance(item, dict):
+                continue
+            section = AIService._string_or_empty(item.get("section") or item.get("title")) or "简历表达"
+            issue = AIService._string_or_empty(item.get("issue") or item.get("problem") or item.get("reason"))
+            rewritten = AIService._string_or_empty(
+                item.get("rewritten_text")
+                or item.get("rewrite")
+                or item.get("polished_text")
+                or item.get("suggestion")
+            )
+            if not issue and not rewritten:
+                continue
+            suggestions.append(
+                {
+                    "section": section,
+                    "issue": issue,
+                    "evidence_basis": AIService._string_or_empty(
+                        item.get("evidence_basis") or item.get("evidence") or item.get("basis")
+                    ),
+                    "rewrite_strategy": AIService._string_or_empty(
+                        item.get("rewrite_strategy") or item.get("strategy")
+                    ),
+                    "rewritten_text": rewritten,
+                    "risk_level": AIService._string_or_empty(item.get("risk_level")) or "medium",
+                    "risk_note": AIService._string_or_empty(item.get("risk_note") or item.get("warning")),
+                }
+            )
+            if len(suggestions) >= 8:
+                break
+
+        if not suggestions:
+            for gap in top_gaps[:5]:
+                if not isinstance(gap, dict):
+                    continue
+                ability_name = AIService._string_or_empty(gap.get("name") or gap.get("ability_name")) or "岗位能力"
+                evidence_status = AIService._string_or_empty(gap.get("evidence_status")) or "missing"
+                suggestions.append(
+                    {
+                        "section": ability_name,
+                        "issue": "当前简历对该岗位能力的证据不足。",
+                        "evidence_basis": AIService._string_or_empty(gap.get("evidence_basis")),
+                        "rewrite_strategy": "补充可验证项目、职责边界、产出和指标；没有真实经历时只能写待补充证据。",
+                        "rewritten_text": f"- {ability_name}：[补充真实项目/课程/实习中的具体做法、工具、结果或数据，不能虚构经历]",
+                        "risk_level": "high" if evidence_status in {"missing", "claimed_only"} else "medium",
+                        "risk_note": "该能力需要进一步补充真实证据或通过面试验证。",
+                    }
+                )
+
+        warnings = AIService._string_list(
+            data.get("risk_warnings") or data.get("warnings") or data.get("do_not_add_claims"),
+            limit=8,
+        )
+        default_warning = "不得新增原简历中不存在的公司、项目、时间、技术栈、指标或职责。"
+        if default_warning not in warnings:
+            warnings.insert(0, default_warning)
+
+        keyword_alignment = data.get("keyword_alignment")
+        if not isinstance(keyword_alignment, list):
+            keyword_alignment = []
+
+        polished_markdown = AIService._string_or_empty(
+            data.get("polished_resume_markdown")
+            or data.get("final_resume_markdown")
+            or data.get("markdown")
+        )
+        if not polished_markdown:
+            lines = [
+                f"# 面向「{target_position}」的简历润色稿",
+                "",
+                "> 说明：以下内容只基于原简历和岗位要求改写；方括号内容需要用户补充真实证据后才能使用。",
+                "",
+            ]
+            for item in suggestions:
+                lines.append(f"## {item['section']}")
+                if item.get("rewritten_text"):
+                    lines.append(item["rewritten_text"])
+                if item.get("risk_note"):
+                    lines.append(f"> 风险提示：{item['risk_note']}")
+                lines.append("")
+            polished_markdown = "\n".join(lines).strip()
+
+        return {
+            "version": "resume_polish_v1",
+            "polish_mode": polish_mode or "job_aligned",
+            "target_position": target_position,
+            "baseline": baseline,
+            "overall_strategy": AIService._string_or_empty(data.get("overall_strategy"))
+            or "围绕岗位评分逻辑强化证据表达，并保留待验证能力的边界。",
+            "section_suggestions": suggestions,
+            "keyword_alignment": keyword_alignment[:12],
+            "risk_warnings": warnings[:8],
+            "missing_evidence_to_prepare": AIService._string_list(
+                data.get("missing_evidence_to_prepare") or data.get("missing_evidence"),
+                limit=8,
+            ),
+            "polished_resume_markdown": polished_markdown,
+        }
+
+    @staticmethod
+    async def polish_resume(
+        parsed_resume: dict,
+        analysis: dict,
+        target_position: str,
+        resume_evidence: Optional[dict] = None,
+        knowledge_context: Optional[dict] = None,
+        polish_mode: str = "job_aligned",
+        user_notes: Optional[str] = None,
+        ai_config: Optional[Dict] = None,
+    ) -> dict:
+        metrics = (analysis or {}).get("matching_metrics") or {}
+        ability_profile = (analysis or {}).get("ability_gap_profile") or metrics.get("ability_gap_profile") or {}
+        compact_context = {
+            "analysis_summary": {
+                "final_score": metrics.get("final_score", (analysis or {}).get("final_score")),
+                "keyword_coverage": metrics.get("keyword_coverage", (analysis or {}).get("keyword_coverage")),
+                "semantic_score": metrics.get("semantic_score", (analysis or {}).get("semantic_score")),
+                "strengths": (analysis or {}).get("strengths") or [],
+                "weaknesses": (analysis or {}).get("weaknesses") or [],
+                "suggestions": (analysis or {}).get("suggestions") or [],
+            },
+            "ability_gap_profile": {
+                "overall_match_score": ability_profile.get("overall_match_score"),
+                "top_gaps": (ability_profile.get("top_gaps") or ability_profile.get("items") or [])[:6],
+            },
+            "matching_evidence": {
+                "direct_matches": metrics.get("direct_matches") or [],
+                "related_matches": metrics.get("related_matches") or [],
+                "verification_needed": metrics.get("verification_needed") or [],
+                "missing_keywords": metrics.get("missing_keywords") or (analysis or {}).get("missing_keywords") or [],
+                "evidence_statuses": metrics.get("evidence_statuses") or [],
+            },
+            "resume_evidence": {
+                "evidence_summary": (resume_evidence or {}).get("evidence_summary") or [],
+                "ambiguity_flags": (resume_evidence or {}).get("ambiguity_flags") or [],
+                "missing_evidence_flags": (resume_evidence or {}).get("missing_evidence_flags") or [],
+            },
+            "knowledge_context": knowledge_context or {},
+        }
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是严格证据约束的中文简历教练。请基于岗位评分逻辑润色简历，返回纯 JSON。"
+                    "只能改写表达、重排重点、提示需要补充的真实证据；不得编造公司、项目、职责、指标、技术栈、证书或时间。"
+                    "如果简历只有声明型能力，必须标记为待验证，不能写成已经熟练掌握。"
+                    "如果需要用户补充信息，用 [补充真实数据/项目细节] 这样的占位符。"
+                    "JSON Schema: {"
+                    '"overall_strategy":"","section_suggestions":[{"section":"","issue":"","evidence_basis":"","rewrite_strategy":"","rewritten_text":"","risk_level":"low|medium|high","risk_note":""}],'
+                    '"keyword_alignment":[{"keyword":"","status":"direct|indirect|claimed_only|missing","action":""}],'
+                    '"risk_warnings":[""],"missing_evidence_to_prepare":[""],"polished_resume_markdown":""'
+                    "}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"目标岗位：{target_position}\n"
+                    f"润色模式：{polish_mode}\n"
+                    f"用户补充说明：{AIService._trim_text(user_notes or '', 1200)}\n"
+                    f"原简历结构化 JSON：{AIService._resume_snapshot(parsed_resume or {})}\n"
+                    f"评分与证据上下文：{json.dumps(compact_context, ensure_ascii=False)}"
+                ),
+            },
+        ]
+        result = await AIService._chat(messages, temperature=0.25, ai_config=ai_config)
+        payload = await AIService._extract_or_repair_json(
+            result,
+            "JSON object with resume polish fields",
+            ai_config=ai_config,
+        )
+        return AIService._normalize_resume_polish_payload(
+            payload=payload,
+            target_position=target_position,
+            analysis=analysis,
+            polish_mode=polish_mode,
+        )
     @staticmethod
     async def generate_questions(
         parsed_resume: dict,

@@ -1,16 +1,18 @@
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Dict, Optional, List, Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
+from app.models.position_knowledge_base import PositionKnowledgeBase
 from app.models.resume import Resume
 from app.models.user import User
 from app.services.client.ai_service import AIService
@@ -50,6 +52,61 @@ class ResumeService:
         if not isinstance(evidence_summary, list):
             evidence_summary = None
         return resume_evidence, evidence_summary
+
+    @staticmethod
+    def _loads_json_object(value: Optional[str]) -> Dict:
+        if not value:
+            return {}
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _compact_knowledge_base(item: Optional[PositionKnowledgeBase]) -> Optional[Dict]:
+        if not item:
+            return None
+        return {
+            "title": item.title,
+            "target_position": item.target_position,
+            "scope": item.scope,
+            "knowledge_content": (item.knowledge_content or "")[:1800],
+            "focus_points": (item.focus_points or "")[:900],
+            "interviewer_prompt": (item.interviewer_prompt or "")[:900],
+        }
+
+    @staticmethod
+    async def _resolve_polish_knowledge_context(
+        db: AsyncSession,
+        user_id: int,
+        target_position: str,
+    ) -> Optional[Dict]:
+        normalized_target = (target_position or "").strip()
+        if not normalized_target:
+            return None
+
+        query = (
+            select(PositionKnowledgeBase)
+            .where(
+                PositionKnowledgeBase.is_active.is_(True),
+                PositionKnowledgeBase.target_position.ilike(f"%{normalized_target}%"),
+                or_(
+                    PositionKnowledgeBase.user_id == user_id,
+                    PositionKnowledgeBase.scope == "public",
+                ),
+            )
+            .order_by(
+                PositionKnowledgeBase.user_id.desc().nullslast(),
+                PositionKnowledgeBase.updated_at.desc(),
+            )
+        )
+        try:
+            result = await db.execute(query)
+            return ResumeService._compact_knowledge_base(result.scalars().first())
+        except Exception as exc:
+            logger.warning("Resume polish knowledge context skipped: %s", exc)
+            return None
 
     @staticmethod
     async def create_resume_upload(
@@ -291,6 +348,72 @@ class ResumeService:
         resume.analysis = json.dumps({"error_message": error_message}, ensure_ascii=False)
         await db.commit()
         await db.refresh(resume)
+
+    @staticmethod
+    async def polish_resume(
+        db: AsyncSession,
+        resume_id: int,
+        user_id: int,
+        polish_mode: str = "job_aligned",
+        target_position: Optional[str] = None,
+        user_notes: Optional[str] = None,
+        ai_config: Optional[Dict] = None,
+    ) -> Dict:
+        result = await db.execute(
+            select(Resume).where(
+                Resume.id == resume_id,
+                Resume.user_id == user_id,
+            )
+        )
+        resume = result.scalar_one_or_none()
+        if not resume:
+            raise NotFoundError(message="简历不存在")
+        if resume.status != "completed":
+            raise ValidationError(message="简历尚未完成分析，完成解析和评分后才能生成润色建议")
+
+        parsed_resume = ResumeService._loads_json_object(resume.parsed_content)
+        analysis = ResumeService._loads_json_object(resume.analysis)
+        if not parsed_resume or not analysis:
+            raise ValidationError(message="简历分析数据不完整，请重新上传并完成分析后再润色")
+
+        polish_target = (target_position or resume.target_position or "").strip()
+        if not polish_target:
+            raise ValidationError(message="请先选择目标岗位，再生成简历润色建议")
+
+        resume_evidence, _ = ResumeService._extract_evidence_fields(analysis)
+        knowledge_context = await ResumeService._resolve_polish_knowledge_context(
+            db=db,
+            user_id=user_id,
+            target_position=polish_target,
+        )
+        try:
+            polish_result = await AIService.polish_resume(
+                parsed_resume=parsed_resume,
+                analysis=analysis,
+                target_position=polish_target,
+                resume_evidence=resume_evidence,
+                knowledge_context=knowledge_context,
+                polish_mode=(polish_mode or "job_aligned").strip()[:40],
+                user_notes=user_notes,
+                ai_config=ai_config,
+            )
+        except ValidationError:
+            raise
+        except JSONDecodeError as exc:
+            logger.exception("Resume polish JSON decode failed for resume %s: %s", resume.id, exc)
+            raise ValidationError(message="AI 返回的简历润色结果格式异常，请稍后重试或更换模型") from exc
+        except Exception as exc:
+            logger.exception("Resume polish failed for resume %s: %s", resume.id, exc)
+            raise ValidationError(message="简历润色服务异常，请稍后重试或检查 API 配置") from exc
+
+        polish_result["resume_id"] = resume.id
+        polish_result["file_name"] = resume.file_name
+        polish_result["generated_at"] = datetime.now(timezone.utc).isoformat()
+        analysis["resume_polish"] = polish_result
+        resume.analysis = json.dumps(analysis, ensure_ascii=False)
+        await db.commit()
+        await db.refresh(resume)
+        return polish_result
 
     @staticmethod
     def _extract_pdf_text(file_path: str) -> str:

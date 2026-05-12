@@ -11,6 +11,7 @@ from app.exceptions.http_exceptions import ValidationError
 from app.models.user import User
 from app.constants.competition import DEFAULT_TARGET_POSITION
 from app.schemas.response import ApiResponse
+from app.schemas.client.resume import ResumePolishRequest
 from app.services.client.resume_service import resume_service
 from app.services.common.deepseek_config_service import deepseek_config_service
 
@@ -104,6 +105,28 @@ async def get_resume(
     db: AsyncSession = Depends(get_db),
 ):
     result = await resume_service.get_resume(db, resume_id, current_user.id)
+    return ApiResponse.success(data=result)
+
+
+@router.post("/{resume_id}/polish")
+async def polish_resume(
+    resume_id: int,
+    payload: ResumePolishRequest,
+    ai_provider: Optional[str] = None,
+    ai_model: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ai_config = _build_resume_runtime_config(current_user, ai_provider, ai_model)
+    result = await resume_service.polish_resume(
+        db=db,
+        resume_id=resume_id,
+        user_id=current_user.id,
+        polish_mode=payload.polish_mode,
+        target_position=payload.target_position,
+        user_notes=payload.user_notes,
+        ai_config=ai_config,
+    )
     return ApiResponse.success(data=result)
 
 

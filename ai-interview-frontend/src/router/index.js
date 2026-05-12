@@ -10,6 +10,7 @@ const routes = [
   { path: '/ability-diagnosis', name: 'AbilityDiagnosis', component: () => import('../views/AbilityDiagnosis.vue'), meta: { auth: true } },
   { path: '/learning-tasks', name: 'LearningTasks', component: () => import('../views/LearningTasks.vue'), meta: { auth: true } },
   { path: '/training-review', name: 'TrainingReview', component: () => import('../views/TrainingReview.vue'), meta: { auth: true } },
+  { path: '/resume-polish', name: 'ResumePolish', component: () => import('../views/ResumePolish.vue'), meta: { auth: true } },
   { path: '/resume/upload', name: 'ResumeUpload', component: () => import('../views/ResumeUpload.vue'), meta: { auth: true } },
   { path: '/interview/:id', name: 'Interview', component: () => import('../views/Interview.vue'), meta: { auth: true } },
   { path: '/interview/:id/report', name: 'Report', component: () => import('../views/Report.vue'), meta: { auth: true } },
