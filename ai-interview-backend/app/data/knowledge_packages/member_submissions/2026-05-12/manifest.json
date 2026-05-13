@@ -1,0 +1,34 @@
+{
+  "version": "member_knowledge_package_manifest_v1",
+  "date": "2026-05-12",
+  "status": "ready_for_check_and_import",
+  "source_policy": "Raw source files remain under docs/competition/member materials; deployable curated packages live under backend app/data.",
+  "packages": [
+    {
+      "file": "tech_knowledge_package.json",
+      "preview": "tech_knowledge_package_preview.md",
+      "positions": [
+        "Python后端开发工程师",
+        "Java后端开发工程师",
+        "前端开发工程师",
+        "算法工程师"
+      ]
+    },
+    {
+      "file": "nontech_knowledge_package.json",
+      "preview": "nontech_knowledge_package_preview.md",
+      "positions": [
+        "产品助理",
+        "运营助理",
+        "人力资源专员"
+      ]
+    }
+  ],
+  "excluded_materials": [
+    {
+      "file": "docs/competition/成员资料/03_非技术岗岗位资料与面经负责人/待检查/2026-5-12/面试经历.docx",
+      "reason": "Image-heavy interview experience document; requires OCR or manual transcription before import."
+    }
+  ],
+  "import_script": "python -m app.scripts.import_member_knowledge_packages"
+}

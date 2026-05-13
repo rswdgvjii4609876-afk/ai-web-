@@ -200,13 +200,18 @@ class PositionKnowledgeBaseSliceService:
 
         for raw_line in text.splitlines():
             line = raw_line.strip()
-            heading_match = re.match(r"^#{1,4}\s*(.+?)\s*$", line)
+            heading_match = re.match(r"^(#{1,4})\s*(.+?)\s*$", line)
             if heading_match:
-                next_key = PositionKnowledgeBaseSliceService._section_key(heading_match.group(1))
+                heading_level = len(heading_match.group(1))
+                next_key = (
+                    PositionKnowledgeBaseSliceService._section_key(heading_match.group(2))
+                    if heading_level <= 2
+                    else None
+                )
                 if next_key:
                     flush()
                     current_key = next_key
-                    current_title = SECTION_TITLES.get(next_key, heading_match.group(1).strip())
+                    current_title = SECTION_TITLES.get(next_key, heading_match.group(2).strip())
                     current_lines = []
                     continue
             current_lines.append(raw_line)
