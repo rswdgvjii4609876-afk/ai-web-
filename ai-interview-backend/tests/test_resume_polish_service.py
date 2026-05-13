@@ -95,6 +95,17 @@ def test_resume_polish_keeps_evidence_constraints(monkeypatch):
             },
             target_position="Python后端开发工程师",
             resume_evidence={"evidence_summary": ["技能栏声明 Redis"]},
+            knowledge_context={
+                "sources": [
+                    {
+                        "title": "成员资料补充：Python后端开发工程师",
+                        "target_position": "Python后端开发工程师",
+                        "scope": "public",
+                        "is_member_submission": True,
+                    }
+                ],
+                "usage_rule": "岗位知识库只用于岗位要求和表达方向，不能写成候选人真实经历。",
+            },
             ai_config={"provider": "test"},
         )
     )
@@ -104,6 +115,9 @@ def test_resume_polish_keeps_evidence_constraints(monkeypatch):
     assert result["section_suggestions"][0]["risk_level"] == "high"
     assert "补充真实项目" in result["polished_resume_markdown"]
     assert "不得新增原简历中不存在" in result["risk_warnings"][0]
+    assert result["knowledge_context_summary"]["member_submission_used"] is True
+    assert result["knowledge_sources"][0]["title"] == "成员资料补充：Python后端开发工程师"
+    assert any("岗位知识库只用于岗位要求" in item for item in result["risk_warnings"])
     assert "已熟练掌握" not in result["polished_resume_markdown"]
 
 
@@ -131,3 +145,45 @@ def test_resume_polish_fallback_uses_ability_gaps_when_ai_payload_sparse():
     assert result["section_suggestions"][0]["section"] == "需求分析"
     assert result["section_suggestions"][0]["risk_level"] == "high"
     assert "[补充真实项目/课程/实习" in result["polished_resume_markdown"]
+
+
+@pytest.mark.unit
+def test_resume_polish_ranks_member_submission_before_generic_public_source():
+    member_source = type(
+        "KnowledgeSource",
+        (),
+        {
+            "id": 1,
+            "user_id": None,
+            "scope": "public",
+            "title": "成员资料补充：人力资源专员",
+            "target_position": "人力资源专员",
+            "knowledge_content": "招聘漏斗与候选人沟通面经",
+            "focus_points": "",
+            "interviewer_prompt": "",
+            "updated_at": None,
+        },
+    )()
+    generic_source = type(
+        "KnowledgeSource",
+        (),
+        {
+            "id": 2,
+            "user_id": None,
+            "scope": "public",
+            "title": "公共画像：人力资源专员",
+            "target_position": "人力资源专员",
+            "knowledge_content": "通用岗位要求",
+            "focus_points": "",
+            "interviewer_prompt": "",
+            "updated_at": None,
+        },
+    )()
+
+    ranked = resume_service._rank_polish_knowledge_sources(
+        [generic_source, member_source],
+        user_id=8,
+        target_position="人力资源专员",
+    )
+
+    assert ranked[0].title == "成员资料补充：人力资源专员"

@@ -15,6 +15,7 @@ from openai import (
 )
 from app.core.config import settings
 from app.exceptions.http_exceptions import ValidationError
+from app.services.client.resume_evaluation_snapshot import snapshot_from_payload
 logger = logging.getLogger(__name__)
 PANEL_OUTPUT_VERSION = "panel_structured_v1"
 PANEL_ROLE_ALIAS = {
@@ -2324,11 +2325,28 @@ class AIService:
         target_position: str,
         analysis: Optional[Dict],
         polish_mode: str,
+        knowledge_context: Optional[Dict] = None,
     ) -> Dict[str, Any]:
         data = payload if isinstance(payload, dict) else {}
         analysis = analysis or {}
+        knowledge_context = knowledge_context if isinstance(knowledge_context, dict) else {}
+        knowledge_sources = []
+        for source in knowledge_context.get("sources") or []:
+            if not isinstance(source, dict):
+                continue
+            knowledge_sources.append(
+                {
+                    "title": AIService._string_or_empty(source.get("title")),
+                    "target_position": AIService._string_or_empty(source.get("target_position")),
+                    "scope": AIService._string_or_empty(source.get("scope")),
+                    "is_member_submission": bool(source.get("is_member_submission")),
+                }
+            )
+            if len(knowledge_sources) >= 3:
+                break
+        evaluation_snapshot = snapshot_from_payload(analysis)
         metrics = analysis.get("matching_metrics") or {}
-        ability_profile = analysis.get("ability_gap_profile") or metrics.get("ability_gap_profile") or {}
+        ability_profile = evaluation_snapshot.get("ability_profile") or analysis.get("ability_gap_profile") or metrics.get("ability_gap_profile") or {}
         top_gaps = ability_profile.get("top_gaps") or ability_profile.get("items") or []
         if not isinstance(top_gaps, list):
             top_gaps = []
@@ -2337,10 +2355,10 @@ class AIService:
         baseline.update(
             {
                 "target_position": target_position,
-                "final_score": metrics.get("final_score", analysis.get("final_score")),
-                "keyword_coverage": metrics.get("keyword_coverage", analysis.get("keyword_coverage")),
-                "semantic_score": metrics.get("semantic_score", analysis.get("semantic_score")),
-                "rule_score": metrics.get("rule_score", analysis.get("rule_score")),
+                "final_score": (evaluation_snapshot.get("scores") or {}).get("final_score", metrics.get("final_score", analysis.get("final_score"))),
+                "keyword_coverage": (evaluation_snapshot.get("scores") or {}).get("keyword_coverage", metrics.get("keyword_coverage", analysis.get("keyword_coverage"))),
+                "semantic_score": (evaluation_snapshot.get("scores") or {}).get("semantic_score", metrics.get("semantic_score", analysis.get("semantic_score"))),
+                "rule_score": (evaluation_snapshot.get("scores") or {}).get("rule_score", metrics.get("rule_score", analysis.get("rule_score"))),
             }
         )
 
@@ -2414,6 +2432,11 @@ class AIService:
         default_warning = "不得新增原简历中不存在的公司、项目、时间、技术栈、指标或职责。"
         if default_warning not in warnings:
             warnings.insert(0, default_warning)
+        knowledge_warning = (
+            "岗位知识库只用于岗位要求和表达方向，不能写成候选人的真实经历。"
+        )
+        if knowledge_sources and knowledge_warning not in warnings:
+            warnings.insert(1, knowledge_warning)
 
         keyword_alignment = data.get("keyword_alignment")
         if not isinstance(keyword_alignment, list):
@@ -2449,6 +2472,14 @@ class AIService:
             or "围绕岗位评分逻辑强化证据表达，并保留待验证能力的边界。",
             "section_suggestions": suggestions,
             "keyword_alignment": keyword_alignment[:12],
+            "knowledge_context_summary": {
+                "source_count": len(knowledge_sources),
+                "source_titles": [item.get("title") for item in knowledge_sources if item.get("title")],
+                "member_submission_used": any(item.get("is_member_submission") for item in knowledge_sources),
+                "usage_rule": knowledge_context.get("usage_rule")
+                or "岗位知识库只用于岗位要求和表达方向，不能写成候选人真实经历。",
+            },
+            "knowledge_sources": knowledge_sources,
             "risk_warnings": warnings[:8],
             "missing_evidence_to_prepare": AIService._string_list(
                 data.get("missing_evidence_to_prepare") or data.get("missing_evidence"),
@@ -2468,13 +2499,16 @@ class AIService:
         user_notes: Optional[str] = None,
         ai_config: Optional[Dict] = None,
     ) -> dict:
+        evaluation_snapshot = snapshot_from_payload(analysis or {})
         metrics = (analysis or {}).get("matching_metrics") or {}
-        ability_profile = (analysis or {}).get("ability_gap_profile") or metrics.get("ability_gap_profile") or {}
+        ability_profile = evaluation_snapshot.get("ability_profile") or (analysis or {}).get("ability_gap_profile") or metrics.get("ability_gap_profile") or {}
+        keyword_evidence = evaluation_snapshot.get("keyword_evidence") or {}
+        scores = evaluation_snapshot.get("scores") or {}
         compact_context = {
             "analysis_summary": {
-                "final_score": metrics.get("final_score", (analysis or {}).get("final_score")),
-                "keyword_coverage": metrics.get("keyword_coverage", (analysis or {}).get("keyword_coverage")),
-                "semantic_score": metrics.get("semantic_score", (analysis or {}).get("semantic_score")),
+                "final_score": scores.get("final_score", metrics.get("final_score", (analysis or {}).get("final_score"))),
+                "keyword_coverage": scores.get("keyword_coverage", metrics.get("keyword_coverage", (analysis or {}).get("keyword_coverage"))),
+                "semantic_score": scores.get("semantic_score", metrics.get("semantic_score", (analysis or {}).get("semantic_score"))),
                 "strengths": (analysis or {}).get("strengths") or [],
                 "weaknesses": (analysis or {}).get("weaknesses") or [],
                 "suggestions": (analysis or {}).get("suggestions") or [],
@@ -2484,12 +2518,13 @@ class AIService:
                 "top_gaps": (ability_profile.get("top_gaps") or ability_profile.get("items") or [])[:6],
             },
             "matching_evidence": {
-                "direct_matches": metrics.get("direct_matches") or [],
-                "related_matches": metrics.get("related_matches") or [],
-                "verification_needed": metrics.get("verification_needed") or [],
-                "missing_keywords": metrics.get("missing_keywords") or (analysis or {}).get("missing_keywords") or [],
-                "evidence_statuses": metrics.get("evidence_statuses") or [],
+                "direct_matches": keyword_evidence.get("direct_matches") or [],
+                "related_matches": keyword_evidence.get("related_matches") or [],
+                "verification_needed": keyword_evidence.get("verification_needed") or [],
+                "missing_keywords": keyword_evidence.get("missing") or [],
+                "evidence_statuses": keyword_evidence.get("evidence_statuses") or [],
             },
+            "resume_evaluation_snapshot": evaluation_snapshot,
             "resume_evidence": {
                 "evidence_summary": (resume_evidence or {}).get("evidence_summary") or [],
                 "ambiguity_flags": (resume_evidence or {}).get("ambiguity_flags") or [],
@@ -2534,6 +2569,7 @@ class AIService:
             target_position=target_position,
             analysis=analysis,
             polish_mode=polish_mode,
+            knowledge_context=knowledge_context,
         )
     @staticmethod
     async def generate_questions(

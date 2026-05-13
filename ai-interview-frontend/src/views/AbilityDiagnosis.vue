@@ -147,6 +147,7 @@ import {
   upsertLearningTasksToServer
 } from '../utils/learningTasks'
 import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '../utils/evidenceStatus'
+import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 
 const route = useRoute()
 const loading = ref(true)
@@ -155,9 +156,10 @@ const resume = ref(null)
 const taskMessage = ref('')
 
 const analysis = computed(() => resume.value?.analysis || {})
-const matchingMetrics = computed(() => analysis.value?.matching_metrics || null)
-const abilityProfile = computed(() => analysis.value?.ability_gap_profile || matchingMetrics.value?.ability_gap_profile || null)
-const learningPlan = computed(() => analysis.value?.learning_plan || matchingMetrics.value?.learning_plan || null)
+const resumeEvaluation = computed(() => normalizeResumeEvaluation(analysis.value || {}))
+const matchingMetrics = computed(() => resumeEvaluation.value.matchingMetrics || null)
+const abilityProfile = computed(() => resumeEvaluation.value.abilityProfile || null)
+const learningPlan = computed(() => resumeEvaluation.value.learningPlan || null)
 const learningPlanTasks = computed(() => {
   const tasks = learningPlan.value?.tasks
   return Array.isArray(tasks) ? tasks : []
@@ -187,7 +189,7 @@ const fallbackGapItems = computed(() => {
       source_label: '来自学习计划兜底'
     })
   })
-  const missing = analysis.value?.missing_keywords
+  const missing = resumeEvaluation.value.keywordEvidence?.missing
   if (Array.isArray(missing)) {
     missing.slice(0, Math.max(0, 5 - result.length)).forEach((keyword, index) => {
       result.push({

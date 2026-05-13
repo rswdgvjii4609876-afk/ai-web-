@@ -377,6 +377,7 @@ import { startInterview } from '../api/interview'
 import { getKnowledgeBases } from '../api/knowledgeBase'
 import { getProfile, testAiConnection } from '../api/user'
 import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '../utils/evidenceStatus'
+import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 import { taskFromLearningPlan, upsertLearningTasksToServer } from '../utils/learningTasks'
 
 const router = useRouter()
@@ -458,18 +459,19 @@ const hasEvidenceCard = computed(() => {
   ].some(item => Array.isArray(item) && item.length > 0)
 })
 
-const matchingMetrics = computed(() => analysis.value?.matching_metrics || null)
-const abilityGapProfile = computed(() => analysis.value?.ability_gap_profile || matchingMetrics.value?.ability_gap_profile || null)
+const resumeEvaluation = computed(() => normalizeResumeEvaluation(analysis.value || {}))
+const matchingMetrics = computed(() => resumeEvaluation.value.matchingMetrics || null)
+const abilityGapProfile = computed(() => resumeEvaluation.value.abilityProfile || null)
 const abilityGapItems = computed(() => {
   const topGaps = abilityGapProfile.value?.top_gaps
   const items = Array.isArray(topGaps) && topGaps.length ? topGaps : abilityGapProfile.value?.items
   return Array.isArray(items) ? items.slice(0, 5) : []
 })
 const learningPrioritySummary = computed(() => {
-  const direct = analysis.value?.learning_priority_summary || matchingMetrics.value?.learning_priority_summary
+  const direct = resumeEvaluation.value.learningPrioritySummary
   return Array.isArray(direct) ? direct.slice(0, 5) : []
 })
-const learningPlan = computed(() => analysis.value?.learning_plan || matchingMetrics.value?.learning_plan || null)
+const learningPlan = computed(() => resumeEvaluation.value.learningPlan || null)
 const learningPlanTasks = computed(() => {
   const tasks = learningPlan.value?.tasks
   return Array.isArray(tasks) ? tasks : []

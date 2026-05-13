@@ -27,14 +27,14 @@
         <p v-if="report.mode_label" class="panel-mode-label">{{ report.mode_label }}</p>
       </div>
 
-      <div v-if="report.matching_metrics" class="card section-card">
+      <div v-if="hasMatchingMetrics" class="card section-card">
         <h3>岗位匹配指标</h3>
         <div class="metric-row">
-          <span>关键词覆盖：{{ percentText(report.matching_metrics.keyword_coverage?.score) }}</span>
-          <span>语义分：{{ report.matching_metrics.semantic_score ?? '-' }}</span>
-          <span class="semantic-source">{{ semanticSourceLabel(report.matching_metrics) }}</span>
-          <span>规则分：{{ report.matching_metrics.rule_score ?? '-' }}</span>
-          <span>最终分：{{ report.matching_metrics.final_score ?? '-' }}</span>
+          <span>关键词覆盖：{{ percentText(matchingMetrics.keyword_coverage?.score) }}</span>
+          <span>语义分：{{ matchingMetrics.semantic_score ?? '-' }}</span>
+          <span class="semantic-source">{{ semanticSourceLabel(matchingMetrics) }}</span>
+          <span>规则分：{{ matchingMetrics.rule_score ?? '-' }}</span>
+          <span>最终分：{{ matchingMetrics.final_score ?? '-' }}</span>
         </div>
       </div>
 
@@ -225,6 +225,7 @@ import {
   upsertLearningTasksToServer
 } from '../utils/learningTasks'
 import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '../utils/evidenceStatus'
+import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 
 const route = useRoute()
 const interviewId = route.params.id
@@ -232,13 +233,20 @@ const data = ref(null)
 const report = ref(null)
 const loading = ref(true)
 const taskMessage = ref('')
+const resumeEvaluation = computed(() => normalizeResumeEvaluation(report.value || {}))
+const matchingMetrics = computed(() => resumeEvaluation.value.matchingMetrics || null)
+const hasMatchingMetrics = computed(() => Boolean(
+  report.value?.resume_evaluation_snapshot
+  || report.value?.matching_metrics
+  || report.value?.ability_gap_profile
+))
 const abilityGapItems = computed(() => {
-  const profile = report.value?.matching_metrics?.ability_gap_profile || report.value?.ability_gap_profile
+  const profile = resumeEvaluation.value.abilityProfile
   const topGaps = profile?.top_gaps
   const items = Array.isArray(topGaps) && topGaps.length ? topGaps : profile?.items
   return Array.isArray(items) ? items.slice(0, 5) : []
 })
-const learningPlan = computed(() => report.value?.learning_plan || report.value?.matching_metrics?.learning_plan || null)
+const learningPlan = computed(() => resumeEvaluation.value.learningPlan || null)
 const learningPlanTasks = computed(() => {
   const tasks = learningPlan.value?.tasks
   return Array.isArray(tasks) ? tasks : []

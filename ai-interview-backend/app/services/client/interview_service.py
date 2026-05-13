@@ -21,6 +21,10 @@ from app.services.client.ai_service import AIService
 from app.services.client.position_knowledge_base_slice_service import (
     position_knowledge_base_slice_service,
 )
+from app.services.client.resume_evaluation_snapshot import (
+    ensure_resume_evaluation_snapshot,
+    matching_metrics_from_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -731,7 +735,11 @@ class InterviewService:
 
     @staticmethod
     def _ability_verification_targets(matching_metrics: Optional[Dict]) -> List[Dict]:
-        profile = (matching_metrics or {}).get("ability_gap_profile") or {}
+        snapshot = (matching_metrics or {}).get("resume_evaluation_snapshot") or {}
+        profile = snapshot.get("ability_profile") or (matching_metrics or {}).get("ability_gap_profile") or {}
+        snapshot_targets = snapshot.get("verification_targets") or []
+        if isinstance(snapshot_targets, list) and snapshot_targets:
+            return snapshot_targets[:8]
         raw_items = profile.get("top_gaps") or profile.get("items") or []
         if not isinstance(raw_items, list):
             return []
@@ -2125,12 +2133,11 @@ class InterviewService:
             raise ValidationError(message="简历尚未解析完成")
 
         parsed_resume = InterviewService._load_resume_payload(resume)
-        resume_analysis = InterviewService._load_resume_analysis_payload(resume)
-        matching_metrics = resume_analysis.get("matching_metrics") if isinstance(resume_analysis, dict) else {}
-        if not isinstance(matching_metrics, dict):
-            matching_metrics = {}
-        if resume_analysis.get("ability_gap_profile") and not matching_metrics.get("ability_gap_profile"):
-            matching_metrics["ability_gap_profile"] = resume_analysis["ability_gap_profile"]
+        resume_analysis = ensure_resume_evaluation_snapshot(
+            InterviewService._load_resume_analysis_payload(resume),
+            target_position=target_position or resume.target_position,
+        )
+        matching_metrics = matching_metrics_from_payload(resume_analysis)
         knowledge_base_context = await InterviewService._resolve_knowledge_base(
             db=db,
             user_id=user_id,
@@ -2493,9 +2500,14 @@ class InterviewService:
                 report_signals=report_signals,
                 interview_mode=interview.interview_mode,
             )
-            resume_analysis = InterviewService._load_resume_analysis_payload(resume) if resume else {}
+            resume_analysis = ensure_resume_evaluation_snapshot(
+                InterviewService._load_resume_analysis_payload(resume) if resume else {},
+                target_position=interview.target_position,
+            )
             if resume_analysis.get("matching_metrics") and not report.get("matching_metrics"):
                 report["matching_metrics"] = resume_analysis["matching_metrics"]
+            if resume_analysis.get("resume_evaluation_snapshot") and not report.get("resume_evaluation_snapshot"):
+                report["resume_evaluation_snapshot"] = resume_analysis["resume_evaluation_snapshot"]
             if resume_analysis.get("ability_gap_profile") and not report.get("ability_gap_profile"):
                 report["ability_gap_profile"] = resume_analysis["ability_gap_profile"]
             if resume_analysis.get("learning_plan") and not report.get("learning_plan"):
@@ -2590,6 +2602,21 @@ class InterviewService:
                 report = json.loads(interview.report)
             except json.JSONDecodeError:
                 report = {}
+        if interview.resume_id and not report.get("resume_evaluation_snapshot"):
+            resume = await db.get(Resume, interview.resume_id)
+            if resume:
+                resume_analysis = ensure_resume_evaluation_snapshot(
+                    InterviewService._load_resume_analysis_payload(resume),
+                    target_position=interview.target_position,
+                )
+                if resume_analysis.get("resume_evaluation_snapshot"):
+                    report["resume_evaluation_snapshot"] = resume_analysis["resume_evaluation_snapshot"]
+                if resume_analysis.get("matching_metrics") and not report.get("matching_metrics"):
+                    report["matching_metrics"] = resume_analysis["matching_metrics"]
+                if resume_analysis.get("ability_gap_profile") and not report.get("ability_gap_profile"):
+                    report["ability_gap_profile"] = resume_analysis["ability_gap_profile"]
+                if resume_analysis.get("learning_plan") and not report.get("learning_plan"):
+                    report["learning_plan"] = resume_analysis["learning_plan"]
 
         return {
             "interview_id": interview.id,

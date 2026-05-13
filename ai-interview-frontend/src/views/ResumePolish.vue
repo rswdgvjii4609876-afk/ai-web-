@@ -84,6 +84,15 @@
           <strong>证据约束</strong>
           <p v-for="item in polishResult.risk_warnings || []" :key="item">{{ item }}</p>
         </div>
+        <div v-if="knowledgeSources.length" class="tag-block">
+          <strong>本次参考的岗位资料</strong>
+          <span v-for="item in knowledgeSources" :key="item.title" class="tag">
+            {{ item.title }}{{ item.is_member_submission ? '（成员补充）' : '' }}
+          </span>
+          <p class="source-note">
+            岗位资料只用于对齐岗位要求和表达重点，不会被写成你的真实经历。
+          </p>
+        </div>
         <div v-if="missingEvidence.length" class="tag-block">
           <strong>建议补充的真实证据</strong>
           <span v-for="item in missingEvidence" :key="item" class="tag">{{ item }}</span>
@@ -137,6 +146,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { getResume, polishResume, uploadResume } from '../api/resume'
+import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 
 const selectedFile = ref(null)
 const targetPosition = ref('Python后端开发工程师')
@@ -151,10 +161,12 @@ const currentStep = ref('')
 const error = ref('')
 
 const analysis = computed(() => currentResume.value?.analysis || {})
-const matchingMetrics = computed(() => analysis.value?.matching_metrics || null)
-const abilityProfile = computed(() => analysis.value?.ability_gap_profile || matchingMetrics.value?.ability_gap_profile || null)
+const resumeEvaluation = computed(() => normalizeResumeEvaluation(analysis.value || {}))
+const matchingMetrics = computed(() => resumeEvaluation.value.matchingMetrics || null)
+const abilityProfile = computed(() => resumeEvaluation.value.abilityProfile || null)
 const suggestions = computed(() => polishResult.value?.section_suggestions || [])
 const missingEvidence = computed(() => polishResult.value?.missing_evidence_to_prepare || [])
+const knowledgeSources = computed(() => polishResult.value?.knowledge_sources || [])
 
 watch(polishResult, value => {
   editableMarkdown.value = value?.polished_resume_markdown || ''
@@ -363,6 +375,11 @@ textarea {
 .warning-list p {
   margin: 8px 0 0;
   color: #374151;
+}
+.source-note {
+  margin: 8px 0 0;
+  color: #6b7280;
+  line-height: 1.6;
 }
 .suggestion-card {
   border: 1px solid #e5e7eb;

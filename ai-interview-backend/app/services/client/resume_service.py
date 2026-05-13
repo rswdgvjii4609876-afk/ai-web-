@@ -18,6 +18,7 @@ from app.models.user import User
 from app.services.client.ai_service import AIService
 from app.services.client.embedding_match_service import embedding_match_service
 from app.services.client.matching_engine import matching_engine
+from app.services.client.resume_evaluation_snapshot import ensure_resume_evaluation_snapshot
 from app.services.backoffice.learning_route_service import learning_route_service
 from app.services.common.deepseek_config_service import deepseek_config_service
 
@@ -68,13 +69,35 @@ class ResumeService:
         if not item:
             return None
         return {
+            "id": item.id,
             "title": item.title,
             "target_position": item.target_position,
             "scope": item.scope,
+            "is_member_submission": "成员资料补充" in (item.title or ""),
             "knowledge_content": (item.knowledge_content or "")[:1800],
             "focus_points": (item.focus_points or "")[:900],
             "interviewer_prompt": (item.interviewer_prompt or "")[:900],
         }
+
+    @staticmethod
+    def _rank_polish_knowledge_sources(
+        items: List[PositionKnowledgeBase],
+        user_id: int,
+        target_position: str,
+    ) -> List[PositionKnowledgeBase]:
+        normalized = (target_position or "").replace(" ", "").lower()
+
+        def _score(item: PositionKnowledgeBase) -> tuple[int, int, int, float]:
+            item_target = (item.target_position or "").replace(" ", "").lower()
+            title = item.title or ""
+            private_score = 0 if item.user_id == user_id else 1
+            member_score = 0 if "成员资料补充" in title else 1
+            exact_score = 0 if normalized and normalized == item_target else 1
+            updated_at = getattr(item, "updated_at", None)
+            updated_score = -updated_at.timestamp() if updated_at else 0.0
+            return (private_score, member_score, exact_score, updated_score)
+
+        return sorted(items, key=_score)
 
     @staticmethod
     async def _resolve_polish_knowledge_context(
@@ -85,25 +108,51 @@ class ResumeService:
         normalized_target = (target_position or "").strip()
         if not normalized_target:
             return None
+        compact_target = normalized_target.replace(" ", "")
 
         query = (
             select(PositionKnowledgeBase)
             .where(
                 PositionKnowledgeBase.is_active.is_(True),
-                PositionKnowledgeBase.target_position.ilike(f"%{normalized_target}%"),
                 or_(
                     PositionKnowledgeBase.user_id == user_id,
                     PositionKnowledgeBase.scope == "public",
                 ),
-            )
-            .order_by(
-                PositionKnowledgeBase.user_id.desc().nullslast(),
-                PositionKnowledgeBase.updated_at.desc(),
+                or_(
+                    PositionKnowledgeBase.target_position.ilike(f"%{normalized_target}%"),
+                    PositionKnowledgeBase.title.ilike(f"%{normalized_target}%"),
+                    PositionKnowledgeBase.target_position.ilike(f"%{compact_target}%"),
+                    PositionKnowledgeBase.title.ilike(f"%{compact_target}%"),
+                ),
             )
         )
         try:
             result = await db.execute(query)
-            return ResumeService._compact_knowledge_base(result.scalars().first())
+            items = list(result.scalars().all())
+            ranked = ResumeService._rank_polish_knowledge_sources(
+                items=items,
+                user_id=user_id,
+                target_position=normalized_target,
+            )[:3]
+            sources = [
+                ResumeService._compact_knowledge_base(item)
+                for item in ranked
+                if item is not None
+            ]
+            sources = [item for item in sources if item]
+            if not sources:
+                return None
+            return {
+                "target_position": normalized_target,
+                "source_count": len(sources),
+                "sources": sources,
+                "source_titles": [item["title"] for item in sources],
+                "member_submission_used": any(item.get("is_member_submission") for item in sources),
+                "usage_rule": (
+                    "岗位知识库只用于判断岗位要求、表达重点和追问方向；"
+                    "不得把知识库内容写成候选人已经经历过的事实。"
+                ),
+            }
         except Exception as exc:
             logger.warning("Resume polish knowledge context skipped: %s", exc)
             return None
@@ -320,6 +369,7 @@ class ResumeService:
         payload["ability_gap_profile"] = metrics.get("ability_gap_profile")
         payload["learning_priority_summary"] = metrics.get("learning_priority_summary") or []
         payload["learning_plan"] = metrics.get("learning_plan") or {}
+        payload = ensure_resume_evaluation_snapshot(payload, target_position=target_position)
         return payload
 
     @staticmethod
@@ -372,7 +422,10 @@ class ResumeService:
             raise ValidationError(message="简历尚未完成分析，完成解析和评分后才能生成润色建议")
 
         parsed_resume = ResumeService._loads_json_object(resume.parsed_content)
-        analysis = ResumeService._loads_json_object(resume.analysis)
+        analysis = ensure_resume_evaluation_snapshot(
+            ResumeService._loads_json_object(resume.analysis),
+            target_position=target_position or resume.target_position or None,
+        )
         if not parsed_resume or not analysis:
             raise ValidationError(message="简历分析数据不完整，请重新上传并完成分析后再润色")
 
@@ -454,6 +507,10 @@ class ResumeService:
             try:
                 analysis = json.loads(resume.analysis)
                 if isinstance(analysis, dict):
+                    analysis = ensure_resume_evaluation_snapshot(
+                        analysis,
+                        target_position=resume.target_position,
+                    )
                     error_message = analysis.get("error_message")
                     resume_evidence, evidence_summary = ResumeService._extract_evidence_fields(analysis)
             except json.JSONDecodeError:

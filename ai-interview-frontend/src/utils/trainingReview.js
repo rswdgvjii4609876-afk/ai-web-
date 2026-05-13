@@ -1,3 +1,5 @@
+import { normalizeResumeEvaluation } from './resumeEvaluation'
+
 export const TRAINING_REVIEW_VERSION = 'training_review_v1'
 export const TRAINING_REVIEW_KEY = 'zhiqizhice:training-review:v1'
 
@@ -66,8 +68,8 @@ export function saveTrainingReviewRecord(interviewId, patch) {
 }
 
 export function buildTrainingReviewSummary({ report = {}, interview = {}, tasks = [] } = {}) {
-  const matchingMetrics = report.matching_metrics || {}
-  const abilityProfile = report.ability_gap_profile || matchingMetrics.ability_gap_profile || {}
+  const evaluation = normalizeResumeEvaluation(report || {})
+  const abilityProfile = evaluation.abilityProfile || {}
   const gapItems = safeArray(abilityProfile.top_gaps).length
     ? abilityProfile.top_gaps
     : safeArray(abilityProfile.items)

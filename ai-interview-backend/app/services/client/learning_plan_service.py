@@ -15,6 +15,10 @@ from app.models.user import User
 from app.services.backoffice.learning_route_service import learning_route_service
 from app.services.client.ai_service import AIService
 from app.services.client.matching_engine import MatchingEngine
+from app.services.client.resume_evaluation_snapshot import (
+    ability_profile_from_payload,
+    ensure_resume_evaluation_snapshot,
+)
 from app.services.common.deepseek_config_service import deepseek_config_service
 from app.utils.db_error_messages import user_facing_db_error
 
@@ -77,6 +81,8 @@ class LearningPlanService:
                 "current_level": value.get("current_level") or 1,
                 "required_level": value.get("required_level") or 3,
                 "gap": value.get("gap") or 2,
+                "evidence_status": value.get("evidence_status") or "needs_verification",
+                "verification_priority": value.get("verification_priority") or "medium",
                 "evidence_basis": cls._text(value.get("evidence_basis") or value.get("reason")),
             }
         text = cls._text(value)
@@ -127,13 +133,16 @@ class LearningPlanService:
             raise NotFoundError(message="简历不存在或不属于当前用户")
         return {
             "resume": resume,
-            "analysis": cls._parse_json(resume.analysis),
+            "analysis": ensure_resume_evaluation_snapshot(
+                cls._parse_json(resume.analysis),
+                target_position=resume.target_position,
+            ),
             "parsed_resume": cls._parse_json(resume.parsed_content),
         }
 
     @classmethod
     def _ability_options_from_analysis(cls, analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
-        gap = (analysis or {}).get("ability_gap_profile") or {}
+        gap = ability_profile_from_payload(analysis or {})
         items = gap.get("top_gaps") or gap.get("items") or []
         options: List[Dict[str, Any]] = []
         for index, item in enumerate(items[:12], start=1):
@@ -144,6 +153,12 @@ class LearningPlanService:
                     "ability_name": ability["name"],
                     "missing_keywords": ability["missing_keywords"],
                     "priority_score": ability["priority_score"],
+                    "evidence_status": ability.get("evidence_status") or "needs_verification",
+                    "recommended_action": (
+                        "interview_verification"
+                        if ability.get("evidence_status") == "claimed_only"
+                        else "learning_task"
+                    ),
                     "evidence_basis": ability["evidence_basis"],
                 }
             )
@@ -204,6 +219,8 @@ class LearningPlanService:
                 **(task.get("task_metadata") or {}),
                 "learning_plan_version": LEARNING_PLAN_V2,
                 "route_kind": "mature_plan" if any(route.get("route_kind") == "mature_plan" for route in records) else "template",
+                "source_evidence_status": ability.get("evidence_status") or "needs_verification",
+                "source_verification_priority": ability.get("verification_priority") or "medium",
             }
             tasks.append(task)
         return {
