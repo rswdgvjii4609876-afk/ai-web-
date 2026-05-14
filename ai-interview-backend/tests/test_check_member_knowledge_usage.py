@@ -12,7 +12,7 @@ from app.scripts.import_member_knowledge_packages import (
 )
 
 
-def test_member_knowledge_usage_report_marks_coverage_and_gaps():
+def test_member_knowledge_usage_report_marks_canonical_merge_and_gaps():
     plans = build_import_plans(_package_paths(Path(DEFAULT_SOURCE)))
     usages = _usage_from_packages(plans)
     report = build_report(usages, mode="package")
@@ -21,7 +21,8 @@ def test_member_knowledge_usage_report_marks_coverage_and_gaps():
     assert "Python后端开发工程师" in report
     assert "产品助理" in report
     assert "问答经验启用切片数" in report
-    assert "待正式入库" in report
+    assert "待归并入标准岗位画像" in report
+    assert "成员资料补充：{岗位}" in report
     for position in INSUFFICIENT_POSITIONS:
         assert position in report
 

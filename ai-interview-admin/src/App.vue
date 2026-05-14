@@ -13,6 +13,9 @@
         <router-link to="/knowledge-bases" active-class="active">
           <span class="nav-icon">🧠</span> 公共岗位画像
         </router-link>
+        <router-link to="/interview-experiences" active-class="active">
+          <span class="nav-icon">□</span> 面试经验管理
+        </router-link>
         <router-link to="/knowledge-package" active-class="active">
           <span class="nav-icon">▤</span> 资料包预检
         </router-link>

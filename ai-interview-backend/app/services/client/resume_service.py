@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = "uploads/resumes"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+MEMBER_SUPPLEMENT_PREFIX = "成员资料补充："
+MERGED_SUPPLEMENT_PREFIX = "历史补充资料（已合并）："
 
 
 class ResumeService:
@@ -73,7 +75,12 @@ class ResumeService:
             "title": item.title,
             "target_position": item.target_position,
             "scope": item.scope,
-            "is_member_submission": "成员资料补充" in (item.title or ""),
+            "is_member_submission": (item.title or "").startswith(MEMBER_SUPPLEMENT_PREFIX),
+            "source_role": (
+                "legacy_member_supplement"
+                if (item.title or "").startswith(MEMBER_SUPPLEMENT_PREFIX)
+                else "canonical_or_private_profile"
+            ),
             "knowledge_content": (item.knowledge_content or "")[:1800],
             "focus_points": (item.focus_points or "")[:900],
             "interviewer_prompt": (item.interviewer_prompt or "")[:900],
@@ -91,11 +98,11 @@ class ResumeService:
             item_target = (item.target_position or "").replace(" ", "").lower()
             title = item.title or ""
             private_score = 0 if item.user_id == user_id else 1
-            member_score = 0 if "成员资料补充" in title else 1
+            legacy_supplement_score = 1 if title.startswith(MEMBER_SUPPLEMENT_PREFIX) else 0
             exact_score = 0 if normalized and normalized == item_target else 1
             updated_at = getattr(item, "updated_at", None)
             updated_score = -updated_at.timestamp() if updated_at else 0.0
-            return (private_score, member_score, exact_score, updated_score)
+            return (private_score, exact_score, legacy_supplement_score, updated_score)
 
         return sorted(items, key=_score)
 

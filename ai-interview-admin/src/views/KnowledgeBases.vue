@@ -247,6 +247,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { knowledgeBaseApi } from '../api'
 import {
   collectInterviewAuditStatuses,
@@ -264,6 +265,8 @@ const keyword = ref('')
 const editingId = ref(null)
 const msg = ref('')
 const items = ref([])
+const route = useRoute()
+const autoEditFromQueryDone = ref(false)
 
 const emptySections = () => ({
   job_requirements: '',
@@ -534,6 +537,14 @@ async function loadItems() {
   try {
     const data = await knowledgeBaseApi.list()
     items.value = data.items || []
+    const queryId = Number(route.query.id)
+    if (!autoEditFromQueryDone.value && queryId) {
+      const matched = items.value.find(item => Number(item.knowledge_base_id) === queryId)
+      if (matched) {
+        autoEditFromQueryDone.value = true
+        handleEdit(matched)
+      }
+    }
   } catch (e) {
     console.error(e)
   } finally {

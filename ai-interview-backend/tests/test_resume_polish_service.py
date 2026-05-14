@@ -98,10 +98,11 @@ def test_resume_polish_keeps_evidence_constraints(monkeypatch):
             knowledge_context={
                 "sources": [
                     {
-                        "title": "成员资料补充：Python后端开发工程师",
+                        "title": "职启智评岗位画像：Python后端开发工程师",
                         "target_position": "Python后端开发工程师",
                         "scope": "public",
-                        "is_member_submission": True,
+                        "is_member_submission": False,
+                        "source_role": "canonical_or_private_profile",
                     }
                 ],
                 "usage_rule": "岗位知识库只用于岗位要求和表达方向，不能写成候选人真实经历。",
@@ -115,8 +116,8 @@ def test_resume_polish_keeps_evidence_constraints(monkeypatch):
     assert result["section_suggestions"][0]["risk_level"] == "high"
     assert "补充真实项目" in result["polished_resume_markdown"]
     assert "不得新增原简历中不存在" in result["risk_warnings"][0]
-    assert result["knowledge_context_summary"]["member_submission_used"] is True
-    assert result["knowledge_sources"][0]["title"] == "成员资料补充：Python后端开发工程师"
+    assert result["knowledge_context_summary"]["member_submission_used"] is False
+    assert result["knowledge_sources"][0]["title"] == "职启智评岗位画像：Python后端开发工程师"
     assert any("岗位知识库只用于岗位要求" in item for item in result["risk_warnings"])
     assert "已熟练掌握" not in result["polished_resume_markdown"]
 
@@ -148,7 +149,7 @@ def test_resume_polish_fallback_uses_ability_gaps_when_ai_payload_sparse():
 
 
 @pytest.mark.unit
-def test_resume_polish_ranks_member_submission_before_generic_public_source():
+def test_resume_polish_ranks_canonical_profile_before_legacy_member_submission():
     member_source = type(
         "KnowledgeSource",
         (),
@@ -171,7 +172,7 @@ def test_resume_polish_ranks_member_submission_before_generic_public_source():
             "id": 2,
             "user_id": None,
             "scope": "public",
-            "title": "公共画像：人力资源专员",
+            "title": "职启智评岗位画像：人力资源专员",
             "target_position": "人力资源专员",
             "knowledge_content": "通用岗位要求",
             "focus_points": "",
@@ -186,4 +187,4 @@ def test_resume_polish_ranks_member_submission_before_generic_public_source():
         target_position="人力资源专员",
     )
 
-    assert ranked[0].title == "成员资料补充：人力资源专员"
+    assert ranked[0].title == "职启智评岗位画像：人力资源专员"

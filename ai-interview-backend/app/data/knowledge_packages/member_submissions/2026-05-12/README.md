@@ -23,6 +23,8 @@
 python -m app.scripts.import_member_knowledge_packages --check-only
 python -m app.scripts.import_member_knowledge_packages --dry-run
 python -m app.scripts.import_member_knowledge_packages
+python -m app.scripts.merge_member_supplement_knowledge_bases --dry-run
+python -m app.scripts.merge_member_supplement_knowledge_bases
 ```
 
 服务器 Docker 环境执行：
@@ -31,13 +33,18 @@ python -m app.scripts.import_member_knowledge_packages
 docker compose exec app python -m app.scripts.import_member_knowledge_packages --check-only
 docker compose exec app python -m app.scripts.import_member_knowledge_packages --dry-run
 docker compose exec app python -m app.scripts.import_member_knowledge_packages
+docker compose exec app python -m app.scripts.merge_member_supplement_knowledge_bases --dry-run
+docker compose exec app python -m app.scripts.merge_member_supplement_knowledge_bases
 ```
 
-脚本会把资料导入为公共岗位画像，标题格式为 `成员资料补充：{岗位}`，并自动重建知识切片。
+默认导入策略已经调整为“归并到已有标准岗位画像”。脚本会按 `target_position` 查找后台公共标准岗位画像，把成员资料写入对应的 `岗位要求 / 问答经验 / 能力模型 / 面试追问` 分区，并自动重建知识切片。
+
+旧版本曾把资料导入为 `成员资料补充：{岗位}` 独立公共画像。若服务器已经存在这些历史补充画像，请先执行 `merge_member_supplement_knowledge_bases`：脚本会备份旧画像、合并到标准岗位画像，并停用旧补充画像，不直接删除数据。
 
 ## 使用边界
 
 - 本目录保存的是整理后的候选数据，不保存原始大文件。
 - 原始资料和来源留痕仍以 `docs/competition/成员资料/` 为准。
 - `不采用` 的结构化面经不得作为启用切片使用。
+- 成员资料是对标准岗位画像的补充校准，不应长期作为并列岗位画像展示给用户选择。
 - 岗位知识库只用于校准问题方向和岗位要求，不等于候选人真实经历。
