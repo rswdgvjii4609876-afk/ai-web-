@@ -197,6 +197,8 @@ GitHub 仓库：`YiyuZh/ai-interview`
 当前状态：
 
 - 阶段 138 工具和文档口径已落地。
+- 2026-05-15 服务器 commit `b42cff1` 已执行 `bash scripts/stage138_server_closed_loop_verify.sh --readiness-only`，结论为 `WARN`。
+- 该 WARN 只来自 C1/C2/C3 尚未跑测；服务器 readiness 关键项已通过：Alembic、健康检查、PostgreSQL 容量、阶段 133 核心自检、root 管理员权限、关键日志扫描。
 - 真实 C1/C2/C3 案例仍待服务器人工跑测和 CSV 回填。
 - 未完成前不要新增页面、接口、表结构、MySQL 迁移或模型策略来绕过真实验收。
 
@@ -308,16 +310,16 @@ docker compose up -d --build app admin frontend
 ## 5. 当前未完成事项
 
 1. 阶段 138 三岗位真实闭环和数据沉淀：
-   - 先在服务器执行 `bash scripts/stage138_server_closed_loop_verify.sh --readiness-only`。
+   - 服务器 readiness 已通过；当前只剩 C1/C2/C3 真实案例未跑测。
    - 按执行包跑 C1/C2/C3。
    - 每个案例补齐诊断、润色、学习任务、至少 3 轮面试、报告、训练复盘和后台人工评分。
    - 回填 `docs/competition/真实案例闭环验收记录.md` 和 CSV。
    - 最后执行 `python scripts/validate_stage138_closed_loop.py`，必须 `result=PASS`。
 
 2. 阶段 135 服务器验收：
-   - 部署后执行 `alembic upgrade head`。
-   - 确认 root 管理员 `autsky6666@gmail.com` 权限。
-   - 测试新增管理员、授权、删除、改密。
+   - `alembic upgrade head` 已在服务器执行到 `a2c4e6f8b135`。
+   - root 管理员 `autsky6666@gmail.com|true` 已通过 SQL 检查。
+   - 仍需人工测试新增管理员、授权、删除、改密。
 
 3. 阶段 136 服务器真实 PDF 验收：
    - 上传真实 PDF。
@@ -326,8 +328,9 @@ docker compose up -d --build app admin frontend
    - 若扫描版 PDF 要支持，再开启 `ENABLE_RESUME_OCR=true`。
 
 4. 阶段 137 服务器数据库容量自检：
-   - 在 Docker app 容器内执行 `python -m app.scripts.check_database_capacity`。
-   - 根据连接数决定是否降低 `UVICORN_WORKERS`、`DB_POOL_SIZE`、`DB_MAX_OVERFLOW`。
+   - 服务器已执行 `python -m app.scripts.check_database_capacity`。
+   - 当前 PostgreSQL `max_connections=100`，当前连接数 `2`，理论应用连接容量 `45`，未发现明显容量风险。
+   - 继续保持小连接池并观察真实跑测日志。
 
 5. 阶段 132 三岗位真实闭环：
    - C1：Python 后端开发工程师。
@@ -416,12 +419,7 @@ python -m app.scripts.check_database_capacity
 
 ### 7.0 阶段 138 优先执行
 
-```bash
-cd /opt/apps/ai-interview
-bash scripts/stage138_server_closed_loop_verify.sh --readiness-only
-```
-
-readiness 通过后，再跑 C1/C2/C3 三个真实案例。人工跑测和 CSV 回填完成后执行：
+服务器 readiness 已于 2026-05-15 通过，当前直接跑 C1/C2/C3 三个真实案例。人工跑测和 CSV 回填完成后执行：
 
 ```bash
 python scripts/validate_stage138_closed_loop.py
