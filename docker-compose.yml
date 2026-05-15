@@ -6,6 +6,8 @@ services:
       args:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
         PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+        APT_DEBIAN_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian
+        APT_SECURITY_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian-security
     image: ai-interview-backend:prod
     container_name: ai-interview-app
     restart: unless-stopped
@@ -93,6 +95,8 @@ services:
       args:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
         PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+        APT_DEBIAN_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian
+        APT_SECURITY_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian-security
     image: ai-interview-backend:prod
     container_name: ai-interview-celery-worker
     restart: unless-stopped
@@ -121,6 +125,8 @@ services:
       args:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
         PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+        APT_DEBIAN_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian
+        APT_SECURITY_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian-security
     image: ai-interview-backend:prod
     container_name: ai-interview-celery-beat
     restart: unless-stopped

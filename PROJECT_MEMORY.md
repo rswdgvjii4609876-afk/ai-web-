@@ -200,6 +200,26 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 真实 C1/C2/C3 案例仍待服务器人工跑测和 CSV 回填。
 - 未完成前不要新增页面、接口、表结构、MySQL 迁移或模型策略来绕过真实验收。
 
+### 3.6 阶段 138 服务器构建源加速修复
+
+服务器执行 `docker compose up -d --build` 时曾卡在后端生产镜像的 `apt-get update && apt-get install`，日志显示仍访问 `deb.debian.org`。
+
+已处理：
+
+- 后端生产 `ai-interview-backend/Dockerfile` 保持 pip 使用清华 PyPI。
+- 新增 `APT_DEBIAN_MIRROR` 和 `APT_SECURITY_MIRROR` 构建参数。
+- 在 `apt-get update` 前把 Debian 源替换为清华镜像。
+- 根目录 `docker-compose.yml` 和后端 `docker-compose.prod.yml` 显式传入清华 Debian 镜像参数。
+
+服务器重新部署建议：
+
+```bash
+cd /opt/apps/ai-interview
+git pull --ff-only
+docker compose build --progress=plain app
+docker compose up -d --build app admin frontend
+```
+
 ## 4. 涉及的文件和核心逻辑
 
 ### 4.1 后端核心

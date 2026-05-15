@@ -4,6 +4,8 @@ WORKDIR /app
 
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+ARG APT_DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+ARG APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 
 ENV PYTHONPATH=/app \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -16,7 +18,13 @@ ENV PYTHONPATH=/app \
     PIP_INDEX_URL=${PIP_INDEX_URL} \
     PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i \
+    -e "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
+    -e "s|http://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
+    -e "s|http://deb.debian.org/debian|${APT_DEBIAN_MIRROR}|g" \
+    /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-chi-sim \
     tesseract-ocr-eng \
