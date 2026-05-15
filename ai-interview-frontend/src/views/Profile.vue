@@ -174,8 +174,8 @@
           <div>
             <h3 class="section-title">隐私与数据授权</h3>
             <p class="section-desc">
-              基础隐私协议用于提供简历解析、润色和模拟面试；数据贡献授权用于系统评测、比赛材料、
-              质量改进和数据集沉淀，默认可撤回后续使用。
+              基础隐私协议用于提供简历解析、润色、模拟面试、报告和训练复盘；推荐开启数据贡献计划，
+              帮助我们优化岗位画像、评分规则和同岗位训练质量，默认可撤回后续使用。
             </p>
           </div>
           <span :class="['status-chip', privacyForm.privacy_agreed ? 'status-on' : 'status-off']">
@@ -196,10 +196,14 @@
         <label class="privacy-setting-check">
           <input v-model="privacyForm.data_contribution_consent" type="checkbox" />
           <span>
-            同意后续将去标识化后的简历、学校/专业/项目经历、目标岗位、面试问答、报告和人工评分用于
-            系统评测、比赛材料、质量改进和数据集沉淀。
+            同意后续将去标识化后的简历、学校/专业/项目或实习经历、目标岗位、面试问答、报告和人工评分
+            用于系统评测、比赛材料、质量改进和数据集沉淀。
           </span>
         </label>
+        <p class="field-tip">
+          去标识化会删除或遮挡姓名、手机号、邮箱、证件号、学号、详细住址和文件名个人标识；为保证数据质量，
+          可能保留学校、专业、教育/实习/项目经历、技能、岗位、问答和评分。
+        </p>
         <p class="field-tip">
           数据贡献授权状态：{{ privacyForm.data_contribution_consent ? '已开启' : '未开启或已撤回' }}；
           最近授权时间：{{ formatConsentTime(profile.data_contribution_consent_at) }}；

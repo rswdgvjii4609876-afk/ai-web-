@@ -54,6 +54,12 @@ export function getReport(interviewId) {
   return api.get(`/interviews/${interviewId}/report`)
 }
 
+export function updateCaseDataContributionConsent(interviewId, consent) {
+  return api.put(`/interviews/${interviewId}/case-data-contribution-consent`, {
+    data_contribution_consent: !!consent
+  })
+}
+
 export function getMessages(interviewId) {
   return api.get(`/interviews/${interviewId}/messages`)
 }

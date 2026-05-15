@@ -10,7 +10,11 @@ from app.db.session import get_db
 from app.exceptions.http_exceptions import ValidationError
 from app.models.user import User
 from app.constants.privacy import BASE_PRIVACY_CONSENT_ERROR
-from app.schemas.client.interview import AnswerSubmit, InterviewStart
+from app.schemas.client.interview import (
+    AnswerSubmit,
+    CaseDataContributionConsentUpdate,
+    InterviewStart,
+)
 from app.schemas.response import ApiResponse
 from app.services.client.interview_service import interview_service
 from app.services.client.privacy_consent_service import privacy_consent_service
@@ -145,6 +149,24 @@ async def submit_answer_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.put("/{interview_id}/case-data-contribution-consent")
+async def update_case_data_contribution_consent(
+    interview_id: int,
+    data: CaseDataContributionConsentUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not privacy_consent_service.has_base_consent(current_user):
+        raise ValidationError(message=BASE_PRIVACY_CONSENT_ERROR)
+    result = await interview_service.set_case_data_contribution_consent(
+        db=db,
+        current_user=current_user,
+        interview_id=interview_id,
+        data_contribution_consent=data.data_contribution_consent,
+    )
+    return ApiResponse.success(data=result)
 
 
 @router.get("/{interview_id}/report")

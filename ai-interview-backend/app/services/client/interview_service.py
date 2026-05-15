@@ -27,6 +27,7 @@ from app.services.client.resume_evaluation_snapshot import (
     matching_metrics_from_payload,
 )
 from app.services.client.resume_normalizer import normalize_parsed_resume
+from app.services.client.privacy_consent_service import privacy_consent_service
 
 logger = logging.getLogger(__name__)
 
@@ -2691,12 +2692,62 @@ class InterviewService:
 
         return {
             "interview_id": interview.id,
+            "resume_id": interview.resume_id,
+            "target_position": interview.target_position,
             "overall_score": float(interview.overall_score) if interview.overall_score else 0,
             "total_questions": interview.total_questions,
             "interview_mode": interview.interview_mode,
+            "data_contribution_consent": bool(getattr(interview, "data_contribution_consent", False)),
+            "privacy_consent_snapshot": getattr(interview, "privacy_consent_snapshot", None),
             "knowledge_base": interview.knowledge_base_snapshot,
             "panel_snapshot": interview.panel_snapshot,
             "report": report,
+        }
+
+    @staticmethod
+    async def set_case_data_contribution_consent(
+        db: AsyncSession,
+        current_user: User,
+        interview_id: int,
+        data_contribution_consent: bool,
+    ) -> Dict[str, Any]:
+        result = await db.execute(
+            select(Interview).where(
+                Interview.id == interview_id,
+                Interview.user_id == current_user.id,
+            )
+        )
+        interview = result.scalar_one_or_none()
+        if not interview:
+            raise NotFoundError(message="面试记录不存在")
+
+        consent = bool(data_contribution_consent)
+        snapshot = privacy_consent_service.build_snapshot(
+            current_user,
+            data_contribution_consent=consent,
+            source="case_data_contribution",
+        )
+        snapshot.update(
+            {
+                "interview_id": interview.id,
+                "resume_id": interview.resume_id,
+                "target_position": interview.target_position,
+            }
+        )
+        interview.data_contribution_consent = consent
+        interview.privacy_consent_snapshot = snapshot
+        try:
+            await db.commit()
+            await db.refresh(interview)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Update case data contribution consent failed: %s", exc)
+            raise ValidationError(message="更新本次案例数据贡献授权失败，请稍后重试") from exc
+
+        return {
+            "interview_id": interview.id,
+            "data_contribution_consent": bool(interview.data_contribution_consent),
+            "privacy_consent_snapshot": interview.privacy_consent_snapshot,
         }
 
     @staticmethod
@@ -2719,6 +2770,7 @@ class InterviewService:
                 "overall_score": float(item.overall_score) if item.overall_score else None,
                 "total_questions": item.total_questions,
                 "status": item.status,
+                "data_contribution_consent": bool(getattr(item, "data_contribution_consent", False)),
                 "created_at": item.created_at.isoformat() if item.created_at else None,
             }
             for item in interviews

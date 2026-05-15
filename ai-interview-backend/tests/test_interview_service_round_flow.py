@@ -505,6 +505,62 @@ def test_start_interview_returns_business_error_when_record_commit_fails(monkeyp
 
 
 @pytest.mark.unit
+def test_set_case_data_contribution_consent_updates_current_interview_only():
+    interview = SimpleNamespace(
+        id=88,
+        user_id=3,
+        resume_id=10,
+        target_position="Python后端开发工程师",
+        data_contribution_consent=False,
+        privacy_consent_snapshot=None,
+    )
+    user = SimpleNamespace(
+        id=3,
+        privacy_policy_version="2026-05-15",
+        privacy_agreed_at=datetime(2026, 5, 15, 8, 0, 0),
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return interview
+
+    class _Db:
+        def __init__(self):
+            self.committed = False
+            self.refreshed = False
+            self.rollback_called = False
+
+        async def execute(self, query):
+            return _Result()
+
+        async def commit(self):
+            self.committed = True
+
+        async def refresh(self, item):
+            self.refreshed = item is interview
+
+        async def rollback(self):
+            self.rollback_called = True
+
+    db = _Db()
+    result = asyncio.run(
+        InterviewService.set_case_data_contribution_consent(
+            db=db,
+            current_user=user,
+            interview_id=88,
+            data_contribution_consent=True,
+        )
+    )
+
+    assert db.committed is True
+    assert db.refreshed is True
+    assert interview.data_contribution_consent is True
+    assert interview.privacy_consent_snapshot["source"] == "case_data_contribution"
+    assert interview.privacy_consent_snapshot["interview_id"] == 88
+    assert result["data_contribution_consent"] is True
+
+
+@pytest.mark.unit
 def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_default():
     interview = SimpleNamespace(
         id=99,

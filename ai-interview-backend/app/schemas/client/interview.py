@@ -20,6 +20,13 @@ class InterviewStart(BaseSchema):
     data_contribution_consent: Optional[bool] = None
 
 
+class CaseDataContributionConsentUpdate(BaseSchema):
+    data_contribution_consent: bool = Field(
+        ...,
+        description="是否同意将当前面试案例的去标识化数据用于系统评测、比赛材料、质量改进和数据集沉淀。",
+    )
+
+
 class InterviewStartResponse(BaseSchema):
     interview_id: int
     first_question: str
@@ -65,9 +72,13 @@ class QuestionScore(BaseSchema):
 
 class InterviewReport(BaseSchema):
     interview_id: int
+    resume_id: Optional[int] = None
+    target_position: Optional[str] = None
     overall_score: float
     total_questions: int
     interview_mode: Optional[str] = None
+    data_contribution_consent: bool = False
+    privacy_consent_snapshot: Optional[Dict[str, Any]] = None
     report: Dict[str, Any]
 
 
@@ -79,4 +90,5 @@ class InterviewListItem(BaseSchema):
     overall_score: Optional[float] = None
     total_questions: int
     status: str
+    data_contribution_consent: bool = False
     created_at: Optional[str] = None

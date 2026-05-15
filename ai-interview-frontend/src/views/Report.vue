@@ -14,6 +14,13 @@
         </div>
       </div>
 
+      <CaseDataContributionCard
+        :consented="caseDataContributionConsent"
+        :saving="caseConsentSaving"
+        :message="caseConsentMessage"
+        @set-consent="setCaseDataContributionConsent"
+      />
+
       <div v-if="report.summary" class="card section-card">
         <h3>总体评价</h3>
         <p class="section-text">{{ report.summary }}</p>
@@ -216,7 +223,8 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { getReport } from '../api/interview'
+import CaseDataContributionCard from '../components/CaseDataContributionCard.vue'
+import { getReport, updateCaseDataContributionConsent } from '../api/interview'
 import {
   taskFromAbilityGap,
   taskFromLearningPlan,
@@ -233,6 +241,9 @@ const data = ref(null)
 const report = ref(null)
 const loading = ref(true)
 const taskMessage = ref('')
+const caseDataContributionConsent = ref(false)
+const caseConsentSaving = ref(false)
+const caseConsentMessage = ref('')
 const resumeEvaluation = computed(() => normalizeResumeEvaluation(report.value || {}))
 const matchingMetrics = computed(() => resumeEvaluation.value.matchingMetrics || null)
 const hasMatchingMetrics = computed(() => Boolean(
@@ -337,11 +348,33 @@ async function addTextTask(item, sourceType, index) {
   }
 }
 
+async function setCaseDataContributionConsent(consent) {
+  caseConsentSaving.value = true
+  caseConsentMessage.value = ''
+  try {
+    const result = await updateCaseDataContributionConsent(interviewId, consent)
+    caseDataContributionConsent.value = Boolean(result.data_contribution_consent)
+    data.value = {
+      ...(data.value || {}),
+      data_contribution_consent: caseDataContributionConsent.value,
+      privacy_consent_snapshot: result.privacy_consent_snapshot
+    }
+    caseConsentMessage.value = consent
+      ? '已记录本次案例授权，可进入后台人工评分和去标识化评测数据沉淀。'
+      : '已撤回本次案例的数据贡献授权，后续导出和人工评分沉淀会跳过该案例。'
+  } catch (e) {
+    caseConsentMessage.value = e.message || '更新本次案例授权失败，请稍后重试。'
+  } finally {
+    caseConsentSaving.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     const res = await getReport(interviewId)
     data.value = res
     report.value = res.report || {}
+    caseDataContributionConsent.value = Boolean(res.data_contribution_consent)
   } catch (e) {
     console.error(e)
   } finally {
