@@ -25,6 +25,7 @@ from app.services.client.resume_evaluation_snapshot import (
     ensure_resume_evaluation_snapshot,
     matching_metrics_from_payload,
 )
+from app.services.client.resume_normalizer import normalize_parsed_resume
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,24 @@ class InterviewService:
         if not isinstance(parsed_resume, dict):
             raise ValidationError(
                 message="开始面试失败：简历解析结果异常，请重新上传简历或重新解析"
+            )
+        if not isinstance(parsed_resume.get("normalized_resume"), dict):
+            parsed_resume = normalize_parsed_resume(parsed_resume)
+        completeness = (parsed_resume.get("normalized_resume") or {}).get("completeness") or {}
+        has_skill = bool(completeness.get("has_skills") or parsed_resume.get("skills"))
+        has_project_signal = bool(
+            completeness.get("has_projects")
+            or completeness.get("has_experience")
+            or parsed_resume.get("projects")
+            or parsed_resume.get("experience")
+            or parsed_resume.get("campus_experience")
+        )
+        if not has_skill and not has_project_signal:
+            raise ValidationError(
+                message=(
+                    "开始面试失败：当前简历解析结果缺少技能、项目或经历信息，"
+                    "无法稳定生成面试问题。请重新上传文字版 PDF，或在简历中补充项目/技能后再试。"
+                )
             )
         return parsed_resume
 
@@ -721,6 +740,22 @@ class InterviewService:
     @staticmethod
     def _resume_route_text(parsed_resume: Dict) -> str:
         parts = []
+        normalized = parsed_resume.get("normalized_resume") if isinstance(parsed_resume, dict) else None
+        if isinstance(normalized, dict):
+            profile = normalized.get("profile") or {}
+            if profile:
+                parts.append(InterviewService._route_item_to_text(profile))
+            for key in (
+                "education",
+                "skills",
+                "projects",
+                "experience",
+                "awards",
+                "campus_experience",
+            ):
+                value = normalized.get(key)
+                if value:
+                    parts.append(InterviewService._route_item_to_text(value))
         if parsed_resume.get("summary"):
             parts.append(InterviewService._route_item_to_text(parsed_resume["summary"]))
         if parsed_resume.get("education"):

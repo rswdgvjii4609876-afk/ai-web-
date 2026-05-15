@@ -30,5 +30,7 @@ class AdminInfo(BaseResponseSchema):
     first_name: Optional[str]
     last_name: Optional[str]
     is_active: bool
+    can_manage_admins: bool = False
+    is_root_admin: bool = False
     created_at: datetime
     updated_at: datetime

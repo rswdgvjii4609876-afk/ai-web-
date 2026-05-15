@@ -4,6 +4,7 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import relationship
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+ROOT_ADMIN_EMAIL = "autsky6666@gmail.com"
 
 
 class UserRole(str, Enum):
@@ -21,6 +22,11 @@ class Admin(BaseModel):
     last_name = Column(String(100), nullable=True)
     password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
+    can_manage_admins = Column(Boolean, default=False, nullable=False)
+
+    @property
+    def is_root_admin(self) -> bool:
+        return (self.email or "").strip().lower() == ROOT_ADMIN_EMAIL
 
     @staticmethod
     def get_password_hash(password: str) -> str:

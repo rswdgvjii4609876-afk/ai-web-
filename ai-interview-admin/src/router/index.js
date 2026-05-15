@@ -1,10 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { authApi } from '../api'
 
 const routes = [
   { path: '/login', name: 'Login', component: () => import('../views/Login.vue') },
   { path: '/', name: 'Dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true } },
   { path: '/users', name: 'Users', component: () => import('../views/Users.vue'), meta: { auth: true } },
+  { path: '/admins', name: 'Admins', component: () => import('../views/Admins.vue'), meta: { auth: true, manageAdmins: true } },
+  { path: '/account', name: 'AccountSettings', component: () => import('../views/AccountSettings.vue'), meta: { auth: true } },
   { path: '/knowledge-bases', name: 'KnowledgeBases', component: () => import('../views/KnowledgeBases.vue'), meta: { auth: true } },
   { path: '/interview-experiences', name: 'InterviewExperiences', component: () => import('../views/InterviewExperiences.vue'), meta: { auth: true } },
   { path: '/knowledge-package', name: 'KnowledgePackage', component: () => import('../views/KnowledgePackage.vue'), meta: { auth: true } },
@@ -17,10 +20,26 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(import.meta.env.BASE_URL), routes })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
-  if (to.meta.auth && !authStore.isLoggedIn) next('/login')
-  else next()
+  if (to.meta.auth && !authStore.isLoggedIn) return next('/login')
+
+  if (
+    to.meta.auth &&
+    authStore.isLoggedIn &&
+    (!authStore.id || (to.meta.manageAdmins && !authStore.canManageAdmins))
+  ) {
+    try {
+      const me = await authApi.me()
+      authStore.setAdminInfo(me)
+    } catch (error) {
+      authStore.logout()
+      return next('/login')
+    }
+  }
+
+  if (to.meta.manageAdmins && !authStore.canManageAdmins) return next('/')
+  next()
 })
 
 export default router

@@ -105,6 +105,38 @@
           </div>
         </div>
 
+        <div v-if="parseQualityVisible" class="card parse-quality-card">
+          <div class="parse-quality-head">
+            <h3>解析质量诊断</h3>
+            <span :class="['parse-quality-status', parseQualityStatusClass(parseQuality.status)]">
+              {{ parseQualityStatusLabel(parseQuality.status) }}
+            </span>
+          </div>
+          <div class="parse-quality-grid">
+            <div>
+              <strong>{{ parseQuality.char_count || extractionDiagnostics.char_count || 0 }}</strong>
+              <span>提取字符</span>
+            </div>
+            <div>
+              <strong>{{ parseMethodLabel(parseQuality.best_method || extractionDiagnostics.best_method) }}</strong>
+              <span>抽取方式</span>
+            </div>
+            <div>
+              <strong>{{ extractionDiagnostics.ocr_used ? '已使用' : '未使用' }}</strong>
+              <span>OCR fallback</span>
+            </div>
+          </div>
+          <div v-if="parseMissingFieldLabels.length" class="parse-quality-section">
+            <p class="parse-quality-label">待补字段</p>
+            <div class="tag-list">
+              <span v-for="item in parseMissingFieldLabels" :key="item" class="tag tag-red">{{ item }}</span>
+            </div>
+          </div>
+          <ul v-if="parseQualityWarnings.length" class="parse-quality-warnings">
+            <li v-for="item in parseQualityWarnings" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+
         <!-- 简历分析报告 -->
         <div v-if="analysis" class="card analysis-card" style="margin-bottom:20px">
           <h3 style="margin-bottom:14px">简历与岗位匹配报告</h3>
@@ -460,6 +492,20 @@ const hasEvidenceCard = computed(() => {
 })
 
 const resumeEvaluation = computed(() => normalizeResumeEvaluation(analysis.value || {}))
+const extractionDiagnostics = computed(() => analysis.value?.extraction_diagnostics || {})
+const parseQuality = computed(() => analysis.value?.parse_quality || {})
+const parseQualityVisible = computed(() => {
+  return Boolean(parseQuality.value?.status || extractionDiagnostics.value?.best_method)
+})
+const parseMissingFieldLabels = computed(() => {
+  const items = parseQuality.value?.missing_fields
+  return Array.isArray(items) ? items.map(parseMissingFieldLabel) : []
+})
+const parseQualityWarnings = computed(() => {
+  const warnings = parseQuality.value?.warnings || extractionDiagnostics.value?.warnings
+  if (!Array.isArray(warnings)) return []
+  return warnings.map(parseQualityWarningLabel).filter(Boolean).slice(0, 4)
+})
 const matchingMetrics = computed(() => resumeEvaluation.value.matchingMetrics || null)
 const abilityGapProfile = computed(() => resumeEvaluation.value.abilityProfile || null)
 const abilityGapItems = computed(() => {
@@ -785,6 +831,50 @@ function semanticSourceLabel(metrics) {
   return 'TF-IDF'
 }
 
+function parseQualityStatusLabel(status) {
+  const map = {
+    usable: '可用',
+    low_quality: '质量偏低',
+    failed: '抽取失败'
+  }
+  return map[status] || '待确认'
+}
+
+function parseQualityStatusClass(status) {
+  if (status === 'usable') return 'ok'
+  if (status === 'low_quality') return 'warn'
+  if (status === 'failed') return 'bad'
+  return 'unknown'
+}
+
+function parseMethodLabel(method) {
+  const map = {
+    pdfplumber: 'pdfplumber',
+    pypdf: 'PyPDF',
+    ocr_tesseract: 'OCR'
+  }
+  return map[method] || method || '-'
+}
+
+function parseMissingFieldLabel(field) {
+  const map = {
+    contact: '联系方式',
+    education: '教育经历',
+    projects: '项目经历',
+    skills: '技能',
+    experience: '工作/实习经历'
+  }
+  return map[field] || field
+}
+
+function parseQualityWarningLabel(value) {
+  const text = String(value || '')
+  if (!text) return ''
+  if (text.includes('OCR fallback is disabled')) return '文本抽取质量偏低，如是扫描版简历请启用 OCR 或上传文字版 PDF。'
+  if (text.includes('Contact information was not detected')) return '未识别到联系方式，不影响面试，但建议检查 PDF 文本是否完整。'
+  return text
+}
+
 // 面试准备动画
 const startProgress = ref(0)
 const startingTitle = ref('模拟面试即将开始，请做好准备')
@@ -921,6 +1011,13 @@ function buildStartErrorTips(message) {
     ]
   }
 
+  if (text.includes('缺少技能') || text.includes('缺少项目') || text.includes('缺少经历')) {
+    return [
+      '这通常是 PDF 文本抽取或结构化解析不完整导致的，不代表简历内容一定不存在。',
+      '建议先查看上方“解析质量诊断”的待补字段；如果是扫描版简历，请上传文字版 PDF 或启用 OCR 后重试。'
+    ]
+  }
+
   if (text.includes('简历尚未解析完成')) {
     return [
       '简历还没有真正进入 completed 状态，请稍等几秒后重新点击开始面试。',
@@ -1013,6 +1110,64 @@ async function handleStart() {
   line-height: 1.7;
 }
 .parsed-info p { font-size: 14px; margin-bottom: 6px; line-height: 1.6; }
+.parse-quality-card {
+  margin-bottom: 20px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+}
+.parse-quality-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.parse-quality-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.parse-quality-status {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.parse-quality-status.ok { background: #dcfce7; color: #166534; }
+.parse-quality-status.warn { background: #fef3c7; color: #92400e; }
+.parse-quality-status.bad { background: #fee2e2; color: #991b1b; }
+.parse-quality-status.unknown { background: #e5e7eb; color: #374151; }
+.parse-quality-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.parse-quality-grid div {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f9fafb;
+}
+.parse-quality-grid strong {
+  display: block;
+  font-size: 15px;
+  color: #111827;
+  margin-bottom: 4px;
+}
+.parse-quality-grid span,
+.parse-quality-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+.parse-quality-section {
+  margin-top: 12px;
+}
+.parse-quality-warnings {
+  margin: 12px 0 0 18px;
+  padding: 0;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.7;
+}
 .api-test-card {
   border: 1px solid #e5e7eb;
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);

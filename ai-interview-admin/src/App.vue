@@ -10,6 +10,9 @@
         <router-link to="/users" active-class="active">
           <span class="nav-icon">👥</span> 用户管理
         </router-link>
+        <router-link v-if="authStore.canManageAdmins" to="/admins" active-class="active">
+          <span class="nav-icon">□</span> 管理员管理
+        </router-link>
         <router-link to="/knowledge-bases" active-class="active">
           <span class="nav-icon">🧠</span> 公共岗位画像
         </router-link>
@@ -30,6 +33,9 @@
         </router-link>
         <router-link to="/interviews" active-class="active">
           <span class="nav-icon">🎤</span> 面试记录
+        </router-link>
+        <router-link to="/account" active-class="active">
+          <span class="nav-icon">□</span> 账号设置
         </router-link>
       </nav>
       <div class="sidebar-footer">
@@ -59,9 +65,23 @@
 <script setup>
 import { useAuthStore } from './stores/auth'
 import { useRouter } from 'vue-router'
+import { onMounted } from 'vue'
+import { authApi } from './api'
 const authStore = useAuthStore()
 const router = useRouter()
 function logout() { authStore.logout(); router.push('/login') }
+
+async function loadCurrentAdmin() {
+  if (!authStore.isLoggedIn) return
+  try {
+    const me = await authApi.me()
+    authStore.setAdminInfo(me)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+onMounted(loadCurrentAdmin)
 </script>
 
 <style scoped>

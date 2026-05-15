@@ -10,6 +10,7 @@ from uuid import uuid4
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.session import async_session
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.models.position_knowledge_base import PositionKnowledgeBase
@@ -19,6 +20,8 @@ from app.services.client.ai_service import AIService
 from app.services.client.embedding_match_service import embedding_match_service
 from app.services.client.matching_engine import matching_engine
 from app.services.client.resume_evaluation_snapshot import ensure_resume_evaluation_snapshot
+from app.services.client.resume_normalizer import normalize_parsed_resume
+from app.services.client.resume_text_extractor import ResumeTextExtractor
 from app.services.backoffice.learning_route_service import learning_route_service
 from app.services.common.deepseek_config_service import deepseek_config_service
 
@@ -35,11 +38,20 @@ class ResumeService:
     def _build_analysis_payload(
         analysis: Optional[Dict],
         resume_evidence: Optional[Dict] = None,
+        extraction_diagnostics: Optional[Dict] = None,
+        parse_quality: Optional[Dict] = None,
+        normalized_resume: Optional[Dict] = None,
     ) -> Dict:
         payload = dict(analysis or {})
         if resume_evidence:
             payload["resume_evidence"] = resume_evidence
             payload["evidence_summary"] = resume_evidence.get("evidence_summary") or []
+        if extraction_diagnostics:
+            payload["extraction_diagnostics"] = extraction_diagnostics
+        if parse_quality:
+            payload["parse_quality"] = parse_quality
+        if normalized_resume:
+            payload["normalized_resume"] = normalized_resume
         return payload
 
     @staticmethod
@@ -244,21 +256,51 @@ class ResumeService:
         )
 
         await ResumeService._update_status(db, resume, "extracting")
+        extraction_diagnostics: Dict[str, Any] = {}
+        parse_quality: Dict[str, Any] = {}
         try:
-            resume_text = ResumeService._extract_pdf_text(resume.file_url or "")
+            extraction_result = ResumeTextExtractor.extract(
+                resume.file_url or "",
+                enable_ocr=settings.ENABLE_RESUME_OCR,
+            )
+            resume_text = extraction_result.get("text") or ""
+            extraction_diagnostics = extraction_result.get("diagnostics") or {}
+            parse_quality = extraction_result.get("parse_quality") or {}
             if not resume_text.strip():
-                raise ValidationError(message="无法从 PDF 中提取文本内容")
+                raise ValidationError(
+                    message=(
+                        "无法从 PDF 中提取可用文本内容。若这是扫描版或图片版简历，"
+                        "请上传文字版 PDF，或让管理员启用 ENABLE_RESUME_OCR=true 后重试。"
+                    )
+                )
         except ValidationError as exc:
-            await ResumeService._mark_resume_failed(db, resume, exc.detail)
+            await ResumeService._mark_resume_failed(
+                db,
+                resume,
+                exc.detail,
+                extra={
+                    "extraction_diagnostics": extraction_diagnostics,
+                    "parse_quality": parse_quality,
+                },
+            )
             return
         except Exception as exc:
             logger.exception("PDF parse failed for resume %s: %s", resume.id, exc)
-            await ResumeService._mark_resume_failed(db, resume, f"PDF 解析失败: {str(exc)}")
+            await ResumeService._mark_resume_failed(
+                db,
+                resume,
+                f"PDF 解析失败: {str(exc)}",
+                extra={
+                    "extraction_diagnostics": extraction_diagnostics,
+                    "parse_quality": parse_quality,
+                },
+            )
             return
 
         await ResumeService._update_status(db, resume, "parsing")
         try:
             parsed = await AIService.parse_resume(resume_text, ai_config=ai_config)
+            parsed = normalize_parsed_resume(parsed, source_text=resume_text)
             resume.parsed_content = json.dumps(parsed, ensure_ascii=False)
             await db.commit()
             await db.refresh(resume)
@@ -314,7 +356,13 @@ class ResumeService:
                 user_id=resume.user_id,
             )
             resume.analysis = json.dumps(
-                ResumeService._build_analysis_payload(analysis, resume_evidence),
+                ResumeService._build_analysis_payload(
+                    analysis,
+                    resume_evidence,
+                    extraction_diagnostics=extraction_diagnostics,
+                    parse_quality=parse_quality,
+                    normalized_resume=parsed.get("normalized_resume"),
+                ),
                 ensure_ascii=False,
             )
             resume.status = "completed"
@@ -400,9 +448,13 @@ class ResumeService:
         db: AsyncSession,
         resume: Resume,
         error_message: str,
+        extra: Optional[Dict] = None,
     ) -> None:
         resume.status = "failed"
-        resume.analysis = json.dumps({"error_message": error_message}, ensure_ascii=False)
+        payload = {"error_message": error_message}
+        if extra:
+            payload.update(extra)
+        resume.analysis = json.dumps(payload, ensure_ascii=False)
         await db.commit()
         await db.refresh(resume)
 
@@ -477,15 +529,10 @@ class ResumeService:
 
     @staticmethod
     def _extract_pdf_text(file_path: str) -> str:
-        import pdfplumber
-
-        text = ""
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-        return text
+        return ResumeTextExtractor.extract(
+            file_path,
+            enable_ocr=settings.ENABLE_RESUME_OCR,
+        ).get("text", "")
 
     @staticmethod
     async def get_resume(db: AsyncSession, resume_id: int, user_id: int) -> Dict:

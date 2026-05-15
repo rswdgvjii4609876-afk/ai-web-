@@ -5,6 +5,14 @@ export const authApi = {
   me: () => api.get('/auth/me')
 }
 
+export const adminApi = {
+  list: (params) => api.get('/admins', { params }),
+  create: (data) => api.post('/admins', data),
+  update: (id, data) => api.put(`/admins/${id}`, data),
+  delete: (id) => api.delete(`/admins/${id}`),
+  changePassword: (id, data) => api.post(`/admins/${id}/change-password`, data)
+}
+
 export const userApi = {
   list: (params) => api.get('/users', { params }),
   stats: () => api.get('/users/stats'),

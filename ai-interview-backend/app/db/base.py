@@ -21,11 +21,10 @@ def get_engine():
             echo=settings.ENV != "production",
             future=True,
             pool_pre_ping=True,
-            # 增强连接池配置以提高稳定性
-            pool_recycle=1800,  # 30分钟内回收连接
-            pool_timeout=30,    # 获取连接的超时时间
-            max_overflow=10,    # 允许的最大连接溢出数
-            pool_size=20,       # 连接池大小
+            pool_recycle=settings.DB_POOL_RECYCLE,
+            pool_timeout=settings.DB_POOL_TIMEOUT,
+            max_overflow=settings.DB_MAX_OVERFLOW,
+            pool_size=settings.DB_POOL_SIZE,
         )
     return engine
 
@@ -45,10 +44,10 @@ def create_scheduler_engine():
         echo=settings.ENV != "production",
         future=True,
         pool_pre_ping=True,
-        pool_recycle=1800,
-        pool_timeout=30,
-        max_overflow=5,
-        pool_size=5,
+        pool_recycle=settings.DB_POOL_RECYCLE,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+        max_overflow=settings.DB_SCHEDULER_MAX_OVERFLOW,
+        pool_size=settings.DB_SCHEDULER_POOL_SIZE,
     )
 
 def create_scheduler_session_factory(engine):

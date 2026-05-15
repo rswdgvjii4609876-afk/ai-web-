@@ -17,6 +17,9 @@ from app.db.base import get_engine
 from app.models.admin import Admin
 
 
+ROOT_ADMIN_EMAIL = "autsky6666@gmail.com"
+
+
 PASSWORD_REQUIREMENTS = (
     "INIT_ADMIN_PASSWORD must be at least 12 characters and include letters, "
     "numbers, and special characters."
@@ -76,6 +79,7 @@ async def create_first_admin() -> None:
             last_name=last_name,
             password=Admin.get_password_hash(password),
             role="superadmin",
+            can_manage_admins=email.lower() == ROOT_ADMIN_EMAIL,
             is_active=True,
         )
 

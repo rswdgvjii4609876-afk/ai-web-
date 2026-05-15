@@ -28,8 +28,9 @@ class AdminService:
             first_name=admin_data.first_name,
             last_name=admin_data.last_name,
             password=hashed_password,
-            is_active=admin_data.is_active,
-            role="superadmin"
+            is_active=True if admin_data.is_active is None else admin_data.is_active,
+            can_manage_admins=bool(admin_data.can_manage_admins),
+            role="superadmin" if admin_data.can_manage_admins else "admin"
         )
         
         db.add(admin)
@@ -37,6 +38,12 @@ class AdminService:
         await db.refresh(admin)
         
         return AdminResponse.model_validate(admin)
+
+    @staticmethod
+    async def get_admin_model(db: AsyncSession, admin_id: int) -> Optional[Admin]:
+        admin_query = select(Admin).where(Admin.id == admin_id)
+        result = await db.execute(admin_query)
+        return result.scalar_one_or_none()
     
     @staticmethod
     async def get_admin(db: AsyncSession, admin_id: int) -> Optional[AdminResponse]:
@@ -138,6 +145,10 @@ class AdminService:
         # 更新活跃状态
         if "is_active" in admin_data:
             update_data["is_active"] = admin_data["is_active"]
+
+        if "can_manage_admins" in admin_data:
+            update_data["can_manage_admins"] = admin_data["can_manage_admins"]
+            update_data["role"] = "superadmin" if admin_data["can_manage_admins"] else "admin"
         
         # 执行更新
         if update_data:

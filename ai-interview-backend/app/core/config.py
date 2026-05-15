@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "demo"
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800
+    DB_SCHEDULER_POOL_SIZE: int = 2
+    DB_SCHEDULER_MAX_OVERFLOW: int = 3
 
     # Redis
     REDIS_HOST: str = "localhost"
@@ -60,6 +66,9 @@ class Settings(BaseSettings):
 
     # Admin contact
     ADMIN_EMAIL: str = "dev@zetos.fr"
+
+    # Resume extraction
+    ENABLE_RESUME_OCR: bool = False
 
     # JWT
     SECRET_KEY: str = "your-secret-key-change-in-production"

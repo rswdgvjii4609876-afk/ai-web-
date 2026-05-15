@@ -5,7 +5,7 @@
       <form @submit.prevent="handleLogin">
         <div class="form-group">
           <label>邮箱</label>
-          <input v-model="email" type="email" placeholder="admin@ai-interview.com" required />
+          <input v-model="email" type="email" placeholder="autsky6666@gmail.com" required />
         </div>
         <div class="form-group">
           <label>密码</label>
@@ -28,7 +28,7 @@ import { authApi } from '../api'
 
 const router = useRouter()
 const authStore = useAuthStore()
-const email = ref('admin@ai-interview.com')
+const email = ref('autsky6666@gmail.com')
 const password = ref('')
 const error = ref('')
 const loading = ref(false)
@@ -38,6 +38,8 @@ async function handleLogin() {
   try {
     const data = await authApi.login(email.value, password.value)
     authStore.setAuth({ ...data, email: email.value })
+    const me = await authApi.me()
+    authStore.setAdminInfo(me)
     router.push('/')
   } catch (e) { error.value = e.message }
   finally { loading.value = false }

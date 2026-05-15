@@ -8,10 +8,11 @@ class AdminBase(BaseSchema):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     is_active: Optional[bool] = None
+    can_manage_admins: Optional[bool] = False
 
 
 class AdminCreate(AdminBase):
-    password: str
+    password: str = Field(..., min_length=8)
 
 
 class AdminUpdate(BaseSchema):
@@ -20,10 +21,14 @@ class AdminUpdate(BaseSchema):
     last_name: Optional[str] = None
     password: Optional[str] = None
     is_active: Optional[bool] = None
+    can_manage_admins: Optional[bool] = None
 
 @add_padded_id()
 class AdminResponse(BaseResponseSchema, AdminBase):
     is_active: bool
+    can_manage_admins: bool = False
+    role: Optional[str] = None
+    is_root_admin: bool = False
     padded_id: Optional[str] = None
 
     @classmethod

@@ -14,19 +14,30 @@ from app.exceptions.http_exceptions import APIException
 router = APIRouter()
 
 
+def _can_manage_admins(admin: Admin) -> bool:
+    return bool(getattr(admin, "can_manage_admins", False)) or bool(getattr(admin, "is_root_admin", False))
+
+
+def _require_admin_manager(current_admin: Admin) -> None:
+    if not _can_manage_admins(current_admin):
+        raise APIException(status_code=403, message="Not enough permissions")
+
+
+def _require_root_admin(current_admin: Admin) -> None:
+    if not getattr(current_admin, "is_root_admin", False):
+        raise APIException(status_code=403, message="Only the root admin can change admin-management permission")
+
+
 @router.post("", response_model=AdminResponse)
 async def create_admin(
     admin_data: AdminCreate,
     db: AsyncSession = Depends(get_db),
     current_admin: Admin = Depends(get_current_admin)
 ):
-    """Create new admin (superadmin only)"""
-    # Verify if current admin is superadmin
-    if not current_admin.role == "superadmin":
-        raise APIException(
-            status_code=400,
-            message="Not enough permissions"
-        )
+    """Create new admin (admin-management permission required)"""
+    _require_admin_manager(current_admin)
+    if admin_data.can_manage_admins:
+        _require_root_admin(current_admin)
     
     async with transaction(db):
         result = await admin_service.create_admin(db, admin_data)
@@ -43,7 +54,7 @@ async def list_admins(
     db: AsyncSession = Depends(get_db),
     current_admin: Admin = Depends(get_current_admin)
 ):
-    """Get all admin list (superadmin only)
+    """Get all admin list (admin-management permission required)
 
     Args:
         page: Page number, starting from 1
@@ -52,12 +63,7 @@ async def list_admins(
         sort_by: Sort field, supports email or created_at
         sort_order: Sort direction, asc or desc
     """
-    # Verify if current admin is superadmin
-    if not current_admin.role == "superadmin":
-        raise APIException(
-            status_code=400,
-            message="Not enough permissions"
-        )
+    _require_admin_manager(current_admin)
     
     query = await admin_service.get_admins_query(db, email=email, sort_by=sort_by, sort_order=sort_order)
 
@@ -75,8 +81,8 @@ async def get_admin(
     current_admin: Admin = Depends(get_current_admin)
 ):
     """Get admin details (superadmin or the admin themselves)"""
-    # Verify permissions: superadmin can view any admin, regular admin can only view themselves
-    if not current_admin.role == "superadmin" and current_admin.id != admin_id:
+    # Admin managers can view any admin, regular admin can only view themselves.
+    if not _can_manage_admins(current_admin) and current_admin.id != admin_id:
         raise APIException(
             status_code=403,
             message="Not enough permissions"
@@ -99,23 +105,31 @@ async def update_admin(
     db: AsyncSession = Depends(get_db),
     current_admin: Admin = Depends(get_current_admin)
 ):
-    """Update admin information (superadmin or the admin themselves)"""
-    # Verify permissions: superadmin can update any admin, regular admin can only update themselves
-    if not current_admin.role == "superadmin" and current_admin.id != admin_id:
+    """Update admin information (admin managers or the admin themselves)"""
+    if not _can_manage_admins(current_admin) and current_admin.id != admin_id:
         raise APIException(
             status_code=403,
             message="Not enough permissions"
         )
-    
-    # Regular admin cannot modify their own superadmin status
-    if not current_admin.role == "superadmin" and admin_data.role == "superadmin":
-        raise APIException(
-            status_code=403,
-            message="Cannot modify superuser status"
-        )
+
+    target = await admin_service.get_admin_model(db, admin_id)
+    if not target:
+        raise APIException(status_code=status.HTTP_404_NOT_FOUND, message="Admin not found")
+
+    update_payload = admin_data.model_dump(exclude_unset=True)
+    if "can_manage_admins" in update_payload:
+        _require_root_admin(current_admin)
+        if target.is_root_admin and update_payload["can_manage_admins"] is False:
+            raise APIException(status_code=403, message="Cannot revoke root admin permission")
+
+    if target.is_root_admin:
+        if update_payload.get("is_active") is False:
+            raise APIException(status_code=403, message="Cannot disable root admin")
+        if "email" in update_payload and update_payload["email"].lower() != target.email.lower():
+            raise APIException(status_code=403, message="Cannot change root admin email")
     
     async with transaction(db):
-        result = await admin_service.update_admin(db, admin_id, admin_data.model_dump(exclude_unset=True))
+        result = await admin_service.update_admin(db, admin_id, update_payload)
         if not result:
             raise APIException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -131,13 +145,8 @@ async def delete_admin(
     db: AsyncSession = Depends(get_db),
     current_admin: Admin = Depends(get_current_admin)
 ):
-    """Delete admin (superadmin only)"""
-    # Verify if current admin is superadmin
-    if not current_admin.role == "superadmin":
-        raise APIException(
-            status_code=403,
-            message="Not enough permissions"
-        )
+    """Delete admin (admin-management permission required)"""
+    _require_admin_manager(current_admin)
     
     # Cannot delete yourself
     if current_admin.id == admin_id:
@@ -146,6 +155,12 @@ async def delete_admin(
             message="Cannot delete yourself"
         )
     
+    target = await admin_service.get_admin_model(db, admin_id)
+    if not target:
+        raise APIException(status_code=status.HTTP_404_NOT_FOUND, message="Admin not found")
+    if target.is_root_admin:
+        raise APIException(status_code=status.HTTP_403_FORBIDDEN, message="Cannot delete root admin")
+
     async with transaction(db):
         result = await admin_service.delete_admin(db, admin_id)
         if not result:
@@ -191,12 +206,16 @@ async def reset_password(
     current_admin: Admin = Depends(get_current_admin)
 ):
     """Reset admin password (admin themselves or superadmin)"""
-    # Can only change your own password
-    if current_admin.role != "superadmin" and current_admin.id != admin_id:
+    if not _can_manage_admins(current_admin) and current_admin.id != admin_id:
         raise APIException(
             status_code=status.HTTP_403_FORBIDDEN,
             message="Can only change your own password"
         )
+    target = await admin_service.get_admin_model(db, admin_id)
+    if not target:
+        raise APIException(status_code=status.HTTP_404_NOT_FOUND, message="Admin not found")
+    if target.is_root_admin and current_admin.id != admin_id:
+        raise APIException(status_code=status.HTTP_403_FORBIDDEN, message="Cannot reset root admin password")
     
     async with transaction(db):
         result = await admin_service.reset_password(
