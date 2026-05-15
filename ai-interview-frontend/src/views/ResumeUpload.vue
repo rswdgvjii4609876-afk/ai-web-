@@ -17,6 +17,12 @@
           <label>目标岗位</label>
           <input v-model="targetPosition" placeholder="例如：Python后端开发工程师 / 前端开发工程师 / 产品助理 / 人力资源专员" />
         </div>
+        <PrivacyConsentNotice
+          title="上传简历前请确认隐私与数据使用"
+          :show-base-consent="!privacyBaseAgreed"
+          v-model:base-agreed="privacyBaseAgreed"
+          v-model:data-contribution-consent="dataContributionConsent"
+        />
         <div class="card api-test-card" style="margin-bottom:16px">
           <div class="api-test-head">
             <div>
@@ -367,6 +373,12 @@
         <ul v-if="startErrorTips.length" class="error-tip-list">
           <li v-for="tip in startErrorTips" :key="tip">{{ tip }}</li>
         </ul>
+        <PrivacyConsentNotice
+          title="开始面试前请确认隐私与数据使用"
+          :show-base-consent="!privacyBaseAgreed"
+          v-model:base-agreed="privacyBaseAgreed"
+          v-model:data-contribution-consent="dataContributionConsent"
+        />
         <button class="btn-primary" style="width:100%" @click="handleStart" :disabled="starting">
           {{ starting ? '生成测评题中...' : '开始模拟面试' }}
         </button>
@@ -411,6 +423,7 @@ import { getProfile, testAiConnection } from '../api/user'
 import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '../utils/evidenceStatus'
 import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 import { taskFromLearningPlan, upsertLearningTasksToServer } from '../utils/learningTasks'
+import PrivacyConsentNotice from '../components/PrivacyConsentNotice.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -472,6 +485,9 @@ const aiSavedModels = ref({
 const testingAiConnection = ref(false)
 const aiTestMessage = ref('')
 const aiTestSuccess = ref(false)
+const privacyProfile = ref({})
+const privacyBaseAgreed = ref(false)
+const dataContributionConsent = ref(false)
 
 const activeAiProviderLabel = computed(() => aiProviderLabels[aiTestProvider.value] || 'AI')
 const activeAiModelOptions = computed(() => aiProviderModelOptions[aiTestProvider.value] || [])
@@ -651,6 +667,12 @@ function applyAiProfile(data) {
   aiTestModel.value = aiSavedModels.value[aiTestProvider.value] || aiProviderDefaults[aiTestProvider.value]?.model || ''
 }
 
+function applyPrivacyProfile(data) {
+  privacyProfile.value = data || {}
+  privacyBaseAgreed.value = Boolean(data?.privacy_agreed_at)
+  dataContributionConsent.value = Boolean(data?.data_contribution_consent)
+}
+
 function handleAiProviderChange() {
   aiTestMessage.value = ''
   aiTestSuccess.value = false
@@ -661,6 +683,7 @@ onMounted(async () => {
   try {
     const data = await getProfile()
     applyAiProfile(data)
+    applyPrivacyProfile(data)
   } catch (e) {
     console.error('鍔犺浇 AI 閰嶇疆澶辫触', e)
   }
@@ -756,11 +779,16 @@ async function handleTestAiConnection() {
 
 async function handleUpload() {
   error.value = ''
+  if (!privacyBaseAgreed.value) {
+    error.value = '请先阅读并同意《隐私协议与个人信息处理说明》'
+    return
+  }
   uploading.value = true
   resumeEvidence.value = null
   evidenceSummary.value = []
   try {
-    await getProfile()
+    const profile = await getProfile()
+    applyAiProfile(profile)
 
     // 切换到解析动画
     step.value = 'parsing'
@@ -769,7 +797,9 @@ async function handleUpload() {
 
     const data = await uploadResume(file.value, targetPosition.value, {
       provider: aiTestProvider.value,
-      model: aiTestModel.value?.trim() || ''
+      model: aiTestModel.value?.trim() || '',
+      privacyAgreed: privacyBaseAgreed.value,
+      dataContributionConsent: dataContributionConsent.value
     })
     resumeId.value = data.resume_id
 
@@ -1047,6 +1077,10 @@ function buildStartErrorTips(message) {
 
 async function handleStart() {
   error.value = ''
+  if (!privacyBaseAgreed.value) {
+    error.value = '请先阅读并同意《隐私协议与个人信息处理说明》'
+    return
+  }
   starting.value = true
   step.value = 'starting'
   startStartingAnimation()
@@ -1060,7 +1094,9 @@ async function handleStart() {
       ai_model: aiTestModel.value?.trim() || aiTestModelPlaceholder.value || null,
       difficulty: difficulty.value,
       total_questions: totalQuestions.value,
-      multi_interviewer_enabled: multiInterviewerEnabled.value
+      multi_interviewer_enabled: multiInterviewerEnabled.value,
+      privacy_agreed: privacyBaseAgreed.value,
+      data_contribution_consent: dataContributionConsent.value
     })
     const interviewMeta = cacheInterviewMeta(data.interview_id, data)
     // 完成动画

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.client.deps import get_current_user
 from app.db.session import get_db
+from app.exceptions.http_exceptions import ValidationError
 from app.models.user import User
 from app.schemas.client.auth import (
     AccessToken,
@@ -27,6 +28,7 @@ from app.schemas.client.auth import (
 from app.schemas.client.user import UserProfile
 from app.schemas.response import ApiResponse
 from app.services.client.auth import client_auth_service
+from app.services.client.privacy_consent_service import privacy_consent_service
 from app.services.common.deepseek_config_service import deepseek_config_service
 
 router = APIRouter()
@@ -151,6 +153,18 @@ def _serialize_user_profile(current_user: User) -> dict:
         "last_active_at": current_user.last_active_at.isoformat()
         if current_user.last_active_at
         else None,
+        "privacy_policy_version": current_user.privacy_policy_version,
+        "privacy_agreed_at": current_user.privacy_agreed_at.isoformat()
+        if current_user.privacy_agreed_at
+        else None,
+        "data_contribution_consent": bool(current_user.data_contribution_consent),
+        "data_contribution_consent_at": current_user.data_contribution_consent_at.isoformat()
+        if current_user.data_contribution_consent_at
+        else None,
+        "data_contribution_withdrawn_at": current_user.data_contribution_withdrawn_at.isoformat()
+        if current_user.data_contribution_withdrawn_at
+        else None,
+        "data_contribution_consent_version": current_user.data_contribution_consent_version,
         **deepseek_config_service.summarize_for_profile(current_user),
     }
 
@@ -180,6 +194,8 @@ class ProfileUpdate(BaseModel):
     clear_openai_api_key: bool = False
     openai_base_url: Optional[str] = None
     openai_model: Optional[str] = None
+    privacy_agreed: Optional[bool] = None
+    data_contribution_consent: Optional[bool] = None
 
 
 class AIConnectionTestRequest(BaseModel):
@@ -194,6 +210,8 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     update_data = data.model_dump(exclude_unset=True)
+    privacy_agreed = update_data.pop("privacy_agreed", None)
+    data_contribution_consent = update_data.pop("data_contribution_consent", None)
     update_data.pop("deepseek_use_personal_api", None)
     ai_provider = update_data.pop("ai_provider", None)
     clear_deepseek_api_key = update_data.pop("clear_deepseek_api_key", False)
@@ -201,6 +219,23 @@ async def update_profile(
     clear_openai_api_key = update_data.pop("clear_openai_api_key", False)
     openai_api_key = update_data.pop("openai_api_key", None)
     profile_message = "资料更新成功"
+
+    if privacy_agreed is not None:
+        if not privacy_agreed:
+            raise ValidationError(message="基础隐私协议为使用平台必要授权，暂不支持在账号内撤回")
+        privacy_consent_service.apply_base_consent(current_user, agreed=True)
+        profile_message = "资料更新成功，已记录隐私协议同意"
+
+    if data_contribution_consent is not None:
+        privacy_consent_service.set_data_contribution_consent(
+            current_user,
+            consent=bool(data_contribution_consent),
+        )
+        profile_message = (
+            "资料更新成功，已开启后续去标识化数据贡献"
+            if data_contribution_consent
+            else "资料更新成功，已撤回后续去标识化数据贡献授权"
+        )
 
     if clear_deepseek_api_key:
         current_user.deepseek_api_key_encrypted = None

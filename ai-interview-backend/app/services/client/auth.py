@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.db.session import transaction
 from app.exceptions.http_exceptions import APIException
 from app.services.client.redis_verification import redis_verification_service
+from app.services.client.privacy_consent_service import privacy_consent_service
 from app.schedule.jobs.email_tasks import send_verification_email_task
 import asyncio
 import re
@@ -88,7 +89,19 @@ class ClientAuthService(AuthBase):
                 "is_verified": user.is_verified,
                 "university": user.university,
                 "career_goal": user.career_goal,
-                "location": user.location
+                "location": user.location,
+                "privacy_policy_version": user.privacy_policy_version,
+                "privacy_agreed_at": user.privacy_agreed_at.isoformat()
+                if user.privacy_agreed_at
+                else None,
+                "data_contribution_consent": bool(user.data_contribution_consent),
+                "data_contribution_consent_at": user.data_contribution_consent_at.isoformat()
+                if user.data_contribution_consent_at
+                else None,
+                "data_contribution_withdrawn_at": user.data_contribution_withdrawn_at.isoformat()
+                if user.data_contribution_withdrawn_at
+                else None,
+                "data_contribution_consent_version": user.data_contribution_consent_version,
             }
         }
 
@@ -126,6 +139,9 @@ class ClientAuthService(AuthBase):
     @staticmethod
     async def register_user(db: AsyncSession, user_data: Dict) -> Dict:
         """用户注册（信息采集）"""
+        if not user_data.get("privacy_agreed"):
+            raise APIException(status_code=400, message="请先阅读并同意《隐私协议与个人信息处理说明》")
+
         async with transaction(db):
             # 检查邮箱是否已存在
             existing_user = await db.execute(
@@ -154,6 +170,11 @@ class ClientAuthService(AuthBase):
                 is_active=True,
                 is_verified=not verification_required,
                 email_verified_at=datetime.now(UTC) if not verification_required else None
+            )
+            privacy_consent_service.apply_base_consent(user, agreed=True)
+            privacy_consent_service.set_data_contribution_consent(
+                user,
+                consent=bool(user_data.get("data_contribution_consent")),
             )
 
             db.add(user)
@@ -272,21 +293,7 @@ class ClientAuthService(AuthBase):
             )
             db.add(token)
 
-            return {
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "token_type": "bearer",
-                "user": {
-                    "id": user.id,
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "is_verified": True,
-                    "university": user.university,
-                    "career_goal": user.career_goal,
-                    "location": user.location
-                }
-            }
+            return ClientAuthService._build_auth_response(user, access_token, refresh_token)
 
     @staticmethod
     async def login(db: AsyncSession, email: str, password: str, remember_me: bool = False) -> Dict:

@@ -16,6 +16,8 @@ class InterviewStart(BaseSchema):
     difficulty: Literal["easy", "medium", "hard"] = "medium"
     total_questions: int = Field(default=5, ge=3, le=10)
     multi_interviewer_enabled: bool = False
+    privacy_agreed: Optional[bool] = None
+    data_contribution_consent: Optional[bool] = None
 
 
 class InterviewStartResponse(BaseSchema):
@@ -29,6 +31,7 @@ class InterviewStartResponse(BaseSchema):
     high_risk_claims: Optional[list[str]] = None
     blueprint_evidence_summary: Optional[list[str]] = None
     interview_blueprint: Optional[Dict[str, Any]] = None
+    data_contribution_consent: bool = False
 
 
 class AnswerSubmit(BaseSchema):

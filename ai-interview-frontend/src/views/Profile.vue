@@ -169,6 +169,44 @@
         </button>
       </div>
 
+      <div class="card" style="margin-top: 16px">
+        <div class="section-head">
+          <div>
+            <h3 class="section-title">隐私与数据授权</h3>
+            <p class="section-desc">
+              基础隐私协议用于提供简历解析、润色和模拟面试；数据贡献授权用于系统评测、比赛材料、
+              质量改进和数据集沉淀，默认可撤回后续使用。
+            </p>
+          </div>
+          <span :class="['status-chip', privacyForm.privacy_agreed ? 'status-on' : 'status-off']">
+            {{ privacyForm.privacy_agreed ? '已同意基础协议' : '待同意基础协议' }}
+          </span>
+        </div>
+        <p class="field-tip">
+          当前协议版本：{{ profile.privacy_policy_version || '未记录' }}；
+          同意时间：{{ formatConsentTime(profile.privacy_agreed_at) }}
+        </p>
+        <label v-if="!profile.privacy_agreed_at" class="privacy-setting-check required">
+          <input v-model="privacyForm.privacy_agreed" type="checkbox" />
+          <span>
+            我已阅读并同意
+            <router-link to="/privacy" target="_blank">《隐私协议与个人信息处理说明》</router-link>
+          </span>
+        </label>
+        <label class="privacy-setting-check">
+          <input v-model="privacyForm.data_contribution_consent" type="checkbox" />
+          <span>
+            同意后续将去标识化后的简历、学校/专业/项目经历、目标岗位、面试问答、报告和人工评分用于
+            系统评测、比赛材料、质量改进和数据集沉淀。
+          </span>
+        </label>
+        <p class="field-tip">
+          数据贡献授权状态：{{ privacyForm.data_contribution_consent ? '已开启' : '未开启或已撤回' }}；
+          最近授权时间：{{ formatConsentTime(profile.data_contribution_consent_at) }}；
+          最近撤回时间：{{ formatConsentTime(profile.data_contribution_withdrawn_at) }}。
+        </p>
+      </div>
+
       <p v-if="profileMsg" :class="profileMsg.startsWith('✅') ? 'success-msg page-msg' : 'error page-msg'">
         {{ profileMsg }}
       </p>
@@ -248,6 +286,7 @@ const clearSavedKeyPending = ref({
   openai: false
 })
 const pwForm = ref({ old_password: '', new_password: '', confirm_password: '' })
+const privacyForm = ref({ privacy_agreed: false, data_contribution_consent: false })
 const saving = ref(false)
 const changingPw = ref(false)
 const profileMsg = ref('')
@@ -318,6 +357,10 @@ const activeBaseUrlValue = computed({
 
 function applyProfile(data) {
   profile.value = data || {}
+  privacyForm.value = {
+    privacy_agreed: Boolean(data.privacy_agreed_at),
+    data_contribution_consent: Boolean(data.data_contribution_consent)
+  }
   form.value = {
     first_name: data.first_name || '',
     last_name: data.last_name || '',
@@ -341,6 +384,13 @@ function applyProfile(data) {
     openai: false
   }
   authStore.setUserInfo(data)
+}
+
+function formatConsentTime(value) {
+  if (!value) return '未记录'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
 }
 
 async function loadProfile() {
@@ -405,6 +455,12 @@ async function handleSaveProfile() {
     }
     if (clearSavedKeyPending.value.openai) {
       payload.clear_openai_api_key = true
+    }
+    if (!profile.value.privacy_agreed_at && privacyForm.value.privacy_agreed) {
+      payload.privacy_agreed = true
+    }
+    if (Boolean(profile.value.data_contribution_consent) !== Boolean(privacyForm.value.data_contribution_consent)) {
+      payload.data_contribution_consent = Boolean(privacyForm.value.data_contribution_consent)
     }
 
     const result = await updateProfile(payload)
@@ -579,6 +635,30 @@ async function handleChangePassword() {
 
 .warning-tip {
   color: #b45309;
+}
+
+.privacy-setting-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.privacy-setting-check input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.privacy-setting-check.required {
+  font-weight: 600;
+}
+
+.privacy-setting-check a {
+  color: #2563eb;
+  font-weight: 600;
 }
 
 .provider-actions {

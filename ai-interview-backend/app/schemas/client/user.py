@@ -27,6 +27,12 @@ class UserProfile(BaseSchema):
     openai_has_personal_api_key: bool = False
     openai_base_url: Optional[str] = None
     openai_model: Optional[str] = None
+    privacy_policy_version: Optional[str] = None
+    privacy_agreed_at: Optional[str] = None
+    data_contribution_consent: bool = False
+    data_contribution_consent_at: Optional[str] = None
+    data_contribution_withdrawn_at: Optional[str] = None
+    data_contribution_consent_version: Optional[str] = None
 
 
 class UserUpdate(BaseSchema):
@@ -50,6 +56,8 @@ class UserUpdate(BaseSchema):
     clear_openai_api_key: Optional[bool] = False
     openai_base_url: Optional[str] = None
     openai_model: Optional[str] = None
+    privacy_agreed: Optional[bool] = None
+    data_contribution_consent: Optional[bool] = None
 
 
 class ChangePassword(BaseSchema):

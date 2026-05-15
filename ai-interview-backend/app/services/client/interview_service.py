@@ -17,6 +17,7 @@ from app.models.interview import Interview
 from app.models.interview_message import InterviewMessage
 from app.models.position_knowledge_base import PositionKnowledgeBase
 from app.models.resume import Resume
+from app.models.user import User
 from app.services.client.ai_service import AIService
 from app.services.client.position_knowledge_base_slice_service import (
     position_knowledge_base_slice_service,
@@ -1808,6 +1809,9 @@ class InterviewService:
             "status": interview.status,
             "total_questions": interview.total_questions,
             "overall_score": float(interview.overall_score) if interview.overall_score is not None else None,
+            "data_contribution_consent": bool(
+                getattr(interview, "data_contribution_consent", False)
+            ),
             "created_at": interview.created_at.isoformat() if interview.created_at else None,
         }
         if include_user_email and user_email:
@@ -1830,6 +1834,14 @@ class InterviewService:
             "training_sample_review": training_sample_review,
             "export_notes": {
                 "pii_included": bool(include_user_email and user_email),
+                "data_contribution_consent": bool(
+                    getattr(interview, "data_contribution_consent", False)
+                ),
+                "privacy_consent_snapshot": getattr(
+                    interview,
+                    "privacy_consent_snapshot",
+                    None,
+                ),
                 "review_status": training_sample_review.get("review_status"),
                 "export_recommended": training_sample_review.get("export_recommended"),
                 "intended_use": "offline review, hallucination analysis, follow-up quality review, and future fine-tuning preparation",
@@ -1848,6 +1860,7 @@ class InterviewService:
             select(Interview, User.email)
             .join(User, Interview.user_id == User.id)
             .where(Interview.status == "completed")
+            .where(Interview.data_contribution_consent.is_(True))
             .order_by(Interview.created_at.desc())
         )
         if min_score is not None:
@@ -2154,6 +2167,8 @@ class InterviewService:
         total_questions: int,
         multi_interviewer_enabled: bool = False,
         ai_config: Optional[Dict] = None,
+        data_contribution_consent: Optional[bool] = None,
+        privacy_consent_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict:
         result = await db.execute(
             select(Resume).where(
@@ -2166,6 +2181,24 @@ class InterviewService:
             raise NotFoundError(message="简历不存在")
         if resume.status != "completed":
             raise ValidationError(message="简历尚未解析完成")
+
+        effective_data_consent = (
+            bool(data_contribution_consent)
+            if data_contribution_consent is not None
+            else bool(getattr(resume, "data_contribution_consent", False))
+        )
+        privacy_snapshot = (
+            dict(privacy_consent_snapshot)
+            if isinstance(privacy_consent_snapshot, dict)
+            else dict(getattr(resume, "privacy_consent_snapshot", None) or {})
+        )
+        privacy_snapshot.update(
+            {
+                "source": "interview_start",
+                "data_contribution_consent": effective_data_consent,
+                "captured_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         parsed_resume = InterviewService._load_resume_payload(resume)
         resume_analysis = ensure_resume_evaluation_snapshot(
@@ -2317,6 +2350,8 @@ class InterviewService:
             knowledge_base_snapshot=knowledge_base_context,
             panel_snapshot=panel_snapshot,
             status="in_progress",
+            data_contribution_consent=effective_data_consent,
+            privacy_consent_snapshot=privacy_snapshot,
         )
         db.add(interview)
         try:
@@ -2364,6 +2399,7 @@ class InterviewService:
             "high_risk_claims": InterviewService._blueprint_claim_strings(interview_blueprint),
             "blueprint_evidence_summary": interview_blueprint.get("evidence_summary") or [],
             "interview_blueprint": interview_blueprint,
+            "data_contribution_consent": bool(interview.data_contribution_consent),
         }
 
     @staticmethod

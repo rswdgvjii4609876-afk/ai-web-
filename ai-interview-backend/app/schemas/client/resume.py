@@ -19,6 +19,8 @@ class ResumeDetail(BaseSchema):
     resume_evidence: Optional[Dict[str, Any]] = None
     evidence_summary: Optional[list[str]] = None
     error_message: Optional[str] = None
+    data_contribution_consent: bool = False
+    privacy_consent_snapshot: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
 
 

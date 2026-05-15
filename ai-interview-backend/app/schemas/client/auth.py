@@ -23,6 +23,14 @@ class UserRegister(BaseSchema):
         json_schema_extra={"enum": ["full-time", "internship", "apprenticeship"]}
     )
     location: Optional[str] = None
+    privacy_agreed: bool = Field(
+        False,
+        description="是否已阅读并同意《隐私协议与个人信息处理说明》。注册必须为 true。",
+    )
+    data_contribution_consent: bool = Field(
+        False,
+        description="是否同意将去标识化后的简历与面试信息用于系统评测、比赛材料、质量改进和数据集沉淀。",
+    )
 
     @field_validator('password')
     def validate_password(cls, v):
@@ -67,6 +75,12 @@ class UserProfile(BaseSchema):
     university: Optional[str]
     career_goal: Optional[Literal['find-a-job', 'improve-my-interview-skills', 'get-a-better-cv']]
     location: Optional[str]
+    privacy_policy_version: Optional[str] = None
+    privacy_agreed_at: Optional[str] = None
+    data_contribution_consent: bool = False
+    data_contribution_consent_at: Optional[str] = None
+    data_contribution_withdrawn_at: Optional[str] = None
+    data_contribution_consent_version: Optional[str] = None
 
 
 class AuthToken(BaseSchema):

@@ -24,9 +24,16 @@
           <label>密码</label>
           <input v-model="form.password" type="password" placeholder="至少8位，含字母+数字+特殊字符" required />
         </div>
+        <PrivacyConsentNotice
+          title="注册前请确认隐私协议"
+          :show-base-consent="true"
+          v-model:base-agreed="privacyAgreed"
+          v-model:data-contribution-consent="dataContributionConsent"
+          compact
+        />
         <p v-if="error" class="error">{{ error }}</p>
         <p v-if="success" class="success">{{ success }}</p>
-        <button type="submit" class="btn-glow" :disabled="loading">
+        <button type="submit" class="btn-glow" :disabled="loading || !privacyAgreed">
           {{ loading ? '注册中...' : '注册' }}
         </button>
       </form>
@@ -67,6 +74,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { register, sendVerificationCode, verifyEmail } from '../api/auth'
+import PrivacyConsentNotice from '../components/PrivacyConsentNotice.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -77,11 +85,22 @@ const loading = ref(false)
 const verificationStep = ref(false)
 const verificationCode = ref('')
 const pendingEmail = ref('')
+const privacyAgreed = ref(false)
+const dataContributionConsent = ref(false)
 
 async function handleRegister() {
   error.value = ''; success.value = ''; loading.value = true
+  if (!privacyAgreed.value) {
+    error.value = '请先阅读并同意《隐私协议与个人信息处理说明》'
+    loading.value = false
+    return
+  }
   try {
-    const res = await register(form)
+    const res = await register({
+      ...form,
+      privacy_agreed: privacyAgreed.value,
+      data_contribution_consent: dataContributionConsent.value
+    })
     if (res?.access_token && res?.refresh_token) {
       authStore.setAuth(res)
       success.value = '注册成功，正在跳转...'

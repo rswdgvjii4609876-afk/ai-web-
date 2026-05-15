@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from sqlalchemy import Boolean, Column, Integer, JSON, String, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from .base import BaseModel
 
@@ -14,6 +14,8 @@ class Resume(BaseModel):
     analysis = Column(Text, nullable=True)  # AI 分析 JSON（优劣势/建议）
     target_position = Column(String(255), nullable=True)
     status = Column(String(20), default="pending")  # pending/parsing/completed/failed
+    data_contribution_consent = Column(Boolean, nullable=False, default=False)
+    privacy_consent_snapshot = Column(JSON, nullable=True)
 
     # 关联关系
     user = relationship("User", backref="resumes")

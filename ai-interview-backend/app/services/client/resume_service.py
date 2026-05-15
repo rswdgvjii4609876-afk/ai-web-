@@ -183,6 +183,8 @@ class ResumeService:
         file_content: bytes,
         file_name: str,
         target_position: str,
+        data_contribution_consent: bool = False,
+        privacy_consent_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict:
         safe_name = Path(file_name or "resume.pdf").name or "resume.pdf"
         file_path = os.path.join(UPLOAD_DIR, f"{user_id}_{uuid4().hex}_{safe_name}")
@@ -200,6 +202,8 @@ class ResumeService:
             file_name=safe_name,
             target_position=target_position,
             status="queued",
+            data_contribution_consent=bool(data_contribution_consent),
+            privacy_consent_snapshot=privacy_consent_snapshot,
         )
         db.add(resume)
         await db.commit()
@@ -580,6 +584,8 @@ class ResumeService:
             "resume_evidence": resume_evidence,
             "evidence_summary": evidence_summary,
             "error_message": error_message,
+            "data_contribution_consent": bool(resume.data_contribution_consent),
+            "privacy_consent_snapshot": resume.privacy_consent_snapshot,
             "created_at": resume.created_at.isoformat() if resume.created_at else None,
         }
 
@@ -595,6 +601,7 @@ class ResumeService:
                 "file_name": item.file_name,
                 "target_position": item.target_position,
                 "status": item.status,
+                "data_contribution_consent": bool(item.data_contribution_consent),
                 "created_at": item.created_at.isoformat() if item.created_at else None,
             }
             for item in resumes

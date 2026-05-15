@@ -10,6 +10,12 @@ export function uploadResume(file, targetPosition, options = {}) {
   if (options.model) {
     formData.append('ai_model', options.model)
   }
+  if (options.privacyAgreed !== undefined) {
+    formData.append('privacy_agreed', String(!!options.privacyAgreed))
+  }
+  if (options.dataContributionConsent !== undefined) {
+    formData.append('data_contribution_consent', String(!!options.dataContributionConsent))
+  }
   return api.post('/resumes/upload', formData, {
     timeout: 120000
   })

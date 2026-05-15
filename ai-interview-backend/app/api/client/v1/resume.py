@@ -13,6 +13,8 @@ from app.constants.competition import DEFAULT_TARGET_POSITION
 from app.schemas.response import ApiResponse
 from app.schemas.client.resume import ResumePolishRequest
 from app.services.client.resume_service import resume_service
+from app.services.client.privacy_consent_service import privacy_consent_service
+from app.constants.privacy import BASE_PRIVACY_CONSENT_ERROR
 from app.services.common.deepseek_config_service import deepseek_config_service
 
 router = APIRouter()
@@ -51,9 +53,16 @@ async def upload_resume(
     target_position: str = Form(default=DEFAULT_TARGET_POSITION),
     ai_provider: Optional[str] = Form(default=None),
     ai_model: Optional[str] = Form(default=None),
+    privacy_agreed: bool = Form(default=False),
+    data_contribution_consent: Optional[bool] = Form(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if not privacy_consent_service.has_base_consent(current_user):
+        if not privacy_agreed:
+            raise ValidationError(message=BASE_PRIVACY_CONSENT_ERROR)
+        privacy_consent_service.apply_base_consent(current_user, agreed=True)
+
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise ValidationError(message="仅支持上传 PDF 格式文件")
 
@@ -62,12 +71,23 @@ async def upload_resume(
         raise ValidationError(message="文件大小不能超过 10MB")
 
     ai_config = _build_resume_runtime_config(current_user, ai_provider, ai_model)
+    effective_data_consent = privacy_consent_service.effective_data_contribution_consent(
+        current_user,
+        data_contribution_consent,
+    )
+    privacy_snapshot = privacy_consent_service.build_snapshot(
+        current_user,
+        data_contribution_consent=effective_data_consent,
+        source="resume_upload",
+    )
     result = await resume_service.create_resume_upload(
         db=db,
         user_id=current_user.id,
         file_content=content,
         file_name=file.filename,
         target_position=target_position,
+        data_contribution_consent=effective_data_consent,
+        privacy_consent_snapshot=privacy_snapshot,
     )
     logger.info(
         "Resume upload accepted: resume_id=%s provider=%s model=%s",

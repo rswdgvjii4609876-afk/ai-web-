@@ -9,9 +9,11 @@ from app.api.client.deps import get_current_user
 from app.db.session import get_db
 from app.exceptions.http_exceptions import ValidationError
 from app.models.user import User
+from app.constants.privacy import BASE_PRIVACY_CONSENT_ERROR
 from app.schemas.client.interview import AnswerSubmit, InterviewStart
 from app.schemas.response import ApiResponse
 from app.services.client.interview_service import interview_service
+from app.services.client.privacy_consent_service import privacy_consent_service
 from app.services.common.deepseek_config_service import deepseek_config_service
 
 router = APIRouter()
@@ -51,6 +53,21 @@ async def start_interview(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if not privacy_consent_service.has_base_consent(current_user):
+        if not data.privacy_agreed:
+            raise ValidationError(message=BASE_PRIVACY_CONSENT_ERROR)
+        privacy_consent_service.apply_base_consent(current_user, agreed=True)
+
+    privacy_snapshot = (
+        privacy_consent_service.build_snapshot(
+            current_user,
+            data_contribution_consent=bool(data.data_contribution_consent),
+            source="interview_start",
+        )
+        if data.data_contribution_consent is not None
+        else None
+    )
+
     try:
         result = await interview_service.start_interview(
             db=db,
@@ -66,6 +83,8 @@ async def start_interview(
                 data.ai_provider,
                 data.ai_model,
             ),
+            data_contribution_consent=data.data_contribution_consent,
+            privacy_consent_snapshot=privacy_snapshot,
         )
     except ValidationError:
         raise

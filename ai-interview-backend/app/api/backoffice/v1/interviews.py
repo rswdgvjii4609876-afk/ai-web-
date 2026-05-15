@@ -75,6 +75,7 @@ async def list_interviews(
             "total_questions": interview.total_questions,
             "overall_score": float(interview.overall_score) if interview.overall_score else None,
             "status": interview.status,
+            "data_contribution_consent": bool(interview.data_contribution_consent),
             "training_sample_review": interview_service.get_training_sample_review(interview.panel_snapshot),
             "created_at": interview.created_at.isoformat() if interview.created_at else None,
         }
@@ -232,6 +233,8 @@ async def get_interview_detail(
             "overall_score": float(interview.overall_score) if interview.overall_score else None,
             "status": interview.status,
             "interview_mode": interview.interview_mode,
+            "data_contribution_consent": bool(interview.data_contribution_consent),
+            "privacy_consent_snapshot": interview.privacy_consent_snapshot,
             "report": report,
             "training_sample_review": training_sample_review,
             "messages": [
@@ -258,6 +261,15 @@ async def update_interview_training_sample_review(
     current_admin: Admin = Depends(get_current_admin),
 ):
     """Save manual review signals for one interview training sample."""
+    interview = await db.get(Interview, interview_id)
+    if not interview:
+        return ApiResponse.failed(message="面试记录不存在", body_code=404, http_code=404)
+    if not interview.data_contribution_consent:
+        return ApiResponse.failed(
+            message="该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程",
+            body_code=400,
+            http_code=400,
+        )
     review = await interview_service.update_training_sample_review(
         db=db,
         interview_id=interview_id,
@@ -285,6 +297,12 @@ async def get_interview_training_sample(
         return ApiResponse.failed(message="面试记录不存在", body_code=404, http_code=404)
 
     interview, email = row
+    if not interview.data_contribution_consent:
+        return ApiResponse.failed(
+            message="该面试未获得去标识化数据贡献授权，不能导出训练样本",
+            body_code=400,
+            http_code=400,
+        )
     msg_result = await db.execute(
         select(InterviewMessage)
         .where(InterviewMessage.interview_id == interview_id)
