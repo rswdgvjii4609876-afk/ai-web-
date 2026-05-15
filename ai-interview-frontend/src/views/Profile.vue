@@ -175,7 +175,8 @@
             <h3 class="section-title">隐私与数据授权</h3>
             <p class="section-desc">
               基础隐私协议用于提供简历解析、润色、模拟面试、报告和训练复盘；推荐开启数据贡献计划，
-              帮助我们优化岗位画像、评分规则和同岗位训练质量，默认可撤回后续使用。
+              授权后我们可以基于真实使用数据发现解析、追问、评分、报告和学习任务中的问题，针对性升级项目，
+              让后续诊断和训练效果更贴近真实求职场景，默认可撤回后续使用。
             </p>
           </div>
           <span :class="['status-chip', privacyForm.privacy_agreed ? 'status-on' : 'status-off']">
