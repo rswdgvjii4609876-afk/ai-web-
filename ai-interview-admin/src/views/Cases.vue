@@ -16,6 +16,10 @@
         <strong>{{ filteredCases.length }}</strong>
       </div>
       <div class="card stat-card">
+        <span>已授权可标注</span>
+        <strong>{{ authorizedCount }}</strong>
+      </div>
+      <div class="card stat-card">
         <span>已人工标注</span>
         <strong>{{ reviewedCount }}</strong>
       </div>
@@ -52,6 +56,13 @@
           <option value="export_recommended">建议导出</option>
         </select>
       </label>
+      <label>授权
+        <select v-model="filters.consent">
+          <option value="">全部</option>
+          <option value="authorized">已授权</option>
+          <option value="unauthorized">未授权</option>
+        </select>
+      </label>
       <label>目标岗位
         <input v-model="filters.target_position" placeholder="例如 产品助理" />
       </label>
@@ -80,6 +91,7 @@
             <th>AI 分</th>
             <th>人工分</th>
             <th>状态</th>
+            <th>授权</th>
             <th>标注</th>
             <th>导出</th>
             <th>时间</th>
@@ -102,6 +114,11 @@
               <span v-else class="muted">待补</span>
             </td>
             <td><span :class="['badge', item.status === 'completed' ? 'badge-green' : 'badge-yellow']">{{ item.status === 'completed' ? '已完成' : '进行中' }}</span></td>
+            <td>
+              <span :class="['badge', caseConsent(item) ? 'badge-green' : 'badge-blue']">
+                {{ caseConsent(item) ? '已授权' : '未授权' }}
+              </span>
+            </td>
             <td>
               <span :class="['badge', reviewOf(item).review_status === 'reviewed' ? 'badge-green' : 'badge-yellow']">
                 {{ reviewOf(item).review_status === 'reviewed' ? '已标注' : '待标注' }}
@@ -141,7 +158,16 @@
               <div><span>状态</span><strong>{{ selectedDetail?.status === 'completed' ? '已完成' : '进行中' }}</strong></div>
               <div><span>题数</span><strong>{{ selectedDetail?.total_questions || selectedCase?.total_questions || '-' }}</strong></div>
               <div><span>模式</span><strong>{{ interviewModeLabel(selectedDetail?.interview_mode) }}</strong></div>
+              <div>
+                <span>数据授权</span>
+                <strong :class="selectedCaseAuthorized ? 'success-text' : 'warn-text'">
+                  {{ selectedCaseAuthorized ? '已授权，可人工标注' : '未授权，不能沉淀评分' }}
+                </strong>
+              </div>
             </div>
+            <p v-if="!selectedCaseAuthorized" class="consent-warning">
+              该面试未获得本次案例去标识化数据贡献授权。可以查看详情，但不能保存人工评分或进入评测样本导出。
+            </p>
           </section>
 
           <section class="drawer-section" v-if="selectedDetail?.report?.summary || selectedDetail?.report?.strengths?.length || selectedDetail?.report?.weaknesses?.length">
@@ -219,7 +245,9 @@
           <p v-if="noticeMessage" :class="['notice', noticeType === 'error' ? 'error-text' : 'success-text']">{{ noticeMessage }}</p>
 
           <div class="drawer-actions">
-            <button class="btn-primary" type="button" :disabled="saving" @click="saveReview">{{ saving ? '保存中...' : '保存人工标注' }}</button>
+            <button class="btn-primary" type="button" :disabled="saving || !selectedCaseAuthorized" @click="saveReview">
+              {{ saving ? '保存中...' : selectedCaseAuthorized ? '保存人工标注' : '未授权，不能标注' }}
+            </button>
             <router-link v-if="selectedCase" :to="`/interviews/${selectedCase.id}`" class="btn-secondary">打开完整详情</router-link>
           </div>
         </template>
@@ -249,6 +277,7 @@ const filters = ref({
   status: '',
   review_status: '',
   quality: '',
+  consent: '',
   target_position: '',
   case_id: ''
 })
@@ -274,6 +303,8 @@ const defaultReview = () => ({
 const reviewForm = ref(defaultReview())
 
 const reviewOf = (item) => ({ ...defaultReview(), ...(item?.training_sample_review || {}) })
+const caseConsent = (item) => Boolean(item?.data_contribution_consent)
+const selectedCaseAuthorized = computed(() => caseConsent(selectedDetail.value || selectedCase.value))
 
 const filteredCases = computed(() => {
   const target = filters.value.target_position.trim().toLowerCase()
@@ -284,12 +315,15 @@ const filteredCases = computed(() => {
     if (filters.value.quality === 'high_quality' && !review.is_high_quality) return false
     if (filters.value.quality === 'hallucination' && !review.has_hallucination) return false
     if (filters.value.quality === 'export_recommended' && !review.export_recommended) return false
+    if (filters.value.consent === 'authorized' && !caseConsent(item)) return false
+    if (filters.value.consent === 'unauthorized' && caseConsent(item)) return false
     if (target && !(item.target_position || '').toLowerCase().includes(target)) return false
     if (caseId && !(review.case_id || '').toLowerCase().includes(caseId)) return false
     return true
   })
 })
 
+const authorizedCount = computed(() => filteredCases.value.filter(caseConsent).length)
 const reviewedCount = computed(() => filteredCases.value.filter((item) => reviewOf(item).review_status === 'reviewed').length)
 const exportRecommendedCount = computed(() => filteredCases.value.filter((item) => reviewOf(item).export_recommended).length)
 const hallucinationCount = computed(() => filteredCases.value.filter((item) => reviewOf(item).has_hallucination).length)
@@ -373,6 +407,11 @@ function closeDrawer() {
 
 async function saveReview() {
   if (!selectedCase.value) return
+  if (!selectedCaseAuthorized.value) {
+    noticeType.value = 'error'
+    noticeMessage.value = '该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程。'
+    return
+  }
   saving.value = true
   noticeMessage.value = ''
   try {
@@ -618,8 +657,20 @@ onMounted(loadCases)
 .success-text {
   color: #047857;
 }
+.warn-text {
+  color: #b45309;
+}
 .error-text {
   color: #dc2626;
+}
+.consent-warning {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.7;
 }
 .drawer-actions {
   display: flex;

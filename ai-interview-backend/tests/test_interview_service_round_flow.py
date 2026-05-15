@@ -807,6 +807,7 @@ def test_build_evaluation_dataset_bundle_classifies_samples_and_allows_overlap()
 
     assert preview["stats"]["completed_samples"] == 3
     assert preview["stats"]["reviewed_samples"] == 2
+    assert "data_contribution_consent=true" in preview["filters"]["base_requirements"]
     assert datasets["golden_cases"]["count"] == 1
     assert datasets["golden_cases"]["example_interview_ids"] == [101]
     assert datasets["hallucination_cases"]["count"] == 1

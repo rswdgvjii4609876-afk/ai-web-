@@ -4,7 +4,7 @@
       <div>
         <h1 style="font-size:20px;margin-bottom:6px">评测样本与人工评分对比</h1>
         <p class="helper-text">
-          基于已完成且已人工标注的测评样本，预览模型验证数据，并按固定规则导出 ZIP + JSONL。
+          基于已完成、已获得本次案例去标识化数据贡献授权且已人工标注的测评样本，预览模型验证数据，并按固定规则导出 ZIP + JSONL。
         </p>
       </div>
       <button class="btn-primary" :disabled="exportLoading || !hasCompletedSamples" @click="downloadBundle">
@@ -26,7 +26,7 @@
           <div class="stat-value">{{ preview.schema_version }}</div>
         </div>
         <div class="card stat-card">
-          <div class="stat-label">已完成测评</div>
+          <div class="stat-label">已授权完成测评</div>
           <div class="stat-value">{{ preview.stats?.completed_samples || 0 }}</div>
         </div>
         <div class="card stat-card">
@@ -68,7 +68,7 @@
       <div v-if="!hasCompletedSamples" class="card state-card" style="margin-bottom:16px">
         <p style="font-weight:600;margin-bottom:8px">暂无可导出的测评样本</p>
         <p class="helper-text">
-          需要先在用户端完成至少一场模拟面试，再到“面试记录”详情中做人工标注，评测样本才会进入验证数据预览。
+          需要先完成模拟面试，在报告页或训练复盘页取得本次案例数据贡献授权，再到“案例标注工作台”完成人工标注，评测样本才会进入验证数据预览。
         </p>
       </div>
 

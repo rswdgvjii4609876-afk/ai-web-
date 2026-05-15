@@ -95,6 +95,11 @@
             <strong>任务 {{ index + 1 }}</strong>
             <button type="button" class="remove-btn" @click="draftTasks.splice(index, 1)">移除</button>
           </div>
+          <div :class="['task-quality', taskQualityClass(task)]">
+            <strong>{{ taskQuality(task).label }}</strong>
+            <span v-if="taskQuality(task).issues.length">缺少：{{ taskQuality(task).issues.join('、') }}</span>
+            <span v-else>材料、练习、验收和来源信息较完整。</span>
+          </div>
           <label>任务标题<input v-model="task.title" /></label>
           <label>学习材料<textarea v-model="task.learning_material" rows="3"></textarea></label>
           <label>练习任务<textarea v-model="task.practice_task" rows="3"></textarea></label>
@@ -146,6 +151,10 @@
         <span>预计剩余</span>
         <strong>{{ remainingHoursText }}</strong>
       </div>
+      <div class="card progress-card">
+        <span>待完善任务</span>
+        <strong>{{ taskQualitySummary.needs_improvement }}</strong>
+      </div>
     </div>
 
     <div v-if="tasks.length" class="filter-card card">
@@ -169,6 +178,15 @@
           <option value="">全部状态</option>
           <option value="pending">待完成</option>
           <option value="done">已完成</option>
+        </select>
+      </label>
+      <label>
+        任务质量
+        <select v-model="qualityFilter">
+          <option value="">全部质量</option>
+          <option value="high">高质量</option>
+          <option value="usable">可用</option>
+          <option value="needs_improvement">待完善</option>
         </select>
       </label>
     </div>
@@ -210,6 +228,12 @@
           <span v-if="task.route_stage">阶段：{{ stageLabel(task.route_stage) }}</span>
           <span v-if="task.task_type">类型：{{ taskTypeLabel(task.task_type) }}</span>
           <span v-if="task.estimated_minutes">预计 {{ minutesText(task.estimated_minutes) }}</span>
+        </div>
+
+        <div :class="['task-quality', taskQualityClass(task)]">
+          <strong>{{ taskQuality(task).label }}</strong>
+          <span v-if="taskQuality(task).issues.length">缺少：{{ taskQuality(task).issues.join('、') }}</span>
+          <span v-else>材料、练习、验收和来源信息较完整。</span>
         </div>
 
         <div class="task-detail">
@@ -281,6 +305,7 @@ const legacyCount = ref(0)
 const stageFilter = ref('')
 const abilityFilter = ref('')
 const statusFilter = ref('')
+const qualityFilter = ref('')
 const planOptionsLoading = ref(false)
 const generatingPlan = ref(false)
 const savingDraft = ref(false)
@@ -311,11 +336,17 @@ const remainingHoursText = computed(() => {
   const hours = Math.round((remainingMinutes.value / 60) * 10) / 10
   return `${hours}h`
 })
+const taskQualitySummary = computed(() => tasks.value.reduce((summary, task) => {
+  const level = taskQuality(task).level
+  summary[level] = (summary[level] || 0) + 1
+  return summary
+}, { high: 0, usable: 0, needs_improvement: 0 }))
 const filteredTasks = computed(() => tasks.value.filter((task) => {
   if (stageFilter.value && task.route_stage !== stageFilter.value) return false
   if (abilityFilter.value && task.ability_name !== abilityFilter.value) return false
   if (statusFilter.value === 'done' && !task.done) return false
   if (statusFilter.value === 'pending' && task.done) return false
+  if (qualityFilter.value && taskQuality(task).level !== qualityFilter.value) return false
   return true
 }))
 
@@ -498,8 +529,41 @@ async function clearTasks() {
 }
 
 function criteriaList(task) {
-  if (Array.isArray(task.acceptance_criteria) && task.acceptance_criteria.length) return task.acceptance_criteria
+  const items = acceptanceItems(task)
+  if (items.length) return items
   return ['完成对应练习或资料整理', '写下复盘笔记', '再次模拟面试验证表达']
+}
+
+function acceptanceItems(task) {
+  if (Array.isArray(task.acceptance_criteria)) {
+    return task.acceptance_criteria.map(item => String(item || '').trim()).filter(Boolean)
+  }
+  return String(task.acceptanceText || task.acceptance_criteria || '')
+    .split(/\r?\n/)
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function taskQuality(task) {
+  const issues = []
+  if (!String(task.learning_material || '').trim()) issues.push('学习材料')
+  if (!String(task.practice_task || '').trim()) issues.push('练习任务')
+  if (!acceptanceItems(task).length) issues.push('验收方式')
+  if (!(Number(task.estimated_minutes) > 0)) issues.push('预计耗时')
+  if (!String(task.evidence_basis || task.route_stage || task.route_source || '').trim()) issues.push('来源依据或路线阶段')
+
+  const passed = 5 - issues.length
+  const level = passed >= 5 ? 'high' : passed >= 3 ? 'usable' : 'needs_improvement'
+  const label = {
+    high: '高质量',
+    usable: '可用',
+    needs_improvement: '待完善'
+  }[level]
+  return { level, label, issues }
+}
+
+function taskQualityClass(task) {
+  return `quality-${taskQuality(task).level}`
 }
 
 function sourceLabel(type) {
@@ -830,7 +894,7 @@ function setMessage(text, type = 'success') {
 
 .progress-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -852,7 +916,7 @@ function setMessage(text, type = 'success') {
 
 .filter-card {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -965,6 +1029,36 @@ function setMessage(text, type = 'success') {
   background: #f3f4f6;
   font-size: 12px;
   font-weight: 600;
+}
+
+.task-quality {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.task-quality strong {
+  flex-shrink: 0;
+}
+
+.quality-high {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.quality-usable {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.quality-needs_improvement {
+  background: #fffbeb;
+  color: #92400e;
 }
 
 .task-detail {

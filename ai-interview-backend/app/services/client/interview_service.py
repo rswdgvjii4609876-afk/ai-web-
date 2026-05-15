@@ -2033,6 +2033,7 @@ class InterviewService:
         filters = {
             "base_requirements": [
                 "status=completed",
+                "data_contribution_consent=true",
                 "training_sample_review.review_status=reviewed",
             ],
             "thresholds": {

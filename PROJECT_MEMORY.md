@@ -1,6 +1,6 @@
 # PROJECT_MEMORY.md
 
-更新时间：2026-05-15
+更新时间：2026-05-16
 
 项目目录：`D:\apps\ai-interview`  
 服务器目录：`/opt/apps/ai-interview`  
@@ -20,7 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
-5. 阶段 138 服务器真实闭环验收和 C1/C2/C3 人工评分数据沉淀。
+5. 阶段 139 授权转化、后台准入与学习任务质检小功能升级。
 
 当前策略：
 
@@ -28,7 +28,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 成员资料不再作为新岗位画像，而是归并到已有标准岗位画像。
 - 简历评分、润色、学习计划、AI 面试、报告和复盘要统一使用简历评价快照和证据状态。
 - 真实案例进入后台人工评分、评测样本和比赛材料前，必须完成本次案例去标识化数据贡献授权；不同意不影响核心功能使用，但不能计入阶段 138 有效沉淀样本。
-- 服务器真实验收和 C1/C2/C3 三岗位闭环仍待补，不要把本地通过写成线上完成。
+- C1/C2/C3 三岗位闭环按用户要求后置到下一环节；阶段 139 完成后必须回到真实跑测，不要把本地通过写成线上完成。
 
 ## 2. 用户提出过的关键需求细节
 
@@ -224,6 +224,17 @@ docker compose build --progress=plain app
 docker compose up -d --build app admin frontend
 ```
 
+### 3.7 阶段 139：授权转化、后台准入与学习任务质检
+
+本阶段由用户确认把 C1/C2/C3 后置后启动，目标是先补小功能，提升后续真实数据沉淀质量。
+
+处理范围：
+
+- 用户端报告页和训练复盘页复用的本次案例授权卡增强文案，突出授权后可针对性升级岗位画像、追问策略、评分规则、报告建议和学习任务质量。
+- 后台案例标注工作台增加授权统计、筛选、表格列和未授权保存禁用，后端仍保持未授权不能人工评分沉淀的兜底。
+- 评测样本页把样本口径改为“已授权完成测评”，固定规则包含 `data_contribution_consent=true`。
+- 学习任务页增加高质量/可用/待完善质检状态、质量筛选和缺失项提示。
+
 ## 4. 涉及的文件和核心逻辑
 
 ### 4.1 后端核心
@@ -272,6 +283,12 @@ docker compose up -d --build app admin frontend
 - `ai-interview-admin/src/views/Admins.vue`
   - 管理员管理页面。
 
+- `ai-interview-admin/src/views/Cases.vue`
+  - 阶段 139 后台授权准入与人工标注入口。
+
+- `ai-interview-admin/src/views/EvaluationDatasets.vue`
+  - 阶段 139 评测样本授权口径展示。
+
 - `ai-interview-admin/src/views/AccountSettings.vue`
   - 后台账号设置和修改密码。
 
@@ -286,6 +303,12 @@ docker compose up -d --build app admin frontend
 
 - `ai-interview-frontend/src/views/ResumeUpload.vue`
   - 简历解析质量展示和开始面试错误提示。
+
+- `ai-interview-frontend/src/components/CaseDataContributionCard.vue`
+  - 报告页和训练复盘页复用的本次案例数据贡献授权卡。
+
+- `ai-interview-frontend/src/views/LearningTasks.vue`
+  - 阶段 139 学习任务质量提示和筛选。
 
 ### 4.3 文档和流程
 
@@ -310,13 +333,13 @@ docker compose up -d --build app admin frontend
 
 - `任务记录文档.md`
   - 长历史记录。
-  - 已追加阶段 135、136、137、138。
+  - 已追加阶段 135、136、137、138、139。
 
 ## 5. 当前未完成事项
 
 1. 阶段 138 三岗位真实闭环和数据沉淀：
-   - 服务器 readiness 已通过；当前只剩 C1/C2/C3 真实案例未跑测。
-   - 按执行包跑 C1/C2/C3。
+   - 服务器 readiness 已通过；C1/C2/C3 真实案例按用户要求后置到阶段 139 之后。
+   - 阶段 139 完成并部署后，按执行包跑 C1/C2/C3。
    - 每个案例补齐诊断、润色、学习任务、至少 3 轮面试、报告、训练复盘、本次案例去标识化数据贡献授权和后台人工评分。
    - 回填 `docs/competition/真实案例闭环验收记录.md` 和 CSV。
    - 最后执行 `python scripts/validate_stage138_closed_loop.py`，必须 `result=PASS`。
@@ -351,6 +374,7 @@ docker compose up -d --build app admin frontend
 7. 学习任务和学习计划真实页面验收：
    - 学习任务保存后刷新仍保留。
    - AI 生成计划和成熟计划模式需要服务器确认。
+   - 阶段 139 新增任务质量提示后，需要确认高质量/可用/待完善筛选和缺失项提示。
 
 8. 申报书、查新报告、成员资料原始文件：
    - 当前大量未跟踪文件未提交。
@@ -422,9 +446,20 @@ python -m app.scripts.check_database_capacity
 
 ## 7. 下一步建议
 
-### 7.0 阶段 138 优先执行
+### 7.0 阶段 139 优先执行
 
-服务器 readiness 已于 2026-05-15 通过，当前直接跑 C1/C2/C3 三个真实案例。人工跑测和 CSV 回填完成后执行：
+用户已确认将 C1/C2/C3 后置到下一环节，当前先完成阶段 139：
+
+- 用户端报告页和训练复盘页优化本次案例授权转化。
+- 后台案例工作台增加授权状态统计、筛选和未授权标注禁用。
+- 评测样本页明确只展示已授权完成测评。
+- 学习任务页增加高质量/可用/待完善质检。
+
+阶段 139 完成后，再回到 C1/C2/C3 三个真实案例。
+
+### 7.1 阶段 138 真实闭环后续执行
+
+服务器 readiness 已于 2026-05-15 通过。阶段 139 完成后继续跑 C1/C2/C3 三个真实案例，人工跑测和 CSV 回填完成后执行：
 
 ```bash
 python scripts/validate_stage138_closed_loop.py
