@@ -37,6 +37,7 @@
       学号、详细住址和文件名个人标识；为保证诊断质量，可能保留学校、专业、教育/实习/项目经历、
       技能和问答内容。
     </p>
+    <DataContributionBenefits v-if="showDataContribution" compact />
     <p v-if="showDataContribution && dataContributionConsent" class="privacy-note privacy-note-positive">
       当前已沿用你的默认数据贡献授权；你也可以取消本次勾选，仅使用核心功能。
     </p>
@@ -44,6 +45,8 @@
 </template>
 
 <script setup>
+import DataContributionBenefits from './DataContributionBenefits.vue'
+
 defineProps({
   title: {
     type: String,

@@ -18,6 +18,7 @@
         我们会删除或遮挡姓名、手机号、邮箱、证件号、学号、详细住址和文件名个人标识；为保证诊断质量，
         可能保留学校、专业、教育/实习/项目经历、技能、岗位、问答和评分。不同意不影响报告、复盘和继续训练。
       </p>
+      <DataContributionBenefits />
       <p v-if="message" class="case-consent-message">{{ message }}</p>
     </div>
     <div class="case-consent-actions">
@@ -45,6 +46,8 @@
 </template>
 
 <script setup>
+import DataContributionBenefits from './DataContributionBenefits.vue'
+
 defineProps({
   consented: {
     type: Boolean,
