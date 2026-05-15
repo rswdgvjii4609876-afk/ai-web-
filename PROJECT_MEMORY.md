@@ -20,6 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
+5. 阶段 138 服务器真实闭环验收和 C1/C2/C3 人工评分数据沉淀。
 
 当前策略：
 
@@ -76,6 +77,8 @@ GitHub 仓库：`YiyuZh/ai-interview`
 ### 2.6 Git 和资料提交
 
 - 不要再随意 `git add .`。
+- 用户希望后续完成明确的一轮代码或文档改动后，默认由 Codex 精准暂存并本地 commit。
+- 默认只 commit 本轮相关文件；push、强制重置、删除未跟踪大文件等动作仍需明确指令。
 - 当前应精准提交代码和记忆文件，排除 `.codex_tmp_*`、申报书大文件、查新 PDF、成员原始资料、构建产物。
 - 用户确认当前两个 tracked 删除项可以保留删除并提交。
 
@@ -175,6 +178,28 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 输出 max_connections、当前连接数、active 连接、状态分布、核心表行数、最大表、长运行查询和建议。
 - 本机缺 `asyncpg` 时能输出可读错误；服务器 Docker 容器内应正常运行。
 
+### 3.5 阶段 138：服务器真实闭环验收与数据沉淀收口
+
+新增服务器闭环验收工具：
+
+- `scripts/stage138_server_closed_loop_verify.sh`
+- `scripts/validate_stage138_closed_loop.py`
+
+作用：
+
+- 阶段 138 不新增业务页面、接口或数据库表。
+- 先把阶段 135 管理员权限、阶段 136 真实 PDF 简历解析、阶段 137 PostgreSQL 容量自检统一放到服务器验收脚本里。
+- 用 CSV 明确检查 R1/R2/R3 三条真实案例是否完成完整闭环。
+- 每条真实案例必须覆盖：上传简历、能力诊断、简历润色、学习任务、至少 3 轮面试、报告、训练复盘、后台人工评分。
+- `--readiness-only` 可用于人工跑测前的服务器预检，此时 C1/C2/C3 未完成只记为 WARN。
+- 完整模式下，CSV 未达到阶段 138 口径会返回 FAIL。
+
+当前状态：
+
+- 阶段 138 工具和文档口径已落地。
+- 真实 C1/C2/C3 案例仍待服务器人工跑测和 CSV 回填。
+- 未完成前不要新增页面、接口、表结构、MySQL 迁移或模型策略来绕过真实验收。
+
 ## 4. 涉及的文件和核心逻辑
 
 ### 4.1 后端核心
@@ -242,45 +267,64 @@ GitHub 仓库：`YiyuZh/ai-interview`
 
 - `docs/competition/职启智评项目升级流程手册.md`
   - 当前主控路线。
-  - 已追加阶段 135、136、137。
+  - 已追加阶段 135、136、137、138。
+
+- `docs/competition/三岗位真实闭环验收执行包.md`
+  - 阶段 138 C1/C2/C3 执行入口。
+
+- `docs/competition/真实案例闭环验收记录.md`
+  - 阶段 138 记录和机器检查口径。
+
+- `scripts/stage138_server_closed_loop_verify.sh`
+  - 服务器 readiness 和闭环验收报告脚本。
+
+- `scripts/validate_stage138_closed_loop.py`
+  - C1/C2/C3 真实闭环 CSV 检查脚本。
 
 - `任务记录文档.md`
   - 长历史记录。
-  - 已追加阶段 135、136、137。
+  - 已追加阶段 135、136、137、138。
 
 ## 5. 当前未完成事项
 
-1. 阶段 135 服务器验收：
+1. 阶段 138 三岗位真实闭环和数据沉淀：
+   - 先在服务器执行 `bash scripts/stage138_server_closed_loop_verify.sh --readiness-only`。
+   - 按执行包跑 C1/C2/C3。
+   - 每个案例补齐诊断、润色、学习任务、至少 3 轮面试、报告、训练复盘和后台人工评分。
+   - 回填 `docs/competition/真实案例闭环验收记录.md` 和 CSV。
+   - 最后执行 `python scripts/validate_stage138_closed_loop.py`，必须 `result=PASS`。
+
+2. 阶段 135 服务器验收：
    - 部署后执行 `alembic upgrade head`。
    - 确认 root 管理员 `autsky6666@gmail.com` 权限。
    - 测试新增管理员、授权、删除、改密。
 
-2. 阶段 136 服务器真实 PDF 验收：
+3. 阶段 136 服务器真实 PDF 验收：
    - 上传真实 PDF。
    - 检查 `parse_quality` 和 `normalized_resume`。
    - 点击开始模拟面试，确认不闪退。
    - 若扫描版 PDF 要支持，再开启 `ENABLE_RESUME_OCR=true`。
 
-3. 阶段 137 服务器数据库容量自检：
+4. 阶段 137 服务器数据库容量自检：
    - 在 Docker app 容器内执行 `python -m app.scripts.check_database_capacity`。
    - 根据连接数决定是否降低 `UVICORN_WORKERS`、`DB_POOL_SIZE`、`DB_MAX_OVERFLOW`。
 
-4. 阶段 132 三岗位真实闭环：
+5. 阶段 132 三岗位真实闭环：
    - C1：Python 后端开发工程师。
    - C2：产品助理/产品经理实习生。
    - C3：人力资源专员。
    - 每个案例至少 3 轮问答，推荐 5 轮。
 
-5. 阶段 134 服务器归并验证：
+6. 阶段 134 服务器归并验证：
    - 成员补充资料应归并到标准岗位画像。
    - 旧 `成员资料补充：{岗位}` 应停用但可追溯。
    - 面试经验管理入口需要后台真实使用验收。
 
-6. 学习任务和学习计划真实页面验收：
+7. 学习任务和学习计划真实页面验收：
    - 学习任务保存后刷新仍保留。
    - AI 生成计划和成熟计划模式需要服务器确认。
 
-7. 申报书、查新报告、成员资料原始文件：
+8. 申报书、查新报告、成员资料原始文件：
    - 当前大量未跟踪文件未提交。
    - 本次提交计划故意排除这些大文件。
 
@@ -349,6 +393,22 @@ python -m app.scripts.check_database_capacity
 可能出现 `asyncpg` 缺失。脚本现在会输出可读错误。服务器 Docker app 容器内应有依赖。
 
 ## 7. 下一步建议
+
+### 7.0 阶段 138 优先执行
+
+```bash
+cd /opt/apps/ai-interview
+bash scripts/stage138_server_closed_loop_verify.sh --readiness-only
+```
+
+readiness 通过后，再跑 C1/C2/C3 三个真实案例。人工跑测和 CSV 回填完成后执行：
+
+```bash
+python scripts/validate_stage138_closed_loop.py
+bash scripts/stage138_server_closed_loop_verify.sh
+```
+
+如果失败，只处理第一条真实失败日志或第一条 CSV 缺口，不新增功能绕开。
 
 ### 7.1 本轮提交后立刻做
 
@@ -443,7 +503,12 @@ git add ai-interview-frontend/src/views/ResumeUpload.vue
 git add ai-interview-backend/app/scripts/check_core_feature_flow.py
 git add ai-interview-backend/tests/test_check_core_feature_flow.py
 git add ai-interview-backend/app/scripts/check_database_capacity.py
+git add scripts/stage79_local_preflight.ps1
+git add scripts/validate_stage138_closed_loop.py
+git add scripts/stage138_server_closed_loop_verify.sh
 git add "docs/competition/职启智评项目升级流程手册.md"
+git add "docs/competition/三岗位真实闭环验收执行包.md"
+git add "docs/competition/真实案例闭环验收记录.md"
 git add "任务记录文档.md"
 git add PROJECT_MEMORY.md
 ```

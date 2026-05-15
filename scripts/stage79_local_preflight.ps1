@@ -8,6 +8,9 @@ param(
     [int]$MinCompleteFlows = 5,
     [int]$MinHumanScoredRows = 5,
     [int]$MinRepeatedCases = 1,
+    [switch]$ValidateStage138ClosedLoop,
+    [string]$Stage138CsvPath = "",
+    [string]$Stage138SummaryPath = "",
     [switch]$ValidateServerReport,
     [string]$ServerReportPath = "docs\competition\server_validation_reports\stage79_server_verify_latest.md"
 )
@@ -167,6 +170,39 @@ try {
             python @closedLoopArgs
         }
         Write-Host "TIP: add -StrictClosedLoopRecords after real cases, human scores, and repeated runs are complete."
+    }
+
+    Write-Section "Stage 138 C1/C2/C3 closed-loop records"
+    if ($ValidateStage138ClosedLoop) {
+        $stage138Args = @("scripts\validate_stage138_closed_loop.py")
+
+        if ($Stage138CsvPath) {
+            if ([System.IO.Path]::IsPathRooted($Stage138CsvPath)) {
+                $resolvedStage138CsvPath = $Stage138CsvPath
+            }
+            else {
+                $resolvedStage138CsvPath = Join-Path $RepoRoot $Stage138CsvPath
+            }
+            $stage138Args += @("--csv", $resolvedStage138CsvPath)
+        }
+
+        if ($Stage138SummaryPath) {
+            if ([System.IO.Path]::IsPathRooted($Stage138SummaryPath)) {
+                $resolvedStage138SummaryPath = $Stage138SummaryPath
+            }
+            else {
+                $resolvedStage138SummaryPath = Join-Path $RepoRoot $Stage138SummaryPath
+            }
+            $stage138Args += @("--summary", $resolvedStage138SummaryPath)
+        }
+
+        Invoke-Checked "validate stage 138 C1/C2/C3 closed-loop CSV" {
+            python @stage138Args
+        }
+    }
+    else {
+        Write-Host "SKIP: stage 138 C1/C2/C3 closed-loop records"
+        Write-Host "TIP: add -ValidateStage138ClosedLoop after C1/C2/C3 are run and human scores are recorded."
     }
 
     Write-Section "Server validation report"
