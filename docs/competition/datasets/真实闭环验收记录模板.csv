@@ -1,6 +1,6 @@
-case_id,run_id,run_date,environment,git_commit,user_account,resume_source,target_position,model_provider,model_name,upload_status,ability_diagnosis_status,top_gaps,learning_tasks_added,interview_start_status,interview_rounds,report_status,training_review_status,admin_interview_record,evaluation_dataset_status,ai_final_score,human_score_1,human_score_2,human_avg,score_delta,main_issue,log_or_screenshot,status
-R1,1,待跑测,server,待填,待填,2590603008詹已誉简历.pdf,产品助理/产品经理实习生,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待跑测
-R2,1,待跑测,server,待填,待填,Harvard College Tech Resume Example,Python后端开发工程师,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待跑测
-R3,1,待收集,server,待填,待填,待补真实案例,人力资源专员,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待收集
-R4,1,待收集,server,待填,待填,待补真实案例,运营助理,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待收集
-R5,1,待收集,server,待填,待填,待补真实案例,前端开发工程师/测试工程师,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待收集
+case_id,run_id,run_date,environment,git_commit,user_account,resume_source,target_position,model_provider,model_name,upload_status,ability_diagnosis_status,top_gaps,learning_tasks_added,interview_start_status,interview_rounds,report_status,training_review_status,data_contribution_consent_status,admin_interview_record,evaluation_dataset_status,ai_final_score,human_score_1,human_score_2,human_avg,score_delta,main_issue,log_or_screenshot,status
+R1,1,待跑测,server,待填,待填,2590603008詹已誉简历.pdf,产品助理/产品经理实习生,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待跑测
+R2,1,待跑测,server,待填,待填,Harvard College Tech Resume Example,Python后端开发工程师,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待跑测
+R3,1,待收集,server,待填,待填,待补真实案例,人力资源专员,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待收集
+R4,1,待收集,server,待填,待填,待补真实案例,运营助理,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待收集
+R5,1,待收集,server,待填,待填,待补真实案例,前端开发工程师/测试工程师,待填,待填,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待跑测,待评分,待评分,待计算,待计算,待分析,待补链接,待收集

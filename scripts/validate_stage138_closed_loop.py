@@ -22,12 +22,15 @@ DEFAULT_REQUIRED_CASES = {
     "R3": "人力资源专员",
 }
 
+DATA_CONSENT_COLUMN = "data_contribution_consent_status"
+
 FLOW_COLUMNS = [
     "upload_status",
     "ability_diagnosis_status",
     "interview_start_status",
     "report_status",
     "training_review_status",
+    DATA_CONSENT_COLUMN,
     "admin_interview_record",
     "evaluation_dataset_status",
 ]
@@ -58,6 +61,7 @@ class CaseCheck:
     result: str
     reason: str
     flow_complete: bool
+    data_consent_ok: bool
     learning_tasks_ok: bool
     interview_rounds_ok: bool
     human_scored: bool
@@ -132,6 +136,7 @@ def check_case(case_id: str, expected_position: str, rows: list[dict[str, str]])
             result="FAIL",
             reason="缺少该案例记录",
             flow_complete=False,
+            data_consent_ok=False,
             learning_tasks_ok=False,
             interview_rounds_ok=False,
             human_scored=False,
@@ -139,6 +144,9 @@ def check_case(case_id: str, expected_position: str, rows: list[dict[str, str]])
         )
 
     flow_complete = all(is_pass_like(row.get(column)) for column in FLOW_COLUMNS)
+    data_consent_ok = is_pass_like(row.get(DATA_CONSENT_COLUMN)) and not is_failed(
+        row.get(DATA_CONSENT_COLUMN)
+    )
     learning_tasks_ok = (parse_int(row.get("learning_tasks_added")) or 0) >= 1
     interview_rounds_ok = (parse_int(row.get("interview_rounds")) or 0) >= 3
     human_scored = all(parse_number(row.get(column)) is not None for column in HUMAN_SCORE_COLUMNS)
@@ -182,6 +190,7 @@ def check_case(case_id: str, expected_position: str, rows: list[dict[str, str]])
         result=result,
         reason="；".join(failures) if failures else "完整闭环和人工评分已记录",
         flow_complete=flow_complete,
+        data_consent_ok=data_consent_ok,
         learning_tasks_ok=learning_tasks_ok,
         interview_rounds_ok=interview_rounds_ok,
         human_scored=human_scored,
@@ -208,6 +217,7 @@ def build_metrics(checks: list[CaseCheck]) -> dict[str, Any]:
         "required_cases": len(checks),
         "passed_cases": sum(1 for item in checks if item.result == "PASS"),
         "flow_complete_cases": sum(1 for item in checks if item.flow_complete),
+        "data_consent_cases": sum(1 for item in checks if item.data_consent_ok),
         "human_scored_cases": sum(1 for item in checks if item.human_scored),
         "result": "PASS" if all(item.result == "PASS" for item in checks) else "FAIL",
         "first_failure": first_failure(checks),
@@ -223,6 +233,7 @@ def render_markdown(csv_path: Path, checks: list[CaseCheck], metrics: dict[str, 
         f"- 必需案例：`{metrics['required_cases']}`",
         f"- 通过案例：`{metrics['passed_cases']}`",
         f"- 完整流程案例：`{metrics['flow_complete_cases']}`",
+        f"- 已完成本次案例数据贡献授权案例：`{metrics['data_consent_cases']}`",
         f"- 已完成人工评分案例：`{metrics['human_scored_cases']}`",
     ]
     if metrics["first_failure"]:
@@ -232,8 +243,8 @@ def render_markdown(csv_path: Path, checks: list[CaseCheck], metrics: dict[str, 
             "",
             "## 案例检查",
             "",
-            "| 案例 | 目标岗位 | 最新 run | 流程 | 学习任务 | 面试轮数 | 人工评分 | 结论 | 说明 |",
-            "|---|---|---:|---|---|---|---|---|---|",
+            "| 案例 | 目标岗位 | 最新 run | 流程 | 数据授权 | 学习任务 | 面试轮数 | 人工评分 | 结论 | 说明 |",
+            "|---|---|---:|---|---|---|---|---|---|---|",
         ]
     )
     for item in checks:
@@ -242,6 +253,7 @@ def render_markdown(csv_path: Path, checks: list[CaseCheck], metrics: dict[str, 
             "| "
             f"{item.case_id} | {item.target_position or item.expected_position} | {item.run_id} | "
             f"{'PASS' if item.flow_complete else 'FAIL'} | "
+            f"{'PASS' if item.data_consent_ok else 'FAIL'} | "
             f"{row.get('learning_tasks_added', '') if row else '-'} | "
             f"{row.get('interview_rounds', '') if row else '-'} | "
             f"{'PASS' if item.human_scored else 'FAIL'} | "
@@ -253,7 +265,7 @@ def render_markdown(csv_path: Path, checks: list[CaseCheck], metrics: dict[str, 
             "## 通过口径",
             "",
             "- R1/R2/R3 必须分别覆盖产品助理、Python 后端开发工程师、人力资源专员。",
-            "- 上传、能力诊断、开始面试、报告、训练复盘、后台标注、评测样本状态必须是成功/通过/空态等通过口径。",
+            "- 上传、能力诊断、开始面试、报告、训练复盘、本次案例数据贡献授权、后台标注、评测样本状态必须是成功/通过/空态等通过口径。",
             "- 每个案例至少加入 1 项学习任务、完成至少 3 轮面试，并填写两个人工分与人工均分。",
             "- 如果失败，只处理第一条失败原因，不新增功能绕开真实验收。",
             "",
@@ -286,6 +298,7 @@ def main() -> int:
     print(f"required_cases={metrics['required_cases']}")
     print(f"passed_cases={metrics['passed_cases']}")
     print(f"flow_complete_cases={metrics['flow_complete_cases']}")
+    print(f"data_consent_cases={metrics['data_consent_cases']}")
     print(f"human_scored_cases={metrics['human_scored_cases']}")
     if metrics["first_failure"]:
         print(f"first_failure={metrics['first_failure']}")

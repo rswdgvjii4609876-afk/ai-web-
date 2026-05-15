@@ -27,6 +27,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 保留 PostgreSQL，不迁移 MySQL。
 - 成员资料不再作为新岗位画像，而是归并到已有标准岗位画像。
 - 简历评分、润色、学习计划、AI 面试、报告和复盘要统一使用简历评价快照和证据状态。
+- 真实案例进入后台人工评分、评测样本和比赛材料前，必须完成本次案例去标识化数据贡献授权；不同意不影响核心功能使用，但不能计入阶段 138 有效沉淀样本。
 - 服务器真实验收和 C1/C2/C3 三岗位闭环仍待补，不要把本地通过写成线上完成。
 
 ## 2. 用户提出过的关键需求细节
@@ -190,7 +191,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 阶段 138 不新增业务页面、接口或数据库表。
 - 先把阶段 135 管理员权限、阶段 136 真实 PDF 简历解析、阶段 137 PostgreSQL 容量自检统一放到服务器验收脚本里。
 - 用 CSV 明确检查 R1/R2/R3 三条真实案例是否完成完整闭环。
-- 每条真实案例必须覆盖：上传简历、能力诊断、简历润色、学习任务、至少 3 轮面试、报告、训练复盘、后台人工评分。
+- 每条真实案例必须覆盖：上传简历、能力诊断、简历润色、学习任务、至少 3 轮面试、报告、训练复盘、本次案例去标识化数据贡献授权、后台人工评分。
 - `--readiness-only` 可用于人工跑测前的服务器预检，此时 C1/C2/C3 未完成只记为 WARN。
 - 完整模式下，CSV 未达到阶段 138 口径会返回 FAIL。
 
@@ -199,6 +200,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 阶段 138 工具和文档口径已落地。
 - 2026-05-15 服务器 commit `b42cff1` 已执行 `bash scripts/stage138_server_closed_loop_verify.sh --readiness-only`，结论为 `WARN`。
 - 该 WARN 只来自 C1/C2/C3 尚未跑测；服务器 readiness 关键项已通过：Alembic、健康检查、PostgreSQL 容量、阶段 133 核心自检、root 管理员权限、关键日志扫描。
+- 隐私授权升级后，阶段 138 CSV 和检查器新增 `data_contribution_consent_status`，用于确认本次案例是否允许进入去标识化评测库、比赛材料、质量改进和人工评分沉淀。
 - 真实 C1/C2/C3 案例仍待服务器人工跑测和 CSV 回填。
 - 未完成前不要新增页面、接口、表结构、MySQL 迁移或模型策略来绕过真实验收。
 
@@ -303,6 +305,9 @@ docker compose up -d --build app admin frontend
 - `scripts/validate_stage138_closed_loop.py`
   - C1/C2/C3 真实闭环 CSV 检查脚本。
 
+- `scripts/validate_real_closed_loop_records.py`
+  - 通用真实闭环 CSV 检查脚本；当前也把 `data_contribution_consent_status` 纳入完整流程统计。
+
 - `任务记录文档.md`
   - 长历史记录。
   - 已追加阶段 135、136、137、138。
@@ -312,7 +317,7 @@ docker compose up -d --build app admin frontend
 1. 阶段 138 三岗位真实闭环和数据沉淀：
    - 服务器 readiness 已通过；当前只剩 C1/C2/C3 真实案例未跑测。
    - 按执行包跑 C1/C2/C3。
-   - 每个案例补齐诊断、润色、学习任务、至少 3 轮面试、报告、训练复盘和后台人工评分。
+   - 每个案例补齐诊断、润色、学习任务、至少 3 轮面试、报告、训练复盘、本次案例去标识化数据贡献授权和后台人工评分。
    - 回填 `docs/competition/真实案例闭环验收记录.md` 和 CSV。
    - 最后执行 `python scripts/validate_stage138_closed_loop.py`，必须 `result=PASS`。
 

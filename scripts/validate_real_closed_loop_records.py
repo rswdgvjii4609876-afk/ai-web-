@@ -14,6 +14,7 @@ from typing import Any, Iterable
 
 
 DEFAULT_CSV = Path("docs/competition/datasets/真实闭环验收记录模板.csv")
+DATA_CONSENT_COLUMN = "data_contribution_consent_status"
 
 REQUIRED_COLUMNS = [
     "case_id",
@@ -30,6 +31,7 @@ REQUIRED_COLUMNS = [
     "interview_rounds",
     "report_status",
     "training_review_status",
+    DATA_CONSENT_COLUMN,
     "admin_interview_record",
     "evaluation_dataset_status",
     "ai_final_score",
@@ -47,6 +49,7 @@ FLOW_COLUMNS = [
     "interview_start_status",
     "report_status",
     "training_review_status",
+    DATA_CONSENT_COLUMN,
     "admin_interview_record",
     "evaluation_dataset_status",
 ]
@@ -110,6 +113,7 @@ def build_summary(
     pending_rows = 0
     failed_rows = 0
     complete_flow_rows = 0
+    data_consent_rows = 0
     missing_human_score_rows = 0
     human_scored_rows = 0
 
@@ -126,6 +130,8 @@ def build_summary(
             warnings.append(f"Row {index} ({case_id}) contains a failure marker.")
         if row_flow_complete(row):
             complete_flow_rows += 1
+        if is_pass_like(row.get(DATA_CONSENT_COLUMN)):
+            data_consent_rows += 1
         if row_has_pending(row, HUMAN_SCORE_COLUMNS):
             missing_human_score_rows += 1
         else:
@@ -142,6 +148,7 @@ def build_summary(
         f"records={len(rows)}",
         f"cases={len(case_runs)}",
         f"complete_flow_rows={complete_flow_rows}",
+        f"data_consent_rows={data_consent_rows}",
         f"pending_rows={pending_rows}",
         f"failed_rows={failed_rows}",
         f"missing_human_score_rows={missing_human_score_rows}",
@@ -161,6 +168,7 @@ def build_summary(
         "records": len(rows),
         "cases": len(case_runs),
         "complete_flow_rows": complete_flow_rows,
+        "data_consent_rows": data_consent_rows,
         "pending_rows": pending_rows,
         "failed_rows": failed_rows,
         "missing_human_score_rows": missing_human_score_rows,

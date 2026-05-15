@@ -32,6 +32,7 @@ DEFAULTS = {
     "interview_rounds": "待跑测",
     "report_status": "待跑测",
     "training_review_status": "待跑测",
+    "data_contribution_consent_status": "待跑测",
     "admin_interview_record": "待跑测",
     "evaluation_dataset_status": "待跑测",
     "ai_final_score": "待跑测",
