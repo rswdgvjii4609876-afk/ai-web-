@@ -18,6 +18,12 @@
           <div><span class="info-label">状态</span><span :class="['badge', detail.status === 'completed' ? 'badge-green' : 'badge-yellow']">{{ detail.status === 'completed' ? '已完成' : '进行中' }}</span></div>
           <div><span class="info-label">模式</span><span>{{ interviewModeMap[detail.interview_mode] || detail.interview_mode || '-' }}</span></div>
           <div><span class="info-label">人工标注</span><span :class="['badge', reviewStatusClass]">{{ reviewStatusText }}</span></div>
+          <div>
+            <span class="info-label">数据授权</span>
+            <span :class="['badge', detailAuthorized ? 'badge-green' : 'badge-blue']">
+              {{ detailAuthorized ? '已授权可沉淀' : '未授权' }}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -30,9 +36,13 @@
             </p>
           </div>
           <div class="export-hint" :class="exportRecommended ? 'export-good' : 'export-warn'">
-            {{ exportRecommended ? '建议进入导出池' : '建议继续复核后再导出' }}
+            {{ detailAuthorized ? (exportRecommended ? '建议进入导出池' : '建议继续复核后再导出') : '未授权，不能入库' }}
           </div>
         </div>
+
+        <p v-if="!detailAuthorized" class="consent-warning">
+          该面试未获得本次案例去标识化数据贡献授权。可以查看详情和报告，但不能保存人工标注，也不能进入评测样本导出。
+        </p>
 
         <div class="review-grid">
           <label class="review-field">
@@ -75,17 +85,18 @@
         </div>
 
         <div class="review-actions">
-          <button class="btn-primary" :disabled="saveLoading" @click="saveReview">
-            {{ saveLoading ? '保存中...' : '保存标注' }}
+          <button class="btn-primary" :disabled="saveLoading || !detailAuthorized" @click="saveReview">
+            {{ saveLoading ? '保存中...' : detailAuthorized ? '保存标注' : '未授权，不能标注' }}
           </button>
           <button
             class="btn-secondary"
-            :disabled="exportLoading || detail.status !== 'completed'"
+            :disabled="exportLoading || detail.status !== 'completed' || !detailAuthorized"
             @click="downloadTrainingSample"
           >
             {{ exportLoading ? '导出中...' : '导出评测样本 JSON' }}
           </button>
           <span class="helper-text" v-if="detail.status !== 'completed'">仅已完成测评可导出评测样本</span>
+          <span class="helper-text" v-else-if="!detailAuthorized">仅已获得本次案例数据贡献授权的测评可导出</span>
         </div>
 
         <p v-if="reviewNotice" :class="['review-notice', reviewNoticeType === 'error' ? 'notice-error' : 'notice-success']">
@@ -174,8 +185,10 @@ const reviewStatusClass = computed(() => (
   detail.value?.training_sample_review?.review_status === 'reviewed' ? 'badge-green' : 'badge-yellow'
 ))
 
+const detailAuthorized = computed(() => Boolean(detail.value?.data_contribution_consent))
+
 const exportRecommended = computed(() => (
-  !!reviewForm.value.is_high_quality && !reviewForm.value.has_hallucination
+  detailAuthorized.value && !!reviewForm.value.is_high_quality && !reviewForm.value.has_hallucination
 ))
 
 const hasReportContent = computed(() => (
@@ -207,6 +220,11 @@ const loadDetail = async () => {
 }
 
 const saveReview = async () => {
+  if (!detailAuthorized.value) {
+    reviewNoticeType.value = 'error'
+    reviewNotice.value = '该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程。'
+    return
+  }
   saveLoading.value = true
   reviewNotice.value = ''
   try {
@@ -224,6 +242,11 @@ const saveReview = async () => {
 }
 
 const downloadTrainingSample = async () => {
+  if (!detailAuthorized.value) {
+    reviewNoticeType.value = 'error'
+    reviewNotice.value = '该面试未获得去标识化数据贡献授权，不能导出评测样本。'
+    return
+  }
   exportLoading.value = true
   reviewNotice.value = ''
   try {
@@ -284,6 +307,16 @@ onMounted(loadDetail)
 }
 .review-meta { margin-top: 12px; font-size: 12px; color: #6b7280; }
 .review-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+.consent-warning {
+  margin: 0 0 14px;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  background: #fffbeb;
+  color: #92400e;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.7;
+}
 .btn-primary,
 .btn-secondary {
   border: none;

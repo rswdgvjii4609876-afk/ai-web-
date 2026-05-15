@@ -20,7 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
-5. 阶段 139 授权转化、后台准入与学习任务质检小功能升级。
+5. 阶段 140：部署阶段 139/139.1 收口补丁，并恢复 C1/C2/C3 三岗位真实闭环。
 
 当前策略：
 
@@ -28,7 +28,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 成员资料不再作为新岗位画像，而是归并到已有标准岗位画像。
 - 简历评分、润色、学习计划、AI 面试、报告和复盘要统一使用简历评价快照和证据状态。
 - 真实案例进入后台人工评分、评测样本和比赛材料前，必须完成本次案例去标识化数据贡献授权；不同意不影响核心功能使用，但不能计入阶段 138 有效沉淀样本。
-- C1/C2/C3 三岗位闭环按用户要求后置到下一环节；阶段 139 完成后必须回到真实跑测，不要把本地通过写成线上完成。
+- 阶段 139/139.1 已完成本地功能收口；下一步必须回到服务器部署和真实跑测，不要把本地通过写成线上完成。
 
 ## 2. 用户提出过的关键需求细节
 
@@ -235,6 +235,24 @@ docker compose up -d --build app admin frontend
 - 评测样本页把样本口径改为“已授权完成测评”，固定规则包含 `data_contribution_consent=true`。
 - 学习任务页增加高质量/可用/待完善质检状态、质量筛选和缺失项提示。
 
+阶段 139.1 收口：
+
+- 后台面试详情页同步数据授权准入口径。
+- 未授权面试详情页不能保存人工标注，也不能导出评测样本。
+- 该补丁只补前端准入提示与按钮状态，不新增数据库表、接口或模型策略。
+
+### 3.8 阶段 140：阶段 139 服务器部署与三岗位真实闭环重启
+
+阶段 140 不是新功能阶段。目标是先把阶段 139/139.1 部署到服务器，烟测授权准入和学习任务质检，再回到 C1/C2/C3。
+
+服务器部署后必须检查：
+
+- 报告页/训练复盘页本次案例数据贡献授权卡可见、可更新。
+- 后台案例工作台和后台面试详情页都不能对未授权案例保存人工标注。
+- 评测样本页固定规则包含 `data_contribution_consent=true`。
+- 学习任务页能按高质量/可用/待完善筛选并显示缺失项。
+- readiness 仍通过；如果只剩 C1/C2/C3 未回填，应保持 WARN 而不是 PASS。
+
 ## 4. 涉及的文件和核心逻辑
 
 ### 4.1 后端核心
@@ -286,6 +304,9 @@ docker compose up -d --build app admin frontend
 - `ai-interview-admin/src/views/Cases.vue`
   - 阶段 139 后台授权准入与人工标注入口。
 
+- `ai-interview-admin/src/views/InterviewDetail.vue`
+  - 阶段 139.1 后台面试详情页授权准入补齐。
+
 - `ai-interview-admin/src/views/EvaluationDatasets.vue`
   - 阶段 139 评测样本授权口径展示。
 
@@ -314,7 +335,7 @@ docker compose up -d --build app admin frontend
 
 - `docs/competition/职启智评项目升级流程手册.md`
   - 当前主控路线。
-  - 已追加阶段 135、136、137、138。
+  - 已追加阶段 135、136、137、138、139、140。
 
 - `docs/competition/三岗位真实闭环验收执行包.md`
   - 阶段 138 C1/C2/C3 执行入口。
@@ -338,8 +359,8 @@ docker compose up -d --build app admin frontend
 ## 5. 当前未完成事项
 
 1. 阶段 138 三岗位真实闭环和数据沉淀：
-   - 服务器 readiness 已通过；C1/C2/C3 真实案例按用户要求后置到阶段 139 之后。
-   - 阶段 139 完成并部署后，按执行包跑 C1/C2/C3。
+   - 服务器 readiness 已通过；C1/C2/C3 真实案例按用户要求曾后置到阶段 139 之后。
+   - 阶段 139/139.1 本地功能收口完成后，进入阶段 140：先部署并烟测，再按执行包跑 C1/C2/C3。
    - 每个案例补齐诊断、润色、学习任务、至少 3 轮面试、报告、训练复盘、本次案例去标识化数据贡献授权和后台人工评分。
    - 回填 `docs/competition/真实案例闭环验收记录.md` 和 CSV。
    - 最后执行 `python scripts/validate_stage138_closed_loop.py`，必须 `result=PASS`。
@@ -446,20 +467,29 @@ python -m app.scripts.check_database_capacity
 
 ## 7. 下一步建议
 
-### 7.0 阶段 139 优先执行
+### 7.0 阶段 140 优先执行
 
-用户已确认将 C1/C2/C3 后置到下一环节，当前先完成阶段 139：
+阶段 139/139.1 本地收口后，当前优先做服务器部署和烟测：
 
-- 用户端报告页和训练复盘页优化本次案例授权转化。
-- 后台案例工作台增加授权状态统计、筛选和未授权标注禁用。
-- 评测样本页明确只展示已授权完成测评。
-- 学习任务页增加高质量/可用/待完善质检。
+```bash
+cd /opt/apps/ai-interview
+git pull --ff-only
+docker compose up -d --build app admin frontend
+docker compose exec -T app alembic upgrade head
+bash scripts/stage138_server_closed_loop_verify.sh --readiness-only
+```
 
-阶段 139 完成后，再回到 C1/C2/C3 三个真实案例。
+烟测重点：
 
-### 7.1 阶段 138 真实闭环后续执行
+- 报告页和训练复盘页授权卡可见、可更新。
+- 后台案例工作台授权统计、筛选、未授权禁用可用。
+- 后台面试详情页未授权时不能保存标注或导出评测样本。
+- 评测样本页显示“已授权完成测评”和 `data_contribution_consent=true`。
+- 学习任务页任务质量筛选和缺失项提示可用。
 
-服务器 readiness 已于 2026-05-15 通过。阶段 139 完成后继续跑 C1/C2/C3 三个真实案例，人工跑测和 CSV 回填完成后执行：
+### 7.1 阶段 138/140 真实闭环后续执行
+
+服务器 readiness 已于 2026-05-15 通过。阶段 139/139.1 部署烟测后继续跑 C1/C2/C3 三个真实案例，人工跑测和 CSV 回填完成后执行：
 
 ```bash
 python scripts/validate_stage138_closed_loop.py
@@ -468,7 +498,7 @@ bash scripts/stage138_server_closed_loop_verify.sh
 
 如果失败，只处理第一条真实失败日志或第一条 CSV 缺口，不新增功能绕开。
 
-### 7.1 本轮提交后立刻做
+### 7.2 本轮提交后立刻做
 
 ```bash
 cd /opt/apps/ai-interview
@@ -479,7 +509,7 @@ docker compose exec app alembic upgrade head
 docker compose exec app python -m app.scripts.check_database_capacity
 ```
 
-### 7.2 后台管理员验收
+### 7.3 后台管理员验收
 
 1. 登录 `autsky6666@gmail.com`。
 2. 打开“管理员管理”。
@@ -487,7 +517,7 @@ docker compose exec app python -m app.scripts.check_database_capacity
 4. 新增带管理员管理权限的管理员，确认不能操作 root 保护项。
 5. 打开“账号设置”，修改当前密码并重新登录。
 
-### 7.3 简历解析验收
+### 7.4 简历解析验收
 
 1. 上传 `2590603008詹已誉简历.pdf`。
 2. 检查解析质量卡片是否显示。
@@ -495,7 +525,7 @@ docker compose exec app python -m app.scripts.check_database_capacity
 4. 点击开始面试，确认不闪退。
 5. 如果失败，只查第一条后端日志。
 
-### 7.4 数据库并发治理验收
+### 7.5 数据库并发治理验收
 
 1. 执行 `check_database_capacity`。
 2. 如果连接数接近上限，先降：
@@ -505,7 +535,7 @@ docker compose exec app python -m app.scripts.check_database_capacity
 3. 不要先迁移 MySQL。
 4. 若后续真实用户持续增加，再评估 PgBouncer 或云数据库。
 
-### 7.5 三岗位真实闭环
+### 7.6 三岗位真实闭环
 
 按 `docs/competition/三岗位真实闭环验收执行包.md`：
 
@@ -525,45 +555,10 @@ docker compose exec app python -m app.scripts.check_database_capacity
 
 ## 8. 推荐精准暂存文件
 
-本轮计划暂存代码和记忆，不暂存临时目录和申报材料大文件：
+阶段 139.1 收口只应暂存本轮相关文件，不暂存 PPT、申报书大文件、临时目录或未跟踪资料：
 
 ```powershell
-git add .env.example
-git add ai-interview-backend/.env.example
-git add ai-interview-backend/Dockerfile
-git add ai-interview-backend/Dockerfile.dev
-git add ai-interview-backend/requirements.txt
-git add ai-interview-backend/app/core/config.py
-git add ai-interview-backend/app/db/base.py
-git add ai-interview-backend/app/api/backoffice/v1/admin.py
-git add ai-interview-backend/app/models/admin.py
-git add ai-interview-backend/app/schemas/backoffice/admin.py
-git add ai-interview-backend/app/schemas/backoffice/auth.py
-git add ai-interview-backend/app/scripts/seed_admin.py
-git add ai-interview-backend/app/services/backoffice/admin.py
-git add ai-interview-backend/scripts/create_first_admin.py
-git add ai-interview-backend/migrations/versions/a2c4e6f8b135_add_admin_management_permission.py
-git add ai-interview-backend/tests/test_admin_permissions.py
-git add ai-interview-admin/src/App.vue
-git add ai-interview-admin/src/api/index.js
-git add ai-interview-admin/src/router/index.js
-git add ai-interview-admin/src/stores/auth.js
-git add ai-interview-admin/src/views/Login.vue
-git add ai-interview-admin/src/views/Admins.vue
-git add ai-interview-admin/src/views/AccountSettings.vue
-git add ai-interview-backend/app/services/client/resume_service.py
-git add ai-interview-backend/app/services/client/interview_service.py
-git add ai-interview-backend/app/services/client/resume_text_extractor.py
-git add ai-interview-backend/app/services/client/resume_normalizer.py
-git add ai-interview-backend/tests/test_resume_text_extractor.py
-git add ai-interview-backend/tests/test_resume_normalizer.py
-git add ai-interview-frontend/src/views/ResumeUpload.vue
-git add ai-interview-backend/app/scripts/check_core_feature_flow.py
-git add ai-interview-backend/tests/test_check_core_feature_flow.py
-git add ai-interview-backend/app/scripts/check_database_capacity.py
-git add scripts/stage79_local_preflight.ps1
-git add scripts/validate_stage138_closed_loop.py
-git add scripts/stage138_server_closed_loop_verify.sh
+git add ai-interview-admin/src/views/InterviewDetail.vue
 git add "docs/competition/职启智评项目升级流程手册.md"
 git add "docs/competition/三岗位真实闭环验收执行包.md"
 git add "docs/competition/真实案例闭环验收记录.md"
@@ -571,11 +566,16 @@ git add "任务记录文档.md"
 git add PROJECT_MEMORY.md
 ```
 
-两个 tracked 删除项按用户确认纳入提交；用 `git status --short` 确认它们仍是 `D`。
+明确不暂存：
+
+- `docs/competition/申报书/final/职启智评_人工智能创新赛答辩PPT_正式版.pptx`
+- `docs/competition/职启智评初赛答辩演示.pptx` 的删除状态
+- `.codex_tmp_*`
+- 申报书 final 下的 docx/pdf/rar 等大文件
+- `docs/paper/` 和成员原始资料
 
 ## 9. 本轮推荐提交信息
 
 ```powershell
-git commit -m "feat: improve admin, resume parsing, and database operations"
-git push origin main
+git commit -m "chore: close stage 139 readiness gaps"
 ```
