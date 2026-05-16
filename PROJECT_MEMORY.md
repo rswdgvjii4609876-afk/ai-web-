@@ -20,7 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
-5. 阶段 143：微调准备报告自动生成；C1/C2/C3 三岗位真实闭环继续后移但不作废。
+5. 阶段 144：OpenAI SFT 真实微调启动脚本；C1/C2/C3 三岗位真实闭环继续后移但不作废，创建真实 job 前必须满足授权真实样本门槛。
 
 当前策略：
 
@@ -29,7 +29,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 简历评分、润色、学习计划、AI 面试、报告和复盘要统一使用简历评价快照和证据状态。
 - 真实案例进入后台人工评分、评测样本和比赛材料前，必须完成本次案例去标识化数据贡献授权；不同意不影响核心功能使用，但不能计入阶段 138 有效沉淀样本。
 - 阶段 139/139.1 已完成本地功能收口；用户已明确要求继续把 C1/C2/C3 验收后移，当前先做有利于答辩展示的微调准备层。
-- 阶段 141 已新增大模型微调与答辩展示方案文档；阶段 142 已落地“可授权、可人工复核、可导出”的微调准备样本；阶段 143 继续生成答辩可用的微调准备 Markdown 报告。仍不宣称已完成真实微调或自研底层模型。
+- 阶段 141 已新增大模型微调与答辩展示方案文档；阶段 142 已落地“可授权、可人工复核、可导出”的微调准备样本；阶段 143 已生成答辩可用的微调准备 Markdown 报告；阶段 144 启动 OpenAI SFT 脚本闭环。只有 OpenAI job 成功并取得 `fine_tuned_model` 后，才允许写“已完成一次 OpenAI SFT 微调实验”。
 
 ## 2. 用户提出过的关键需求细节
 
@@ -276,6 +276,17 @@ docker compose up -d --build app admin frontend
 - 报告覆盖当前结论、数据来源与准入规则、去标识化与保留字段、样本分层、岗位覆盖、可训练任务、风险控制和下一步。
 - 后台评测样本页增加“导出准备报告 MD”按钮，方便直接放入答辩资料包。
 - 报告必须写明“微调准备数据链路”，不能写成“已完成真实 SFT/LoRA 训练”。
+
+### 3.10 阶段 144：OpenAI SFT 真实微调启动
+
+用户已选择 `OpenAI SFT` 和“真样本 + 构造样本”路线。本阶段不做 UI，不新增数据库表，先补脚本级训练闭环：
+
+- 将现有 `instruction/input/output/metadata` JSONL 转为 OpenAI chat fine-tuning JSONL。
+- 上传训练文件前保留本地 manifest，训练文件只包含 `messages`，metadata 不进入 assistant 输出。
+- 构造样本只用于追问生成任务补齐格式和三岗位覆盖，必须标记 `sample_origin=constructed`，不得说成真实用户数据。
+- 创建真实 OpenAI fine-tuning job 前必须满足：真实授权样本不少于 3 条，训练集不少于 10 条，`OPENAI_API_KEY` 与 `OPENAI_FINE_TUNE_BASE_MODEL` 已配置。
+- 新增脚本：`prepare_openai_fine_tuning_dataset`、`create_openai_fine_tuning_job`、`check_openai_fine_tuning_job`、`run_fine_tuning_eval`。
+- 训练记录只写 job id、base model、fine-tuned model id、样本统计和 eval 结果，不写 API Key，不提交真实简历原文。
 
 ## 4. 涉及的文件和核心逻辑
 

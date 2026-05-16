@@ -1,0 +1,242 @@
+[
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "Python后端开发工程师",
+      "ability_gap": "缓存与 Redis 应用",
+      "evidence_status": "claimed_only",
+      "question_reason": "简历只写熟悉 Redis，缺少真实业务场景和指标证据。",
+      "evidence_summary": ["候选人声称了解缓存穿透、击穿和雪崩。", "项目经历未说明缓存命中率、失效策略或一致性处理。"],
+      "rag_context": ["目标岗位要求能说明 Redis 在接口性能优化中的具体作用。"],
+      "previous_question": "你在项目里是如何使用 Redis 的？",
+      "candidate_answer": "主要用 Redis 缓存一些热点数据，减少数据库压力。",
+      "feedback": "回答停留在概念层，需要验证是否真正参与设计与排障。",
+      "report_gaps": ["缓存策略设计证据不足"],
+      "report_training_priorities": ["补充缓存一致性、过期策略、命中率监控案例"]
+    },
+    "output": {
+      "question": "请选一个你实际参与过的接口，说明它缓存的具体数据、过期策略、命中率变化，以及你如何判断没有引入脏数据问题？",
+      "verification_target": "缓存与 Redis 应用的项目证据",
+      "expected_constraints": ["不得替候选人补写项目经历", "要求候选人给出接口、数据、指标和一致性处理", "围绕 Redis 能力缺口追问"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "Python后端开发工程师", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "Python后端开发工程师",
+      "ability_gap": "SQL 与索引优化",
+      "evidence_status": "indirect",
+      "question_reason": "候选人提到数据库查询慢，但没有说明定位过程。",
+      "evidence_summary": ["项目有订单列表查询场景。", "没有说明 explain、索引、分页或慢查询日志。"],
+      "rag_context": ["岗位画像要求能定位数据库性能问题并说明优化依据。"],
+      "previous_question": "你处理过哪些后端性能问题？",
+      "candidate_answer": "有一次接口比较慢，我把数据库查询优化了一下。",
+      "feedback": "需要追问具体 SQL、瓶颈判断和优化前后指标。",
+      "report_gaps": ["SQL 优化过程证据不足"],
+      "report_training_priorities": ["练习 explain 分析、组合索引和分页优化表达"]
+    },
+    "output": {
+      "question": "能否还原那次慢查询的 SQL 类型、explain 里看到的主要问题、你改了哪些索引或查询条件，以及优化前后的耗时变化？",
+      "verification_target": "SQL 与索引优化能力",
+      "expected_constraints": ["要求具体定位过程", "要求优化动作和指标对比", "不得暗示候选人做过未提到的架构改造"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "Python后端开发工程师", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "Python后端开发工程师",
+      "ability_gap": "接口设计与异常处理",
+      "evidence_status": "claimed_only",
+      "question_reason": "候选人只说写过接口，没有体现边界条件和错误处理。",
+      "evidence_summary": ["简历提到 FastAPI 接口开发。", "没有体现鉴权、参数校验、幂等或异常返回。"],
+      "rag_context": ["后端岗位要求能稳定交付 API 并处理异常链路。"],
+      "previous_question": "你负责过哪些 API？",
+      "candidate_answer": "我写过用户登录和数据查询接口。",
+      "feedback": "需要追问接口契约和异常场景。",
+      "report_gaps": ["接口工程化表达不足"],
+      "report_training_priorities": ["梳理接口入参、鉴权、异常码和测试用例"]
+    },
+    "output": {
+      "question": "请选一个你写过的接口，说明它的入参校验、鉴权方式、失败返回码，以及你如何测试重复请求或异常输入？",
+      "verification_target": "接口设计与异常处理能力",
+      "expected_constraints": ["要求围绕实际接口", "验证异常处理和测试意识", "不把岗位要求写成已发生经历"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "Python后端开发工程师", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "Python后端开发工程师",
+      "ability_gap": "并发与任务队列",
+      "evidence_status": "missing",
+      "question_reason": "目标岗位需要异步任务经验，简历没有直接证据。",
+      "evidence_summary": ["项目中可能存在耗时任务。", "缺少 Celery、消息队列或异步调度描述。"],
+      "rag_context": ["岗位画像强调并发处理、异步任务和服务稳定性。"],
+      "previous_question": "项目里有没有比较耗时的处理？",
+      "candidate_answer": "有一些导入数据和生成报告的操作比较慢。",
+      "feedback": "需要验证是否理解异步化拆分和失败重试。",
+      "report_gaps": ["异步任务设计能力待验证"],
+      "report_training_priorities": ["补充任务队列、重试、超时和状态回写方案"]
+    },
+    "output": {
+      "question": "如果把你提到的数据导入或报告生成改成异步任务，你会如何拆分任务、记录状态、处理失败重试，并避免用户重复提交？",
+      "verification_target": "并发与任务队列设计能力",
+      "expected_constraints": ["可基于假设方案追问", "要求状态、重试和幂等设计", "不宣称候选人已经使用过 Celery"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "Python后端开发工程师", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "产品助理/产品经理实习生",
+      "ability_gap": "需求分析与 PRD 输出",
+      "evidence_status": "indirect",
+      "question_reason": "候选人说参与需求整理，但没有说明如何判断优先级和输出 PRD。",
+      "evidence_summary": ["简历有校园项目和用户调研。", "缺少需求来源、用户场景、验收口径和版本取舍。"],
+      "rag_context": ["产品助理岗位要求能把用户反馈转成清晰需求文档。"],
+      "previous_question": "你做过哪些产品相关工作？",
+      "candidate_answer": "我参与过需求调研，也写过一些需求说明。",
+      "feedback": "需要追问需求来源、取舍依据和文档结构。",
+      "report_gaps": ["PRD 结构化表达不足"],
+      "report_training_priorities": ["练习用户场景、功能范围、验收标准和优先级说明"]
+    },
+    "output": {
+      "question": "请选一个你参与整理的需求，说明它来自哪个用户场景、你如何判断优先级，PRD 里写了哪些验收标准和边界条件？",
+      "verification_target": "需求分析与 PRD 输出能力",
+      "expected_constraints": ["要求真实需求案例", "验证优先级和验收标准", "不替候选人补写产品成果"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "产品助理/产品经理实习生", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "产品助理/产品经理实习生",
+      "ability_gap": "用户调研与问题定义",
+      "evidence_status": "claimed_only",
+      "question_reason": "候选人提到调研，但没有说明样本、问题设计和结论转化。",
+      "evidence_summary": ["有问卷或访谈经历。", "缺少调研目标、样本结构、关键发现和后续动作。"],
+      "rag_context": ["产品岗位要求能从用户反馈提炼问题而不是只罗列意见。"],
+      "previous_question": "你如何做用户调研？",
+      "candidate_answer": "我一般会发问卷，然后整理用户反馈。",
+      "feedback": "需要验证调研设计和洞察能力。",
+      "report_gaps": ["用户调研证据不足"],
+      "report_training_priorities": ["补充调研目标、样本选择、问题设计和结论映射"]
+    },
+    "output": {
+      "question": "请具体说一次调研：你的目标用户是谁、问卷或访谈中最关键的两个问题是什么、最后你如何把反馈转成产品改进项？",
+      "verification_target": "用户调研与问题定义能力",
+      "expected_constraints": ["要求调研对象和问题设计", "要求反馈到产品动作的转换", "避免空泛追问"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "产品助理/产品经理实习生", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "产品助理/产品经理实习生",
+      "ability_gap": "数据分析与指标意识",
+      "evidence_status": "missing",
+      "question_reason": "岗位画像需要指标意识，候选人回答没有数据口径。",
+      "evidence_summary": ["项目描述有功能上线或活动运营。", "缺少转化率、留存、点击或完成率等指标。"],
+      "rag_context": ["产品实习岗位常关注数据验证和复盘能力。"],
+      "previous_question": "你怎么判断一个功能效果好不好？",
+      "candidate_answer": "主要看用户反馈，如果反馈比较好就说明有效。",
+      "feedback": "需要追问是否能建立指标和复盘口径。",
+      "report_gaps": ["指标化验证能力待提升"],
+      "report_training_priorities": ["练习北极星指标、过程指标和对照分析"]
+    },
+    "output": {
+      "question": "如果只靠用户反馈不够，你会为这个功能设计哪三个指标来验证效果？请说明每个指标的数据来源和可能的误判风险。",
+      "verification_target": "数据分析与指标意识",
+      "expected_constraints": ["允许情景化追问", "要求指标、数据来源和风险", "不假设候选人已有线上数据"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "产品助理/产品经理实习生", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "人力资源专员",
+      "ability_gap": "招聘漏斗与候选人沟通",
+      "evidence_status": "missing",
+      "question_reason": "候选人说做过招聘协助，但没有招聘漏斗和沟通证据。",
+      "evidence_summary": ["经历中提到协助筛选简历或安排面试。", "缺少筛选标准、邀约转化、候选人跟进和反馈闭环。"],
+      "rag_context": ["HR 岗位要求理解招聘流程和候选人沟通节点。"],
+      "previous_question": "你参与过招聘相关工作吗？",
+      "candidate_answer": "我帮忙整理过简历，也通知过候选人面试。",
+      "feedback": "需要追问流程理解和沟通细节。",
+      "report_gaps": ["招聘漏斗意识不足"],
+      "report_training_priorities": ["梳理简历筛选、邀约、面试安排、offer 跟进流程"]
+    },
+    "output": {
+      "question": "请按一次招聘协助流程说明：你如何筛选候选人、如何邀约面试、遇到候选人改期或拒绝时怎么沟通，以及你记录了哪些转化情况？",
+      "verification_target": "招聘漏斗与候选人沟通能力",
+      "expected_constraints": ["要求流程节点", "要求沟通处理和记录口径", "不假设候选人独立负责招聘"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "人力资源专员", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "人力资源专员",
+      "ability_gap": "面试评估与记录",
+      "evidence_status": "claimed_only",
+      "question_reason": "候选人提到参与面试记录，但缺少评价维度和记录规范。",
+      "evidence_summary": ["有会议记录或面试旁听描述。", "未说明评价表、关键行为记录或反馈同步。"],
+      "rag_context": ["HR 专员需要能客观记录候选人表现并支持复盘。"],
+      "previous_question": "你做过面试记录吗？",
+      "candidate_answer": "我会记录面试官问的问题和候选人的回答。",
+      "feedback": "需要验证记录的结构化和客观性。",
+      "report_gaps": ["面试记录标准不足"],
+      "report_training_priorities": ["练习 STAR 记录、胜任力维度和客观事实表达"]
+    },
+    "output": {
+      "question": "如果你要记录一场面试，除了问题和回答，你会按哪些维度记录候选人表现？请举例说明如何区分事实记录和个人判断。",
+      "verification_target": "面试评估与记录能力",
+      "expected_constraints": ["要求结构化维度", "要求事实与判断区分", "不得编造候选人已使用过某套评价表"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "人力资源专员", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  },
+  {
+    "schema_version": "ai-interview.fine-tuning-sample.v1",
+    "task_type": "followup_generation",
+    "instruction": "根据岗位画像、简历证据状态、候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。",
+    "input": {
+      "target_position": "人力资源专员",
+      "ability_gap": "员工关系与沟通边界",
+      "evidence_status": "indirect",
+      "question_reason": "候选人有社团沟通经历，但不一定能迁移到 HR 场景。",
+      "evidence_summary": ["有协调活动或处理成员冲突的经历。", "缺少隐私边界、记录留痕和升级机制。"],
+      "rag_context": ["HR 岗位要求在沟通中保持专业边界和风险意识。"],
+      "previous_question": "你如何处理团队成员之间的分歧？",
+      "candidate_answer": "我会先分别沟通，再组织大家一起讨论解决。",
+      "feedback": "需要追问是否理解 HR 场景中的保密和升级边界。",
+      "report_gaps": ["专业沟通边界待验证"],
+      "report_training_priorities": ["补充保密、记录、升级和中立表达"]
+    },
+    "output": {
+      "question": "如果这个分歧发生在企业员工关系场景，你会如何分别沟通、记录关键信息、保护当事人隐私，并判断什么时候需要上报主管？",
+      "verification_target": "员工关系与沟通边界",
+      "expected_constraints": ["允许岗位迁移追问", "要求隐私、留痕和升级判断", "不把社团经历直接说成员工关系经验"]
+    },
+    "metadata": {"sample_origin": "constructed", "constructed_for": "stage144_openai_sft_seed", "target_position": "人力资源专员", "quality_tier": "seed", "is_high_quality": true, "has_hallucination": false, "followup_worthy": true, "report_actionable": true, "data_contribution_consent": false}
+  }
+]

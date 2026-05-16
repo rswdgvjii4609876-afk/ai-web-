@@ -92,6 +92,8 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-5.2-chat-latest"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    OPENAI_FINE_TUNE_BASE_MODEL: str = ""
+    OPENAI_FINE_TUNE_SUFFIX: str = "zhiqi-sft"
 
     # DeepSeek
     DEEPSEEK_API_KEY: str = "your-deepseek-api-key"

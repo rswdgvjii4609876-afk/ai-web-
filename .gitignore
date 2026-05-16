@@ -33,6 +33,7 @@ logs/
 *.mp4
 *.MP4
 docs/competition/renders/
+docs/competition/openai_fine_tuning_runs/
 ai-interview-backend/docker-compose-linux-x86_64
 
 # OS / editor
