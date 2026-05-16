@@ -27,6 +27,7 @@ export const interviewApi = {
   evaluationDatasetPreview: (params) => api.get('/interviews/evaluation-datasets/preview', { params }),
   exportEvaluationDatasets: (params) => downloadApi.get('/interviews/evaluation-datasets/export', { params }),
   exportFineTuningSamples: (params) => downloadApi.get('/interviews/evaluation-datasets/fine-tuning/export', { params }),
+  exportFineTuningReport: (params) => downloadApi.get('/interviews/evaluation-datasets/fine-tuning/report', { params }),
   delete: (id) => api.delete(`/interviews/${id}`)
 }
 

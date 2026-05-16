@@ -228,6 +228,37 @@ async def export_fine_tuning_samples(
     )
 
 
+@router.get("/evaluation-datasets/fine-tuning/report")
+async def export_fine_tuning_readiness_report(
+    include_user_email: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+):
+    """Export a Markdown readiness report for future fine-tuning preparation."""
+    try:
+        samples = await interview_service.get_completed_training_samples(
+            db=db,
+            include_user_email=include_user_email,
+        )
+        report = interview_service.build_fine_tuning_readiness_report(samples)
+        content = report["markdown"]
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Fine-tuning readiness report database error: %s", exc)
+        content = "# 职启智评微调准备报告\n\n报告暂时无法生成：数据库读取异常，请查看后端日志。\n"
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Fine-tuning readiness report unexpected error: %s", exc)
+        content = "# 职启智评微调准备报告\n\n报告暂时无法生成：后端生成异常，请查看后端日志。\n"
+    return StreamingResponse(
+        iter([content.encode("utf-8")]),
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="zhiqi-fine-tuning-readiness-report.md"',
+        },
+    )
+
+
 @router.get("/{interview_id}")
 async def get_interview_detail(
     interview_id: int,

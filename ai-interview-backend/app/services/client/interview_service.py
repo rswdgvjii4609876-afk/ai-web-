@@ -35,6 +35,7 @@ TRAINING_SAMPLE_QUALITY_TIERS = {"needs_review", "low", "medium", "high"}
 TRAINING_SAMPLE_DATASET_SPLITS = {"", "train", "validation", "test", "holdout", "demo"}
 EVALUATION_DATASET_SCHEMA_VERSION = "ai-interview.evaluation-dataset.v1"
 FINE_TUNING_SAMPLE_SCHEMA_VERSION = "ai-interview.fine-tuning-sample.v1"
+FINE_TUNING_READINESS_REPORT_VERSION = "ai-interview.fine-tuning-readiness-report.v1"
 EVALUATION_DATASET_DEFINITIONS = (
     {
         "dataset_type": "golden_cases",
@@ -2149,6 +2150,131 @@ class InterviewService:
         return {
             "preview": preview,
             "files": files,
+        }
+
+    @staticmethod
+    def build_fine_tuning_readiness_report(samples: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+        generated_at = datetime.now(timezone.utc).isoformat()
+        fine_tuning_bundle = InterviewService.build_fine_tuning_dataset_bundle(samples)
+        stats = fine_tuning_bundle["preview"]["stats"]
+        position_counter: Counter[str] = Counter()
+        reviewed_authorized_count = 0
+        for sample in samples:
+            interview = sample.get("interview") or {}
+            review = sample.get("training_sample_review") or {}
+            export_notes = sample.get("export_notes") or {}
+            if interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent"):
+                if review.get("review_status") == "reviewed":
+                    reviewed_authorized_count += 1
+                    position = str(interview.get("target_position") or "未填写岗位").strip()
+                    position_counter[position or "未填写岗位"] += 1
+
+        top_positions = [
+            {"target_position": position, "count": count}
+            for position, count in position_counter.most_common(5)
+        ]
+        files = fine_tuning_bundle["preview"]["files"]
+        positive_file = next(
+            (item for item in files if item["filename"] == "fine_tuning_sft.jsonl"),
+            {"count": 0},
+        )
+        counterexample_file = next(
+            (item for item in files if item["filename"] == "fine_tuning_counterexamples.jsonl"),
+            {"count": 0},
+        )
+        position_lines = (
+            "\n".join(
+                f"| {item['target_position']} | {item['count']} |"
+                for item in top_positions
+            )
+            if top_positions
+            else "| 暂无 | 0 |"
+        )
+        markdown = f"""# 职启智评微调准备报告
+
+生成时间 UTC：`{generated_at}`
+报告版本：`{FINE_TUNING_READINESS_REPORT_VERSION}`
+
+## 1. 当前结论
+
+- 当前完成的是微调准备数据链路，不代表已经完成真实 SFT/LoRA 训练。
+- 可用于 SFT 的正向样本：`{positive_file.get('count', 0)}` 条。
+- 幻觉或无依据强答反例：`{counterexample_file.get('count', 0)}` 条。
+- 已授权样本：`{stats.get('authorized_samples', 0)}` 条；已人工复核样本：`{stats.get('reviewed_samples', 0)}` 条。
+- 已授权且已人工复核样本：`{reviewed_authorized_count}` 条。
+
+## 2. 数据来源与准入规则
+
+| 规则 | 说明 |
+|---|---|
+| 用户授权 | 仅使用 `data_contribution_consent=true` 的本次案例 |
+| 人工复核 | 仅使用 `training_sample_review.review_status=reviewed` 的样本 |
+| 正向样本 | 要求 `has_hallucination=false`，并具备高质量、追问价值或报告可执行性信号 |
+| 反例样本 | 带幻觉或无依据强答标记的样本单独沉淀，不混入正向训练目标 |
+
+## 3. 去标识化与保留字段
+
+- 删除或遮挡：姓名、手机号、邮箱、证件号、学号、详细住址、文件名中的个人标识。
+- 为保证岗位诊断和训练质量，可能保留：学校、专业、教育经历、实习/项目经历、技能、目标岗位、面试问答、报告摘要和人工评分。
+- 当前口径是去标识化/脱敏，不写“完全匿名化”。
+
+## 4. 样本分层
+
+| 样本层 | 数量 | 用途 |
+|---|---:|---|
+| 正向 SFT 样本 | {positive_file.get('count', 0)} | 训练后续追问生成、证据对齐表达和面试问题组织 |
+| 幻觉反例样本 | {counterexample_file.get('count', 0)} | 约束模型不要把岗位知识写成候选人真实经历 |
+| 高质量候选样本 | {stats.get('high_quality_samples', 0)} | 用于后续黄金样本筛选和评测基准 |
+
+## 5. 岗位覆盖
+
+| 目标岗位 | 已授权且已人工复核样本数 |
+|---|---:|
+{position_lines}
+
+## 6. 可训练任务
+
+1. 面试追问生成：围绕能力缺口、证据状态和候选人回答生成下一问。
+2. 评分理由生成：学习人工评分中对证据对齐、问题质量和报告可执行性的判断。
+3. 报告建议生成：把面试暴露的短板转化为可执行提升建议。
+4. 学习任务生成：生成包含材料、练习、验收方式和预计耗时的学习任务。
+
+## 7. 风险控制
+
+- 未授权样本不导出、不进入微调准备数据。
+- 岗位知识库只作为岗位要求、追问方向和表达参考，不能写成候选人真实经历。
+- AI 自动评分不能冒充人工评分。
+- C1/C2/C3 真实闭环仍需后续服务器跑测和 CSV 回填，本报告不能替代真实验收。
+
+## 8. 下一步
+
+1. 继续收集用户授权且人工复核的真实样本。
+2. 当正向样本达到 30-50 条时，先做 JSONL 格式验证和小样本提示词/RAG 对照。
+3. 当样本达到 100-300 条时，再进入轻量 SFT 或 LoRA/QLoRA 实验。
+4. 用证据对齐率、幻觉率、追问质量、报告可执行性和 AI/人工评分差异做对照评估。
+"""
+        preview = {
+            "schema_version": FINE_TUNING_READINESS_REPORT_VERSION,
+            "generated_at": generated_at,
+            "stats": {
+                **stats,
+                "reviewed_authorized_samples": reviewed_authorized_count,
+            },
+            "top_positions": top_positions,
+            "sections": [
+                "当前结论",
+                "数据来源与准入规则",
+                "去标识化与保留字段",
+                "样本分层",
+                "岗位覆盖",
+                "可训练任务",
+                "风险控制",
+                "下一步",
+            ],
+        }
+        return {
+            "preview": preview,
+            "markdown": markdown,
         }
 
     @staticmethod

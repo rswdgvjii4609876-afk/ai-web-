@@ -14,6 +14,9 @@
         <button class="btn-secondary" :disabled="fineTuningExportLoading || !hasFineTuningSamples" @click="downloadFineTuningJsonl">
           {{ fineTuningExportLoading ? '导出中...' : '导出微调 JSONL' }}
         </button>
+        <button class="btn-secondary" :disabled="reportExportLoading" @click="downloadFineTuningReport">
+          {{ reportExportLoading ? '导出中...' : '导出准备报告 MD' }}
+        </button>
       </div>
     </div>
 
@@ -83,7 +86,7 @@
           <div>
             <h3 style="margin-bottom:6px">大模型微调准备层</h3>
             <p class="helper-text">
-              这里不宣称已完成底层模型训练，而是把授权、人工复核后的样本整理为后续 SFT/LoRA 可使用的 JSONL 结构。
+              这里不宣称已完成底层模型训练，而是把授权、人工复核后的样本整理为后续 SFT/LoRA 可使用的 JSONL 结构，并可导出答辩用微调准备报告。
             </p>
           </div>
           <span class="fine-tuning-badge">schema {{ preview.fine_tuning?.schema_version || '-' }}</span>
@@ -119,6 +122,9 @@
             <p>{{ file.description }}</p>
           </div>
         </div>
+        <p class="report-tip">
+          准备报告会汇总数据来源、准入规则、去标识化策略、样本分层、可训练任务和风险边界，适合放入答辩资料包。
+        </p>
       </div>
 
       <div v-if="!hasCompletedSamples" class="card state-card" style="margin-bottom:16px">
@@ -171,6 +177,7 @@ import { interviewApi } from '../api'
 const loading = ref(true)
 const exportLoading = ref(false)
 const fineTuningExportLoading = ref(false)
+const reportExportLoading = ref(false)
 const preview = ref(null)
 const errorMessage = ref('')
 const noticeMessage = ref('')
@@ -246,6 +253,30 @@ const downloadFineTuningJsonl = async () => {
     noticeMessage.value = error.message || '导出微调 JSONL 失败'
   } finally {
     fineTuningExportLoading.value = false
+  }
+}
+
+const downloadFineTuningReport = async () => {
+  reportExportLoading.value = true
+  noticeMessage.value = ''
+  try {
+    const response = await interviewApi.exportFineTuningReport()
+    const blob = response.data
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'zhiqi-fine-tuning-readiness-report.md'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    noticeType.value = 'success'
+    noticeMessage.value = '微调准备报告 MD 已导出'
+  } catch (error) {
+    noticeType.value = 'error'
+    noticeMessage.value = error.message || '导出微调准备报告失败'
+  } finally {
+    reportExportLoading.value = false
   }
 }
 
@@ -391,6 +422,15 @@ onMounted(loadPreview)
   color: #6b7280;
   font-size: 13px;
   line-height: 1.6;
+}
+.report-tip {
+  margin-top: 12px;
+  border-left: 3px solid #4f46e5;
+  padding: 8px 10px;
+  background: #f8fafc;
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.7;
 }
 .btn-primary,
 .btn-secondary {

@@ -918,6 +918,62 @@ def test_build_fine_tuning_dataset_bundle_exports_sft_and_counterexamples():
 
 
 @pytest.mark.unit
+def test_build_fine_tuning_readiness_report_summarizes_readiness_without_training_claims():
+    samples = [
+        {
+            "interview": {
+                "id": 301,
+                "status": "completed",
+                "overall_score": 8.6,
+                "target_position": "Python Backend Engineer",
+                "data_contribution_consent": True,
+            },
+            "rounds": [
+                {
+                    "question": "How did you design the Redis retry path?",
+                    "answer": "I traced failed writes and added a retry queue.",
+                    "question_target_gap": "Redis reliability",
+                    "blueprint_requirement_status": "indirect",
+                    "evaluation": {
+                        "next_best_followup": {
+                            "question": "Which metric proved the retry queue reduced failed writes?",
+                            "target_gap": "Redis reliability evidence",
+                        },
+                    },
+                }
+            ],
+            "training_sample_review": {
+                "review_status": "reviewed",
+                "quality_tier": "high",
+                "is_high_quality": True,
+                "has_hallucination": False,
+                "followup_worthy": True,
+                "report_actionable": True,
+                "human_overall_score": 8.6,
+            },
+            "report_summary": {
+                "common_gaps": ["Redis reliability"],
+                "training_priorities": ["failure diagnosis"],
+            },
+        }
+    ]
+
+    report = InterviewService.build_fine_tuning_readiness_report(samples)
+    markdown = report["markdown"]
+    preview = report["preview"]
+
+    assert preview["schema_version"] == "ai-interview.fine-tuning-readiness-report.v1"
+    assert preview["stats"]["sft_ready_samples"] == 1
+    assert preview["stats"]["reviewed_authorized_samples"] == 1
+    assert preview["top_positions"] == [{"target_position": "Python Backend Engineer", "count": 1}]
+    assert "可用于 SFT 的正向样本：`1` 条" in markdown
+    assert "当前完成的是微调准备数据链路" in markdown
+    assert "不代表已经完成真实 SFT/LoRA 训练" in markdown
+    assert "已完成大模型微调" not in markdown
+    assert "C1/C2/C3 真实闭环仍需后续服务器跑测" in markdown
+
+
+@pytest.mark.unit
 def test_build_evaluation_dataset_zip_includes_manifest_and_empty_files():
     bundle = InterviewService.build_evaluation_dataset_bundle([])
     zip_bytes = InterviewService.build_evaluation_dataset_zip(bundle)
