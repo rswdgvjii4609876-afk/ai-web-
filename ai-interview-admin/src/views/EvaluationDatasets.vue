@@ -4,12 +4,17 @@
       <div>
         <h1 style="font-size:20px;margin-bottom:6px">评测样本与人工评分对比</h1>
         <p class="helper-text">
-          基于已完成、已获得本次案例去标识化数据贡献授权且已人工标注的测评样本，预览模型验证数据，并按固定规则导出 ZIP + JSONL。
+          基于已完成、已获得本次案例去标识化数据贡献授权且已人工标注的测评样本，预览模型验证数据、微调准备样本，并按固定规则导出 ZIP + JSONL。
         </p>
       </div>
-      <button class="btn-primary" :disabled="exportLoading || !hasCompletedSamples" @click="downloadBundle">
-        {{ exportLoading ? '导出中...' : '导出验证数据 ZIP' }}
-      </button>
+      <div class="head-actions">
+        <button class="btn-primary" :disabled="exportLoading || !hasCompletedSamples" @click="downloadBundle">
+          {{ exportLoading ? '导出中...' : '导出验证数据 ZIP' }}
+        </button>
+        <button class="btn-secondary" :disabled="fineTuningExportLoading || !hasFineTuningSamples" @click="downloadFineTuningJsonl">
+          {{ fineTuningExportLoading ? '导出中...' : '导出微调 JSONL' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="card state-card">加载评测样本预览中...</div>
@@ -37,6 +42,14 @@
           <div class="stat-label">验证集归档次数</div>
           <div class="stat-value">{{ preview.stats?.dataset_assignments || 0 }}</div>
         </div>
+        <div class="card stat-card">
+          <div class="stat-label">微调准备样本</div>
+          <div class="stat-value">{{ fineTuningStats.sft_ready_samples || 0 }}</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-label">幻觉反例</div>
+          <div class="stat-value">{{ fineTuningStats.hallucination_counterexamples || 0 }}</div>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom:16px">
@@ -61,6 +74,49 @@
               <li>默认包含 PII：{{ preview.filters?.pii_included ? '是' : '否' }}</li>
               <li>导出时间：{{ formatTime(preview.generated_at) }}</li>
             </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="dataset-head" style="margin-bottom:12px">
+          <div>
+            <h3 style="margin-bottom:6px">大模型微调准备层</h3>
+            <p class="helper-text">
+              这里不宣称已完成底层模型训练，而是把授权、人工复核后的样本整理为后续 SFT/LoRA 可使用的 JSONL 结构。
+            </p>
+          </div>
+          <span class="fine-tuning-badge">schema {{ preview.fine_tuning?.schema_version || '-' }}</span>
+        </div>
+        <div class="rule-summary">
+          <div>
+            <div class="info-label">样本统计</div>
+            <ul class="simple-list">
+              <li>已授权样本：{{ fineTuningStats.authorized_samples || 0 }}</li>
+              <li>已人工复核：{{ fineTuningStats.reviewed_samples || 0 }}</li>
+              <li>高质量候选：{{ fineTuningStats.high_quality_samples || 0 }}</li>
+              <li>SFT 可用样本：{{ fineTuningStats.sft_ready_samples || 0 }}</li>
+            </ul>
+          </div>
+          <div>
+            <div class="info-label">准入规则</div>
+            <ul class="simple-list">
+              <li v-for="item in preview.fine_tuning?.base_requirements || []" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+          <div>
+            <div class="info-label">JSONL 字段</div>
+            <div class="field-chips">
+              <span v-for="item in preview.fine_tuning?.jsonl_fields || []" :key="item" class="id-chip">{{ item }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="fine-file-grid">
+          <div v-for="file in preview.fine_tuning?.files || []" :key="file.filename" class="fine-file">
+            <strong>{{ file.label }}</strong>
+            <span>{{ file.filename }}</span>
+            <em>{{ file.count }} 条</em>
+            <p>{{ file.description }}</p>
           </div>
         </div>
       </div>
@@ -114,12 +170,15 @@ import { interviewApi } from '../api'
 
 const loading = ref(true)
 const exportLoading = ref(false)
+const fineTuningExportLoading = ref(false)
 const preview = ref(null)
 const errorMessage = ref('')
 const noticeMessage = ref('')
 const noticeType = ref('success')
 
 const hasCompletedSamples = computed(() => Number(preview.value?.stats?.completed_samples || 0) > 0)
+const fineTuningStats = computed(() => preview.value?.fine_tuning?.stats || {})
+const hasFineTuningSamples = computed(() => Number(fineTuningStats.value.sft_ready_samples || 0) > 0)
 
 const formatTime = (value) => {
   if (!value) return '-'
@@ -166,6 +225,30 @@ const downloadBundle = async () => {
   }
 }
 
+const downloadFineTuningJsonl = async () => {
+  fineTuningExportLoading.value = true
+  noticeMessage.value = ''
+  try {
+    const response = await interviewApi.exportFineTuningSamples()
+    const blob = response.data
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'zhiqi-fine-tuning-sft.jsonl'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    noticeType.value = 'success'
+    noticeMessage.value = '微调准备 JSONL 已导出'
+  } catch (error) {
+    noticeType.value = 'error'
+    noticeMessage.value = error.message || '导出微调 JSONL 失败'
+  } finally {
+    fineTuningExportLoading.value = false
+  }
+}
+
 onMounted(loadPreview)
 </script>
 
@@ -176,6 +259,12 @@ onMounted(loadPreview)
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 20px;
+}
+.head-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .helper-text {
   font-size: 13px;
@@ -252,6 +341,12 @@ onMounted(loadPreview)
   flex-wrap: wrap;
   margin-top: 8px;
 }
+.field-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
 .id-chip {
   padding: 6px 10px;
   border-radius: 999px;
@@ -259,16 +354,62 @@ onMounted(loadPreview)
   color: #374151;
   font-size: 12px;
 }
-.btn-primary {
+.fine-tuning-badge {
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+.fine-file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.fine-file {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fine-file span {
+  font-family: monospace;
+  font-size: 12px;
+  color: #111827;
+}
+.fine-file em {
+  font-style: normal;
+  font-size: 13px;
+  color: #047857;
+}
+.fine-file p {
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.btn-primary,
+.btn-secondary {
   border: none;
   border-radius: 10px;
   padding: 10px 16px;
   font-size: 14px;
-  background: #111827;
-  color: white;
   cursor: pointer;
 }
-.btn-primary:disabled {
+.btn-primary {
+  background: #111827;
+  color: white;
+}
+.btn-secondary {
+  background: #f3f4f6;
+  color: #111827;
+}
+.btn-primary:disabled,
+.btn-secondary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

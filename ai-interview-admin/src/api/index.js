@@ -26,6 +26,7 @@ export const interviewApi = {
   updateTrainingReview: (id, data) => api.put(`/interviews/${id}/training-sample-review`, data),
   evaluationDatasetPreview: (params) => api.get('/interviews/evaluation-datasets/preview', { params }),
   exportEvaluationDatasets: (params) => downloadApi.get('/interviews/evaluation-datasets/export', { params }),
+  exportFineTuningSamples: (params) => downloadApi.get('/interviews/evaluation-datasets/fine-tuning/export', { params }),
   delete: (id) => api.delete(`/interviews/${id}`)
 }
 

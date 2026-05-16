@@ -835,6 +835,89 @@ def test_build_evaluation_dataset_bundle_classifies_samples_and_allows_overlap()
 
 
 @pytest.mark.unit
+def test_build_fine_tuning_dataset_bundle_exports_sft_and_counterexamples():
+    def make_sample(interview_id, *, has_hallucination=False, reviewed=True, consent=True):
+        return {
+            "interview": {
+                "id": interview_id,
+                "status": "completed",
+                "overall_score": 8.4,
+                "target_position": "Python Backend Engineer",
+                "data_contribution_consent": consent,
+            },
+            "rounds": [
+                {
+                    "question": "Tell me how you handled cache consistency.",
+                    "answer": "I compared Redis hit rate and database writes, then added delayed double delete.",
+                    "feedback": "Concrete enough for a follow-up.",
+                    "question_target_gap": "cache consistency",
+                    "question_reason": "Verify whether Redis knowledge is project-backed.",
+                    "blueprint_requirement_status": "claimed_only",
+                    "evidence_summary": ["Resume only claims Redis familiarity."],
+                    "evaluation": {
+                        "next_best_followup": {
+                            "question": "Which consistency failure did you observe first, and how did you prove the root cause?",
+                            "target_gap": "cache consistency troubleshooting",
+                        },
+                    },
+                }
+            ],
+            "evidence_context": {
+                "blueprint_evidence_summary": ["Redis consistency is required by the target position."],
+            },
+            "report_summary": {
+                "common_gaps": ["cache consistency"],
+                "training_priorities": ["Redis troubleshooting"],
+            },
+            "training_sample_review": {
+                "review_status": "reviewed" if reviewed else "pending",
+                "quality_tier": "high",
+                "is_high_quality": not has_hallucination,
+                "has_hallucination": has_hallucination,
+                "followup_worthy": True,
+                "report_actionable": True,
+                "case_id": f"R{interview_id}",
+                "human_overall_score": 8.5,
+                "dataset_split": "validation",
+            },
+        }
+
+    bundle = InterviewService.build_fine_tuning_dataset_bundle(
+        [
+            make_sample(201),
+            make_sample(202, has_hallucination=True),
+            make_sample(203, consent=False),
+            make_sample(204, reviewed=False),
+        ]
+    )
+
+    preview = bundle["preview"]
+    stats = preview["stats"]
+    sft_lines = [line for line in bundle["files"]["fine_tuning_sft.jsonl"].splitlines() if line.strip()]
+    counterexample_lines = [
+        line for line in bundle["files"]["fine_tuning_counterexamples.jsonl"].splitlines() if line.strip()
+    ]
+
+    assert stats["authorized_samples"] == 3
+    assert stats["reviewed_samples"] == 3
+    assert stats["sft_ready_samples"] == 1
+    assert stats["hallucination_counterexamples"] == 1
+    assert "data_contribution_consent=true" in preview["base_requirements"]
+
+    record = json.loads(sft_lines[0])
+    assert record["schema_version"] == "ai-interview.fine-tuning-sample.v1"
+    assert record["task_type"] == "followup_generation"
+    assert set(record.keys()) == {"schema_version", "task_type", "instruction", "input", "output", "metadata"}
+    assert record["output"]["question"].startswith("Which consistency failure")
+    assert record["output"]["verification_target"] == "cache consistency troubleshooting"
+    assert record["metadata"]["data_contribution_consent"] is True
+    assert record["metadata"]["has_hallucination"] is False
+
+    counterexample = json.loads(counterexample_lines[0])
+    assert counterexample["metadata"]["has_hallucination"] is True
+
+
+@pytest.mark.unit
 def test_build_evaluation_dataset_zip_includes_manifest_and_empty_files():
     bundle = InterviewService.build_evaluation_dataset_bundle([])
     zip_bytes = InterviewService.build_evaluation_dataset_zip(bundle)
@@ -846,8 +929,12 @@ def test_build_evaluation_dataset_zip_includes_manifest_and_empty_files():
         assert "hallucination_cases.jsonl" in names
         assert "followup_quality_cases.jsonl" in names
         assert "report_quality_cases.jsonl" in names
+        assert "fine_tuning_sft.jsonl" in names
+        assert "fine_tuning_counterexamples.jsonl" in names
 
         manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
         assert manifest["schema_version"] == "ai-interview.evaluation-dataset.v1"
         assert manifest["counts"]["golden_cases.jsonl"] == 0
+        assert manifest["fine_tuning"]["schema_version"] == "ai-interview.fine-tuning-sample.v1"
         assert archive.read("golden_cases.jsonl").decode("utf-8") == ""
+        assert archive.read("fine_tuning_sft.jsonl").decode("utf-8") == ""

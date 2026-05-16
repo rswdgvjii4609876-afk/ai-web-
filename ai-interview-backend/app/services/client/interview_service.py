@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 TRAINING_SAMPLE_QUALITY_TIERS = {"needs_review", "low", "medium", "high"}
 TRAINING_SAMPLE_DATASET_SPLITS = {"", "train", "validation", "test", "holdout", "demo"}
 EVALUATION_DATASET_SCHEMA_VERSION = "ai-interview.evaluation-dataset.v1"
+FINE_TUNING_SAMPLE_SCHEMA_VERSION = "ai-interview.fine-tuning-sample.v1"
 EVALUATION_DATASET_DEFINITIONS = (
     {
         "dataset_type": "golden_cases",
@@ -1976,6 +1977,181 @@ class InterviewService:
         return matched
 
     @staticmethod
+    def _select_fine_tuning_round(sample: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        rounds = sample.get("rounds") or []
+        for round_item in rounds:
+            evaluation = round_item.get("evaluation") or {}
+            next_followup = evaluation.get("next_best_followup")
+            if isinstance(next_followup, dict) and str(next_followup.get("question") or "").strip():
+                return round_item
+        for round_item in rounds:
+            if str(round_item.get("question") or "").strip():
+                return round_item
+        return None
+
+    @staticmethod
+    def _build_fine_tuning_record(sample: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        interview = sample.get("interview") or {}
+        review = sample.get("training_sample_review") or {}
+        export_notes = sample.get("export_notes") or {}
+        if review.get("review_status") != "reviewed":
+            return None
+        if not (interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent")):
+            return None
+        if not (
+            review.get("is_high_quality")
+            or review.get("followup_worthy")
+            or review.get("report_actionable")
+            or review.get("has_hallucination")
+        ):
+            return None
+
+        round_item = InterviewService._select_fine_tuning_round(sample)
+        if not round_item:
+            return None
+
+        evaluation = round_item.get("evaluation") or {}
+        next_followup = evaluation.get("next_best_followup")
+        report_summary = sample.get("report_summary") or {}
+        evidence_context = sample.get("evidence_context") or {}
+        task_type = "followup_generation"
+        output_question = None
+        verification_target = round_item.get("question_target_gap") or next(
+            iter(report_summary.get("common_gaps") or []),
+            "",
+        )
+        if isinstance(next_followup, dict):
+            output_question = str(next_followup.get("question") or "").strip()
+            verification_target = next_followup.get("target_gap") or verification_target
+        if not output_question:
+            task_type = "interview_question_generation"
+            output_question = str(round_item.get("question") or "").strip()
+        if not output_question:
+            return None
+
+        input_payload = {
+            "target_position": interview.get("target_position"),
+            "ability_gap": round_item.get("question_target_gap") or next(
+                iter(report_summary.get("common_gaps") or []),
+                "",
+            ),
+            "evidence_status": round_item.get("blueprint_requirement_status"),
+            "question_reason": round_item.get("question_reason"),
+            "evidence_summary": (round_item.get("evidence_summary") or [])[:5],
+            "rag_context": (evidence_context.get("blueprint_evidence_summary") or [])[:5],
+            "report_gaps": (report_summary.get("common_gaps") or [])[:5],
+            "report_training_priorities": (report_summary.get("training_priorities") or [])[:5],
+        }
+        if task_type == "followup_generation":
+            input_payload["previous_question"] = round_item.get("question")
+            input_payload["candidate_answer"] = round_item.get("answer")
+            input_payload["feedback"] = round_item.get("feedback")
+
+        record = {
+            "schema_version": FINE_TUNING_SAMPLE_SCHEMA_VERSION,
+            "task_type": task_type,
+            "instruction": (
+                "你是就业能力诊断平台的面试追问模型。请根据岗位画像、简历证据状态、"
+                "候选人回答和人工评分信号，生成能验证能力缺口且不编造经历的追问。"
+            ),
+            "input": input_payload,
+            "output": {
+                "question": output_question,
+                "verification_target": verification_target,
+                "expected_constraints": [
+                    "不得把岗位知识库写成候选人真实经历",
+                    "必须围绕证据不足或待验证能力追问",
+                    "优先要求候选人给出具体场景、行动和结果",
+                ],
+            },
+            "metadata": {
+                "interview_id": interview.get("id"),
+                "case_id": review.get("case_id"),
+                "target_position": interview.get("target_position"),
+                "quality_tier": review.get("quality_tier"),
+                "is_high_quality": bool(review.get("is_high_quality")),
+                "has_hallucination": bool(review.get("has_hallucination")),
+                "followup_worthy": bool(review.get("followup_worthy")),
+                "report_actionable": bool(review.get("report_actionable")),
+                "human_overall_score": review.get("human_overall_score"),
+                "dataset_split": review.get("dataset_split"),
+                "data_contribution_consent": True,
+            },
+        }
+        return json.loads(json.dumps(record, ensure_ascii=False, default=InterviewService._json_safe))
+
+    @staticmethod
+    def build_fine_tuning_dataset_bundle(samples: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+        records: List[Dict[str, Any]] = []
+        counterexamples: List[Dict[str, Any]] = []
+        reviewed_samples = 0
+        authorized_samples = 0
+        high_quality_samples = 0
+
+        for sample in samples:
+            interview = sample.get("interview") or {}
+            export_notes = sample.get("export_notes") or {}
+            review = sample.get("training_sample_review") or {}
+            if interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent"):
+                authorized_samples += 1
+            if review.get("review_status") == "reviewed":
+                reviewed_samples += 1
+            if review.get("is_high_quality") and not review.get("has_hallucination"):
+                high_quality_samples += 1
+
+            record = InterviewService._build_fine_tuning_record(sample)
+            if not record:
+                continue
+            if (record.get("metadata") or {}).get("has_hallucination"):
+                counterexamples.append(record)
+            else:
+                records.append(record)
+
+        files = {
+            "fine_tuning_sft.jsonl": "\n".join(
+                json.dumps(item, ensure_ascii=False) for item in records
+            ),
+            "fine_tuning_counterexamples.jsonl": "\n".join(
+                json.dumps(item, ensure_ascii=False) for item in counterexamples
+            ),
+        }
+        preview = {
+            "schema_version": FINE_TUNING_SAMPLE_SCHEMA_VERSION,
+            "stats": {
+                "authorized_samples": authorized_samples,
+                "reviewed_samples": reviewed_samples,
+                "high_quality_samples": high_quality_samples,
+                "sft_ready_samples": len(records),
+                "hallucination_counterexamples": len(counterexamples),
+            },
+            "files": [
+                {
+                    "filename": "fine_tuning_sft.jsonl",
+                    "label": "SFT 正向样本",
+                    "count": len(records),
+                    "description": "已授权、已人工标注、无幻觉且具备追问/报告/高质量信号的微调准备样本。",
+                },
+                {
+                    "filename": "fine_tuning_counterexamples.jsonl",
+                    "label": "幻觉反例样本",
+                    "count": len(counterexamples),
+                    "description": "已授权、已人工标注且被标记为幻觉或无依据强答的反例样本，用于后续约束优化。",
+                },
+            ],
+            "base_requirements": [
+                "data_contribution_consent=true",
+                "training_sample_review.review_status=reviewed",
+                "positive_sft_requires_has_hallucination=false",
+                "requires_quality_or_followup_or_report_signal=true",
+            ],
+            "jsonl_fields": ["instruction", "input", "output", "metadata"],
+        }
+        return {
+            "preview": preview,
+            "files": files,
+        }
+
+    @staticmethod
     def build_evaluation_dataset_bundle(
         samples: Sequence[Dict[str, Any]],
         include_user_email: bool = False,
@@ -2056,17 +2232,21 @@ class InterviewService:
             },
             "datasets": preview_datasets,
         }
+        fine_tuning_bundle = InterviewService.build_fine_tuning_dataset_bundle(samples)
+        preview["fine_tuning"] = fine_tuning_bundle["preview"]
         manifest = {
             "schema_version": EVALUATION_DATASET_SCHEMA_VERSION,
             "exported_at": exported_at,
             "filters": filters,
             "datasets": manifest_datasets,
+            "fine_tuning": fine_tuning_bundle["preview"],
             "counts": {
                 definition["filename"]: len(dataset_entries[definition["dataset_type"]])
                 for definition in EVALUATION_DATASET_DEFINITIONS
             },
             "pii_included": include_user_email,
         }
+        files.update(fine_tuning_bundle["files"])
         return {
             "preview": preview,
             "manifest": manifest,

@@ -197,6 +197,37 @@ async def export_evaluation_datasets(
     )
 
 
+@router.get("/evaluation-datasets/fine-tuning/export")
+async def export_fine_tuning_samples(
+    include_user_email: bool = False,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin),
+):
+    """Export reviewed authorized samples as JSONL for future fine-tuning preparation."""
+    try:
+        samples = await interview_service.get_completed_training_samples(
+            db=db,
+            include_user_email=include_user_email,
+        )
+        bundle = interview_service.build_fine_tuning_dataset_bundle(samples)
+        content = bundle["files"].get("fine_tuning_sft.jsonl") or ""
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Fine-tuning sample export database error: %s", exc)
+        content = ""
+    except Exception as exc:
+        await db.rollback()
+        logger.exception("Fine-tuning sample export unexpected error: %s", exc)
+        content = ""
+    return StreamingResponse(
+        iter([content.encode("utf-8")]),
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition": 'attachment; filename="zhiqi-fine-tuning-sft.jsonl"',
+        },
+    )
+
+
 @router.get("/{interview_id}")
 async def get_interview_detail(
     interview_id: int,
