@@ -5,6 +5,22 @@ from typing import Any, Dict, Iterable, List
 from app.services.agent_orchestrator.schemas import AgentTrace, EvalScore
 
 
+BASELINE_PROMPT_PREVIEW = EvalScore(
+    focus_score=3,
+    evidence_score=2,
+    depth_score=3,
+    polish_score=2,
+    role_fit_score=3,
+    format_score=3,
+    report_score=3,
+    total_score=19,
+    judge_note=(
+        "Preview baseline rule score for a generic prompt; "
+        "not a real model run, not a holdout eval, and not a fine-tuned model result."
+    ),
+)
+
+
 def _collect_text(value: Any) -> str:
     if isinstance(value, dict):
         return " ".join(_collect_text(v) for v in value.values())
@@ -48,13 +64,24 @@ def evaluate_trace(trace: AgentTrace) -> EvalScore:
         format_score=format_score,
         report_score=report_score,
         total_score=total,
-        judge_note="Preview rule score for competition demo only; it is not a real holdout eval.",
+        judge_note=(
+            "Preview rule score for competition demo only; "
+            "not a real model run, not a holdout eval, and not a fine-tuned model result."
+        ),
     )
 
 
 def build_eval_rows(traces: List[AgentTrace]) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     for trace in traces:
+        rows.append(
+            {
+                "case_id": trace.case_id,
+                "target_role": trace.target_role,
+                "model_variant": "baseline_prompt_preview",
+                **BASELINE_PROMPT_PREVIEW.model_dump(),
+            }
+        )
         score = trace.eval_score or evaluate_trace(trace)
         rows.append(
             {

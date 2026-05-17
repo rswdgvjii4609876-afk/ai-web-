@@ -189,10 +189,7 @@ artifacts/sft_preview/python_backend.train.preview.jsonl
 命令建议：
 
 ```bash
-python -m app.scripts.generate_demo_cases --out demo_cases
-python -m app.scripts.export_agent_trace --case python_backend --out artifacts/agent_trace
-python -m app.scripts.run_interview_eval_preview --trace artifacts/agent_trace/python_backend.trace.json --out artifacts/eval
-python -m app.scripts.build_sft_preview --case demo_cases/python_backend.json --out artifacts/sft_preview
+python -m app.scripts.generate_competition_assets
 ```
 
 ---

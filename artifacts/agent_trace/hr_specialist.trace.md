@@ -209,7 +209,7 @@
   "format_score": 5,
   "report_score": 5,
   "total_score": 34,
-  "judge_note": "Preview rule score for competition demo only; it is not a real holdout eval."
+  "judge_note": "Preview rule score for competition demo only; not a real model run, not a holdout eval, and not a fine-tuned model result."
 }
 ```
 
@@ -240,6 +240,6 @@
   "format_score": 5,
   "report_score": 5,
   "total_score": 34,
-  "judge_note": "Preview rule score for competition demo only; it is not a real holdout eval."
+  "judge_note": "Preview rule score for competition demo only; not a real model run, not a holdout eval, and not a fine-tuned model result."
 }
 ```

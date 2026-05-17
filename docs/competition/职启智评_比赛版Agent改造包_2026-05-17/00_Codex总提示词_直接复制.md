@@ -128,10 +128,7 @@ P3：真实 OpenAI SFT job、DPO、QLoRA、本地模型服务。
 先生成文件和演示资产，再接入真实后端服务。所有脚本要支持 demo mode：
 
 ```bash
-python -m app.scripts.generate_demo_cases --out demo_cases
-python -m app.scripts.export_agent_trace --case python_backend --out artifacts/agent_trace
-python -m app.scripts.run_interview_eval_preview --input artifacts/agent_trace --out artifacts/eval
-python -m app.scripts.build_sft_preview --input demo_cases --out artifacts/sft_preview
+python -m app.scripts.generate_competition_assets
 ```
 
 如果项目已有不同命名规范，请自动适配，但输出文件名要保持可读。

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
+from app.services.agent_orchestrator.asset_guardrails import validate_demo_preview_asset
 from app.services.agent_orchestrator.demo_pipeline import _build_resume_polish, _top_gaps
 from app.services.agent_orchestrator.schemas import SFTPreviewRecord
 
@@ -71,6 +72,8 @@ def _build_polish_record(case: Dict[str, Any]) -> SFTPreviewRecord:
 
 
 def build_sft_preview_bundle(cases: List[Dict[str, Any]]) -> Dict[str, Any]:
+    for case in cases:
+        validate_demo_preview_asset(case, label=f"sft preview case {case.get('case_id')}")
     records: List[SFTPreviewRecord] = []
     for case in cases:
         records.append(_build_followup_record(case))

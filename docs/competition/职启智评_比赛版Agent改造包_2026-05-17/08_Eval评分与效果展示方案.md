@@ -14,7 +14,7 @@ Eval 的作用：
 
 ```text
 1. 把“好不好”变成可评分维度。
-2. 支撑 base prompt 和 Agent 优化版对比。
+2. 支撑 baseline_prompt_preview 规则基线和 Agent 优化版对比。
 3. 支撑后续 SFT / DPO 的样本选择。
 4. 让项目看起来像真实 AI 工程系统。
 ```
@@ -26,7 +26,7 @@ Eval 的作用：
 赛前建议先比较：
 
 ```text
-Base Prompt：普通大模型提示词直接生成问题。
+baseline_prompt_preview 规则基线：沙盘规则基线，用于模拟普通提示词输出的最低展示口径，不是真实模型调用。
 Agent Optimized：加入岗位画像、证据状态、能力缺口后的多 Agent 输出。
 ```
 
@@ -74,7 +74,7 @@ case_id,target_role,model_variant,focus_score,evidence_score,depth_score,polish_
 示例：
 
 ```csv
-demo_python_backend_001,Python后端,base_prompt,3,2,3,2,3,3,3,19,"问题较泛，缺少证据约束，润色容易泛化"
+demo_python_backend_001,Python后端,baseline_prompt_preview,3,2,3,2,3,3,3,19,"沙盘规则基线，不是真实模型调用；问题较泛，缺少证据约束，润色容易泛化"
 demo_python_backend_001,Python后端,agent_optimized,5,5,5,5,4,5,5,34,"围绕 Redis 缺失证据追问，润色边界清楚，适合进入报告闭环"
 ```
 
@@ -99,8 +99,10 @@ preview / demo / 沙盘评估
 
 ## 对比对象
 
-- base_prompt：普通大模型直接生成
+- baseline_prompt_preview：沙盘规则基线，不是真实模型调用
 - agent_optimized：Career-AgentOS 加入岗位画像和证据链后的输出
+
+当前 `baseline_prompt_preview` 采用沙盘规则基线，不是真实模型调用实测；只用于 Preview Eval 展示。
 
 ## 观察结果
 
@@ -125,7 +127,7 @@ Agent 优化版在以下维度表现更稳定：
 
 | 版本 | 能力聚焦 | 证据约束 | 追问深度 | 润色可执行性 | 格式稳定 | 总分 |
 |---|---:|---:|---:|---:|---:|---:|
-| 通用 Prompt | 3 | 2 | 3 | 2 | 3 | 19/35 |
+| baseline_prompt_preview 规则基线 | 3 | 2 | 3 | 2 | 3 | 19/35 |
 | Career-AgentOS | 5 | 5 | 5 | 5 | 5 | 34/35 |
 
 标题：
@@ -137,7 +139,7 @@ Agent 优化版在以下维度表现更稳定：
 更稳妥的表述：
 
 ```text
-在三岗位演示样例中，Career-AgentOS 相比普通 Prompt 展现出更强的能力缺口聚焦、证据约束和简历润色边界控制能力。
+在三岗位演示样例中，Career-AgentOS 相比 baseline_prompt_preview 规则基线展现出更强的能力缺口聚焦、证据约束和简历润色边界控制能力。
 ```
 
 ---

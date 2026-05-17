@@ -203,10 +203,7 @@ sft_dataset_runs
 ## 9. 最小验收命令
 
 ```bash
-python -m app.scripts.generate_demo_cases --out demo_cases
-python -m app.scripts.export_agent_trace --case demo_cases/python_backend.json --out artifacts/agent_trace
-python -m app.scripts.run_interview_eval_preview --trace artifacts/agent_trace/python_backend.trace.json --out artifacts/eval
-python -m app.scripts.build_sft_preview --input demo_cases --out artifacts/sft_preview
+python -m app.scripts.generate_competition_assets
 ```
 
 执行后存在：

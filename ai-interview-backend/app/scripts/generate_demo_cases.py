@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 from app.services.agent_orchestrator.demo_cases import generate_demo_cases
+from app.services.agent_orchestrator.asset_guardrails import resolve_asset_path
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate Career-AgentOS competition demo cases.")
-    parser.add_argument("--out", default="../demo_cases", help="Output directory for demo case JSON files.")
+    parser.add_argument("--out", default="", help="Output directory for demo case JSON files.")
     args = parser.parse_args()
 
-    out_dir = Path(args.out)
+    out_dir = resolve_asset_path(args.out, "demo_cases")
     out_dir.mkdir(parents=True, exist_ok=True)
     cases = generate_demo_cases()
     for case in cases:

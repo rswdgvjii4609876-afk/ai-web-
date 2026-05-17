@@ -4,6 +4,12 @@ from copy import deepcopy
 import re
 from typing import Any, Dict, List
 
+from app.services.agent_orchestrator.asset_guardrails import (
+    direct_identifier_hits,
+    sort_demo_cases,
+    validate_demo_preview_asset,
+)
+
 
 DIRECT_IDENTIFIER_PATTERNS = (
     re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
@@ -174,8 +180,7 @@ DEMO_CASES: List[Dict[str, Any]] = [
 
 
 def _scan_direct_identifiers(value: Any) -> List[str]:
-    text = value if isinstance(value, str) else repr(value)
-    return [pattern.pattern for pattern in DIRECT_IDENTIFIER_PATTERNS if pattern.search(text)]
+    return direct_identifier_hits(value)
 
 
 def validate_no_direct_identifiers(case: Dict[str, Any]) -> None:
@@ -185,9 +190,9 @@ def validate_no_direct_identifiers(case: Dict[str, Any]) -> None:
 
 
 def generate_demo_cases() -> List[Dict[str, Any]]:
-    cases = deepcopy(DEMO_CASES)
+    cases = sort_demo_cases(deepcopy(DEMO_CASES))
     for case in cases:
-        validate_no_direct_identifiers(case)
+        validate_demo_preview_asset(case, label=f"demo case {case.get('case_id')}")
     return cases
 
 

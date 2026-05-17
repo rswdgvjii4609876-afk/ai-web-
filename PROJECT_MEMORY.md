@@ -20,7 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
-5. 阶段 146-149：Career-AgentOS 比赛版深度落地；当前最高优先级是让三岗位演示沙盘、Agent Trace、Eval Preview、SFT Preview、用户端展示页和后台 Preview 入口可运行、可截图、可答辩。
+5. 阶段 150 前审查修复：当前最高优先级是修复 Eval Preview 基线口径、Competition API Preview 资产校验和脚本路径可复现性，再进入部署验收。
 
 当前策略：
 

@@ -4,6 +4,11 @@ import argparse
 import json
 from pathlib import Path
 
+from app.services.agent_orchestrator.asset_guardrails import (
+    resolve_asset_path,
+    sort_demo_cases,
+    validate_demo_preview_asset,
+)
 from app.services.agent_orchestrator.demo_cases import generate_demo_cases
 from app.services.agent_orchestrator.sft_preview import build_sft_preview_bundle
 
@@ -15,7 +20,9 @@ def _load_cases(input_dir: Path) -> list[dict]:
             for path in sorted(input_dir.glob("*.json"))
         ]
         if cases:
-            return cases
+            for case in cases:
+                validate_demo_preview_asset(case, label=f"demo case {case.get('case_id')}")
+            return sort_demo_cases(cases)
     return generate_demo_cases()
 
 
@@ -25,13 +32,13 @@ def _jsonl(records: list[dict]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build SFT Preview JSONL from demo cases.")
-    parser.add_argument("--input", default="../demo_cases", help="Demo cases directory.")
-    parser.add_argument("--out", default="../artifacts/sft_preview", help="Output directory for preview JSONL.")
+    parser.add_argument("--input", default="", help="Demo cases directory.")
+    parser.add_argument("--out", default="", help="Output directory for preview JSONL.")
     args = parser.parse_args()
 
-    cases = _load_cases(Path(args.input))
+    cases = _load_cases(resolve_asset_path(args.input, "demo_cases"))
     bundle = build_sft_preview_bundle(cases)
-    out_dir = Path(args.out)
+    out_dir = resolve_asset_path(args.out, "artifacts/sft_preview")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     train_path = out_dir / "train.preview.jsonl"

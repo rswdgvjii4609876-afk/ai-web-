@@ -88,7 +88,7 @@ for_competition_demo=true
 命令：
 
 ```bash
-python -m app.scripts.generate_demo_cases --out demo_cases
+python -m app.scripts.generate_demo_cases
 ```
 
 ---
@@ -117,7 +117,7 @@ artifacts/agent_trace/python_backend.trace.md
 命令：
 
 ```bash
-python -m app.scripts.export_agent_trace --case demo_cases/python_backend.json --out artifacts/agent_trace
+python -m app.scripts.export_agent_trace --case python_backend
 ```
 
 Trace 必须包含：
@@ -165,7 +165,7 @@ artifacts/eval/eval_summary.md
 命令：
 
 ```bash
-python -m app.scripts.run_interview_eval_preview --trace artifacts/agent_trace/python_backend.trace.json --out artifacts/eval
+python -m app.scripts.run_interview_eval_preview
 ```
 
 ---
@@ -189,7 +189,7 @@ artifacts/sft_preview/summary.preview.json
 命令：
 
 ```bash
-python -m app.scripts.build_sft_preview --input demo_cases --out artifacts/sft_preview
+python -m app.scripts.build_sft_preview
 ```
 
 要求：

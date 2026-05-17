@@ -122,7 +122,7 @@ BACKOFFICE_ROUTES = [
         tags=["backoffice-learning-route"]
     ),
     RouteConfig(
-        module_path="app.api.client.v1.competition",
+        module_path="app.api.backoffice.v1.competition",
         prefix=f"{settings.API_V1_STR}/backoffice/competition",
         tags=["backoffice-competition"]
     ),
