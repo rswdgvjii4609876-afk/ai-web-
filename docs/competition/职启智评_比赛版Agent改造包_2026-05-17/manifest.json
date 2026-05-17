@@ -1,0 +1,28 @@
+{
+  "package": "职启智评_比赛版Agent改造包_2026-05-17",
+  "created_at": "2026-05-17",
+  "purpose": "Codex-readable competition-first Career-AgentOS adaptation plan",
+  "file_count": 20,
+  "files": [
+    "00_Codex总提示词_直接复制.md",
+    "01_项目重新定位_从AI面试官到CareerAgentOS.md",
+    "02_通俗手册_原项目改了什么创新点在哪.md",
+    "03_OPC一人项目作战手册.md",
+    "04_多Agent架构设计.md",
+    "05_Agent角色卡与提示词.md",
+    "06_比赛答辩技术叙事与PPT结构.md",
+    "07_演示沙盘与AgentTrace规范.md",
+    "08_Eval评分与效果展示方案.md",
+    "09_微调与后训练路线_赛前展示到三个月补实.md",
+    "10_Codex适应性改造任务清单.md",
+    "11_后端改造规范_FastAPI.md",
+    "12_前端与后台改造规范_Vue.md",
+    "13_数据结构与目录规范.md",
+    "14_评委问答库.md",
+    "15_7天赛前推进计划.md",
+    "16_三个月补实计划.md",
+    "17_答辩口径_可强势表达与需补实证据.md",
+    "18_最终检查清单.md",
+    "README_先读_比赛版Agent改造总入口.md"
+  ]
+}

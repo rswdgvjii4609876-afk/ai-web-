@@ -1,6 +1,6 @@
 # PROJECT_MEMORY.md
 
-更新时间：2026-05-16
+更新时间：2026-05-17
 
 项目目录：`D:\apps\ai-interview`  
 服务器目录：`/opt/apps/ai-interview`  
@@ -20,7 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
-5. 阶段 144：OpenAI SFT 真实微调启动脚本；C1/C2/C3 三岗位真实闭环继续后移但不作废，创建真实 job 前必须满足授权真实样本门槛。
+5. 阶段 145：Career-AgentOS 比赛版改造主线接管；当前最高优先级是比赛展示层、Agent Trace、Eval Preview、SFT Preview 和三岗位演示沙盘。
 
 当前策略：
 
@@ -30,6 +30,9 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 真实案例进入后台人工评分、评测样本和比赛材料前，必须完成本次案例去标识化数据贡献授权；不同意不影响核心功能使用，但不能计入阶段 138 有效沉淀样本。
 - 阶段 139/139.1 已完成本地功能收口；用户已明确要求继续把 C1/C2/C3 验收后移，当前先做有利于答辩展示的微调准备层。
 - 阶段 141 已新增大模型微调与答辩展示方案文档；阶段 142 已落地“可授权、可人工复核、可导出”的微调准备样本；阶段 143 已生成答辩可用的微调准备 Markdown 报告；阶段 144 启动 OpenAI SFT 脚本闭环。只有 OpenAI job 成功并取得 `fine_tuned_model` 后，才允许写“已完成一次 OpenAI SFT 微调实验”。
+- 阶段 145 起临时切换到比赛版 `Career-AgentOS` 改造主线：先做可展示、可答辩、可追溯的多 Agent 架构、演示沙盘、Agent Trace、Eval Preview 和 SFT Preview；真实 OpenAI SFT、C1/C2/C3 闭环和服务器真实样本继续后移但不作废。
+- `docs/competition/职启智评_比赛版Agent改造包_2026-05-17/` 是当前比赛版改造的源材料包，后续阶段以其中 README、Codex 总提示词、适应性改造任务清单和各规范文档为依据。
+- 答辩口径必须分层：可以说“已完成 SFT-ready 数据闭环设计、Agent Trace 方案、微调任务设计”，不能说“已完成真实微调”“已有 fine_tuned_model”“构造样本是真实用户数据”。
 
 ## 2. 用户提出过的关键需求细节
 
@@ -288,6 +291,17 @@ docker compose up -d --build app admin frontend
 - 新增脚本：`prepare_openai_fine_tuning_dataset`、`create_openai_fine_tuning_job`、`check_openai_fine_tuning_job`、`run_fine_tuning_eval`。
 - 训练记录只写 job id、base model、fine-tuned model id、样本统计和 eval 结果，不写 API Key，不提交真实简历原文。
 
+### 3.11 阶段 145：Career-AgentOS 比赛版改造主线接管
+
+用户新增 `docs/competition/职启智评_比赛版Agent改造包_2026-05-17/`，要求以比赛获奖和答辩展示为最高优先级，把项目从“AI 面试官/微调准备”进一步包装为 `Career-AgentOS` 多 Agent 就业能力诊断与训练平台。
+
+阶段 145 的定位：
+
+- 只做主线切换、记忆文档和升级流程收口，不直接新增业务代码、数据库表、前端页面或训练任务。
+- 将阶段 144 真实 OpenAI SFT、阶段 138/140 C1/C2/C3 真实闭环后移，但不删除、不作废。
+- 将未执行阶段写入升级流程手册并置顶：阶段 146 P0 答辩资产与 Agent 角色文档，阶段 147 三岗位演示沙盘与 Trace/Eval/SFT Preview，阶段 148 后端 Agent Orchestrator，阶段 149 前端/后台展示页，阶段 150 赛前部署验收，阶段 151 三个月补实路线。
+- 允许强势表达“多智能体就业诊断架构设计”“SFT-ready 数据闭环设计”“三岗位演示沙盘与 Agent Trace 方案”，但禁止伪造真实 fine-tuning job、模型 ID、真实样本规模或固定提升百分比。
+
 ## 4. 涉及的文件和核心逻辑
 
 ### 4.1 后端核心
@@ -386,6 +400,9 @@ docker compose up -d --build app admin frontend
 
 - `scripts/validate_real_closed_loop_records.py`
   - 通用真实闭环 CSV 检查脚本；当前也把 `data_contribution_consent_status` 纳入完整流程统计。
+- `docs/competition/职启智评_比赛版Agent改造包_2026-05-17/`
+  - 阶段 145 起的比赛版 Career-AgentOS 改造源材料包。
+  - 当前优先读取 `README_先读_比赛版Agent改造总入口.md`、`00_Codex总提示词_直接复制.md`、`10_Codex适应性改造任务清单.md`。
 
 - `任务记录文档.md`
   - 长历史记录。
