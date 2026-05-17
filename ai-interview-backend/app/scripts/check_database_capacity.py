@@ -44,6 +44,9 @@ class CapacityReport:
     active_connections: int
     connection_usage_ratio: float
     configured_pool_capacity: int
+    app_pool_capacity: int
+    celery_pool_capacity: int
+    scheduler_pool_capacity: int
     connection_states: list[dict[str, Any]]
     key_table_counts: list[dict[str, Any]]
     largest_tables: list[dict[str, Any]]
@@ -98,7 +101,7 @@ def _build_warnings_and_suggestions(
         warnings.append(
             "应用理论连接池容量接近或超过数据库 max_connections 的 80%，高并发时可能抢占连接。"
         )
-        suggestions.append("优先降低 UVICORN_WORKERS、DB_POOL_SIZE 或 DB_MAX_OVERFLOW。")
+        suggestions.append("优先降低 UVICORN_WORKERS、CELERY_WORKER_CONCURRENCY、DB_POOL_SIZE 或 DB_MAX_OVERFLOW。")
     if usage_ratio >= 0.8:
         warnings.append("当前数据库连接数已超过 max_connections 的 80%。")
         suggestions.append("短期降低连接池和 worker；长期考虑 PgBouncer 或云数据库连接池。")
@@ -117,9 +120,15 @@ def _build_warnings_and_suggestions(
 
 
 async def collect_capacity_report() -> CapacityReport:
-    configured_pool_capacity = settings.UVICORN_WORKERS * (
-        settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW
-    ) + settings.DB_SCHEDULER_POOL_SIZE + settings.DB_SCHEDULER_MAX_OVERFLOW
+    per_process_pool_capacity = settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW
+    app_pool_capacity = settings.UVICORN_WORKERS * per_process_pool_capacity
+    celery_pool_capacity = (
+        settings.CELERY_WORKER_REPLICAS
+        * settings.CELERY_WORKER_CONCURRENCY
+        * per_process_pool_capacity
+    )
+    scheduler_pool_capacity = settings.DB_SCHEDULER_POOL_SIZE + settings.DB_SCHEDULER_MAX_OVERFLOW
+    configured_pool_capacity = app_pool_capacity + celery_pool_capacity + scheduler_pool_capacity
 
     async with async_session() as db:
         database_name = await _scalar(db, "select current_database()")
@@ -201,6 +210,9 @@ async def collect_capacity_report() -> CapacityReport:
         active_connections=active_connections,
         connection_usage_ratio=usage_ratio,
         configured_pool_capacity=configured_pool_capacity,
+        app_pool_capacity=app_pool_capacity,
+        celery_pool_capacity=celery_pool_capacity,
+        scheduler_pool_capacity=scheduler_pool_capacity,
         connection_states=connection_states,
         key_table_counts=key_table_counts,
         largest_tables=largest_tables,
@@ -234,7 +246,10 @@ def render_markdown(report: CapacityReport) -> str:
         f"- 当前 active 连接数：`{report.active_connections}`",
         f"- 当前配置的应用理论连接容量：`{report.configured_pool_capacity}`",
         f"- Uvicorn workers：`{settings.UVICORN_WORKERS}`",
+        f"- App connection budget: `{report.app_pool_capacity}`",
+        f"- Celery connection budget: `replicas={settings.CELERY_WORKER_REPLICAS}`, `concurrency={settings.CELERY_WORKER_CONCURRENCY}`, `connections={report.celery_pool_capacity}`",
         f"- 主连接池：`pool_size={settings.DB_POOL_SIZE}`，`max_overflow={settings.DB_MAX_OVERFLOW}`",
+        f"- Scheduler connection budget: `{report.scheduler_pool_capacity}`",
         f"- 调度连接池：`pool_size={settings.DB_SCHEDULER_POOL_SIZE}`，`max_overflow={settings.DB_SCHEDULER_MAX_OVERFLOW}`",
         "",
         "## 连接状态",

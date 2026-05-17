@@ -13,7 +13,7 @@
       <input
         type="checkbox"
         :checked="baseAgreed"
-        @change="$emit('update:baseAgreed', $event.target.checked)"
+        @change="handleBaseConsentChange($event.target.checked)"
       />
       <span>我已阅读并同意《隐私协议与个人信息处理说明》</span>
     </label>
@@ -22,6 +22,7 @@
       <input
         type="checkbox"
         :checked="dataContributionConsent"
+        :disabled="showBaseConsent && !baseAgreed"
         @change="$emit('update:dataContributionConsent', $event.target.checked)"
       />
       <span>
@@ -74,7 +75,14 @@ defineProps({
   }
 })
 
-defineEmits(['update:baseAgreed', 'update:dataContributionConsent'])
+const emit = defineEmits(['update:baseAgreed', 'update:dataContributionConsent'])
+
+function handleBaseConsentChange(checked) {
+  emit('update:baseAgreed', checked)
+  if (!checked) {
+    emit('update:dataContributionConsent', false)
+  }
+}
 </script>
 
 <style scoped>

@@ -545,6 +545,17 @@ function acceptanceItems(task) {
 }
 
 function taskQuality(task) {
+  if (task.quality_level) {
+    return {
+      level: task.quality_level,
+      label: task.quality_label || {
+        high: '高质量',
+        usable: '可用',
+        needs_improvement: '待完善'
+      }[task.quality_level] || '待完善',
+      issues: Array.isArray(task.quality_issues) ? task.quality_issues : []
+    }
+  }
   const issues = []
   if (!String(task.learning_material || '').trim()) issues.push('学习材料')
   if (!String(task.practice_task || '').trim()) issues.push('练习任务')

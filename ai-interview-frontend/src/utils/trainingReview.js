@@ -20,6 +20,30 @@ function textOf(value) {
   return String(value)
 }
 
+function sameId(left, right) {
+  return String(left || '') !== '' && String(left || '') === String(right || '')
+}
+
+function taskBelongsToCase(task, context = {}) {
+  const interviewId = context.interview_id || context.interviewId
+  const resumeId = context.resume_id || context.resumeId
+  if (interviewId && (
+    sameId(task.interview_id, interviewId)
+    || sameId(task.source_id, interviewId)
+    || sameId(task.task_metadata?.interview_id, interviewId)
+  )) {
+    return true
+  }
+  if (resumeId && (
+    sameId(task.resume_id, resumeId)
+    || sameId(task.source_id, resumeId)
+    || sameId(task.task_metadata?.resume_id, resumeId)
+  )) {
+    return true
+  }
+  return false
+}
+
 export function readTrainingReviewStore() {
   const empty = {
     version: TRAINING_REVIEW_VERSION,
@@ -67,7 +91,7 @@ export function saveTrainingReviewRecord(interviewId, patch) {
   return next.records[key]
 }
 
-export function buildTrainingReviewSummary({ report = {}, interview = {}, tasks = [] } = {}) {
+export function buildTrainingReviewSummary({ report = {}, interview = {}, tasks = [], caseContext = {} } = {}) {
   const evaluation = normalizeResumeEvaluation(report || {})
   const abilityProfile = evaluation.abilityProfile || {}
   const gapItems = safeArray(abilityProfile.top_gaps).length
@@ -76,8 +100,12 @@ export function buildTrainingReviewSummary({ report = {}, interview = {}, tasks 
   const commonGaps = safeArray(report.common_gaps).map(textOf)
   const weaknesses = safeArray(report.weaknesses).map(textOf)
   const trainingPriorities = safeArray(report.training_priorities).map(textOf)
-  const pendingTasks = safeArray(tasks).filter(task => !task.done)
-  const doneTasks = safeArray(tasks).filter(task => task.done)
+  const scopedTasks = safeArray(tasks).filter(task => taskBelongsToCase(task, {
+    interview_id: caseContext.interview_id || interview.interview_id || report.interview_id,
+    resume_id: caseContext.resume_id || interview.resume_id || report.resume_id
+  }))
+  const pendingTasks = scopedTasks.filter(task => !task.done)
+  const doneTasks = scopedTasks.filter(task => task.done)
 
   const abilityGaps = gapItems.slice(0, 5).map(item => ({
     name: item.name || item.ability_name || '待补能力',
@@ -98,7 +126,7 @@ export function buildTrainingReviewSummary({ report = {}, interview = {}, tasks 
     ability_gaps: abilityGaps,
     training_priorities: trainingPriorities.slice(0, 5),
     task_stats: {
-      total: tasks.length,
+      total: scopedTasks.length,
       done: doneTasks.length,
       pending: pendingTasks.length
     },

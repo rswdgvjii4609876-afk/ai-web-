@@ -371,6 +371,86 @@ def test_normalize_interview_blueprint_keeps_required_contract():
 
 
 @pytest.mark.unit
+def test_normalize_interview_blueprint_keeps_kb_as_role_calibration_only():
+    payload = {
+        "matched_requirements": [
+            {
+                "requirement": "大型系统容量规划",
+                "evidence": "岗位知识库要求候选人理解容量规划",
+                "support_level": "strong",
+                "source": "knowledge_base",
+                "evidence_ids": [91],
+            }
+        ],
+        "priority_question_tracks": [
+            {
+                "track": "容量规划追问",
+                "reason": "岗位知识库要求覆盖该能力",
+                "slice_ids": [91],
+            }
+        ],
+        "blueprint_evidence": {
+            "slice_ids": [91],
+            "slice_summaries": ["岗位知识库切片：容量规划"],
+        },
+    }
+
+    normalized = AIService._normalize_interview_blueprint(payload)
+
+    requirement = normalized["matched_requirements"][0]
+    assert requirement["source"] == "role_calibration"
+    assert requirement["support_level"] == "weak"
+    assert requirement["evidence_ids"] == []
+    assert requirement["role_requirement_source_ids"] == [91]
+    assert normalized["priority_question_tracks"][0]["role_requirement_source_ids"] == [91]
+
+
+@pytest.mark.unit
+def test_normalize_interview_blueprint_treats_implicit_slice_evidence_as_role_reference():
+    payload = {
+        "matched_requirements": [
+            {
+                "requirement": "Capacity planning",
+                "evidence": "Knowledge base slice says this role requires capacity planning",
+                "support_level": "strong",
+                "slice_ids": [92],
+            }
+        ],
+        "weakly_supported_requirements": [
+            {
+                "requirement": "Redis operations",
+                "evidence": "Knowledge base requirement expects Redis troubleshooting",
+                "support_level": "weak",
+                "evidence_ids": [93],
+            }
+        ],
+        "priority_question_tracks": [
+            {
+                "track": "Redis operations follow-up",
+                "reason": "Knowledge base slice asks for Redis failure handling",
+                "evidence_ids": [94],
+            }
+        ],
+    }
+
+    normalized = AIService._normalize_interview_blueprint(payload)
+
+    requirement = normalized["matched_requirements"][0]
+    assert requirement["source"] == "role_calibration"
+    assert requirement["candidate_evidence_source"] == "role_calibration"
+    assert requirement["support_level"] == "weak"
+    assert requirement["evidence_ids"] == []
+    assert requirement["role_requirement_source_ids"] == [92]
+    weak_requirement = normalized["weakly_supported_requirements"][0]
+    assert weak_requirement["source"] == "role_calibration"
+    assert weak_requirement["evidence_ids"] == []
+    assert weak_requirement["role_requirement_source_ids"] == [93]
+    track = normalized["priority_question_tracks"][0]
+    assert track["evidence_ids"] == []
+    assert track["role_requirement_source_ids"] == [94]
+
+
+@pytest.mark.unit
 def test_build_interview_blueprint_fallback_returns_grounded_structure():
     parsed_resume = {
         "summary": "Built backend services for an e-commerce order system and improved latency by 35%",
@@ -415,6 +495,8 @@ def test_build_interview_blueprint_fallback_returns_grounded_structure():
     assert blueprint["matched_requirements"]
     assert blueprint["priority_question_tracks"]
     assert blueprint["blueprint_evidence"]["slice_ids"] == [21, 22]
+    assert blueprint["matched_requirements"][0]["evidence_ids"] == []
+    assert blueprint["matched_requirements"][0]["role_requirement_source_ids"] == [21, 22]
     assert blueprint["evidence_summary"]
 
 

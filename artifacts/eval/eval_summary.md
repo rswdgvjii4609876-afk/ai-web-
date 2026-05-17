@@ -2,7 +2,7 @@
 
 - 样本类型：`demo_constructed`
 - 评估类型：`preview/demo`
-- 满分：`35`
+- 评分规则：七维规则评分，满分 `35`
 - 说明：本结果仅用于比赛沙盘展示；`baseline_prompt_preview` 是规则基线，不是真实模型实测；不代表真实 holdout eval 或 fine-tuned model 结果。
 
 | case_id | target_role | model_variant | total_score | judge_note |

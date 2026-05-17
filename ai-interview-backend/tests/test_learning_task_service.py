@@ -45,3 +45,24 @@ def test_learning_task_normalize_generates_stable_task_key():
 
     assert payload["task_key"].startswith("ability_gap__resume-9")
     assert len(payload["task_key"]) <= 160
+
+
+@pytest.mark.unit
+def test_learning_task_quality_marks_missing_execution_fields():
+    quality = LearningTaskService._quality(
+        {
+            "title": "补强：接口设计",
+            "learning_material": "",
+            "practice_task": "完成一个接口练习",
+            "acceptance_criteria": [],
+            "estimated_minutes": None,
+            "route_stage": "",
+            "route_source": "",
+            "evidence_basis": "",
+        }
+    )
+
+    assert quality["quality_level"] == "needs_improvement"
+    assert "学习材料" in quality["quality_issues"]
+    assert "验收方式" in quality["quality_issues"]
+    assert "预计耗时" in quality["quality_issues"]

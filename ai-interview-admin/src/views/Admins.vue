@@ -27,7 +27,19 @@
           <input v-model="form.can_manage_admins" type="checkbox" :disabled="!authStore.isRootAdmin || editingIsRoot" />
           拥有管理员管理权限
         </label>
-        <p v-if="!authStore.isRootAdmin" class="hint">只有原始账号可以授予或收回管理员管理权限。</p>
+        <label class="check-row">
+          <input v-model="form.can_review_cases" type="checkbox" :disabled="!authStore.isRootAdmin || editingIsRoot" />
+          可保存案例人工评分
+        </label>
+        <label class="check-row">
+          <input v-model="form.can_export_datasets" type="checkbox" :disabled="!authStore.isRootAdmin || editingIsRoot" />
+          可导出评测/训练数据
+        </label>
+        <label class="check-row">
+          <input v-model="form.can_delete_records" type="checkbox" :disabled="!authStore.isRootAdmin || editingIsRoot" />
+          可删除面试记录
+        </label>
+        <p v-if="!authStore.isRootAdmin" class="hint">只有原始账号可以授予或收回敏感后台权限。</p>
         <p v-if="message" class="message">{{ message }}</p>
         <div class="form-actions">
           <button class="btn-primary" type="submit" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
@@ -57,7 +69,14 @@
               </td>
               <td>{{ [item.first_name, item.last_name].filter(Boolean).join(' ') || '-' }}</td>
               <td><span :class="['badge', item.is_active ? 'badge-green' : 'badge-red']">{{ item.is_active ? '启用' : '禁用' }}</span></td>
-              <td><span :class="['badge', item.can_manage_admins ? 'badge-yellow' : 'badge-blue']">{{ item.can_manage_admins ? '可管理管理员' : '普通管理员' }}</span></td>
+              <td>
+                <div class="permission-chips">
+                  <span :class="['badge', item.can_manage_admins ? 'badge-yellow' : 'badge-blue']">{{ item.can_manage_admins ? '管管理员' : '普通' }}</span>
+                  <span v-if="item.can_review_cases" class="badge badge-green">评分</span>
+                  <span v-if="item.can_export_datasets" class="badge badge-yellow">导出</span>
+                  <span v-if="item.can_delete_records" class="badge badge-red">删除</span>
+                </div>
+              </td>
               <td>{{ formatDate(item.created_at) }}</td>
               <td class="actions">
                 <button class="btn-sm" @click="editAdmin(item)">编辑</button>
@@ -98,7 +117,10 @@ const emptyForm = () => ({
   last_name: '',
   password: '',
   is_active: true,
-  can_manage_admins: false
+  can_manage_admins: false,
+  can_review_cases: false,
+  can_export_datasets: false,
+  can_delete_records: false
 })
 const form = ref(emptyForm())
 const editingIsRoot = computed(() => admins.value.some(item => item.id === editingId.value && item.is_root_admin))
@@ -146,7 +168,10 @@ function editAdmin(item) {
     last_name: item.last_name || '',
     password: '',
     is_active: !!item.is_active,
-    can_manage_admins: !!item.can_manage_admins
+    can_manage_admins: !!item.can_manage_admins,
+    can_review_cases: !!item.can_review_cases,
+    can_export_datasets: !!item.can_export_datasets,
+    can_delete_records: !!item.can_delete_records
   }
   message.value = ''
 }
@@ -160,8 +185,15 @@ async function handleSubmit() {
         email: form.value.email,
         first_name: form.value.first_name,
         last_name: form.value.last_name,
-        is_active: form.value.is_active,
-        can_manage_admins: form.value.can_manage_admins
+        is_active: form.value.is_active
+      }
+      if (authStore.isRootAdmin) {
+        Object.assign(payload, {
+          can_manage_admins: form.value.can_manage_admins,
+          can_review_cases: form.value.can_review_cases,
+          can_export_datasets: form.value.can_export_datasets,
+          can_delete_records: form.value.can_delete_records
+        })
       }
       await adminApi.update(editingId.value, payload)
       message.value = '管理员已更新'
@@ -214,6 +246,7 @@ onMounted(async () => {
 .form-actions { display: flex; gap: 8px; align-items: center; }
 .actions { display: flex; gap: 8px; }
 .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.permission-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .muted-card { color: #6b7280; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding-top: 16px; font-size: 13px; color: #6b7280; }
 @media (max-width: 1000px) {

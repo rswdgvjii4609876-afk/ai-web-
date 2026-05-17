@@ -104,6 +104,11 @@ export function normalizeLearningTask(input) {
       ? input.acceptance_criteria
       : [safeText(input.acceptance_criteria || input.acceptance || input.deliverable, '能说明学习结果，并给出可用于面试的证据。')],
     evidence_basis: safeText(input.evidence_basis || input.evidence || input.reason, ''),
+    quality_level: safeText(input.quality_level || input.qualityLevel, ''),
+    quality_label: safeText(input.quality_label || input.qualityLabel, ''),
+    quality_issues: Array.isArray(input.quality_issues)
+      ? input.quality_issues.map(item => safeText(item)).filter(Boolean)
+      : [],
     task_metadata: input.task_metadata && typeof input.task_metadata === 'object'
       ? input.task_metadata
       : (input.taskMetadata && typeof input.taskMetadata === 'object' ? input.taskMetadata : {}),

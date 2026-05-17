@@ -6,7 +6,7 @@
 
       <div class="profile-box">
         <div><span>邮箱</span><strong>{{ authStore.email || '-' }}</strong></div>
-        <div><span>权限</span><strong>{{ authStore.canManageAdmins ? '可管理管理员' : '普通管理员' }}</strong></div>
+        <div><span>权限</span><strong>{{ permissionSummary }}</strong></div>
       </div>
 
       <form @submit.prevent="changePassword">
@@ -21,7 +21,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { adminApi, authApi } from '../api'
 import { useAuthStore } from '../stores/auth'
 
@@ -33,6 +33,15 @@ const confirmPassword = ref('')
 const form = ref({
   current_password: '',
   new_password: ''
+})
+
+const permissionSummary = computed(() => {
+  const items = []
+  if (authStore.canManageAdmins) items.push('管理员管理')
+  if (authStore.canReviewCases) items.push('人工评分')
+  if (authStore.canExportDatasets) items.push('数据导出')
+  if (authStore.canDeleteRecords) items.push('删除记录')
+  return items.length ? items.join(' / ') : '普通管理员'
 })
 
 async function refreshMe() {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -12,28 +13,18 @@ from app.core.config import settings
 from app.services.client.openai_fine_tuning_service import (
     DEFAULT_MIN_EVAL_SAMPLES,
     DEFAULT_OUTPUT_ROOT,
+    OpenAIFineTuningDataError,
+    build_openai_sft_provenance,
     load_jsonl_records,
+    openai_api_key_from_env,
+    resolve_fine_tuned_model_for_eval,
+    validate_official_openai_base_url,
+    validate_openai_fine_tuning_dataset_dir,
 )
 
 
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
-
-
-def _read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _model_from_status(dataset_dir: Path) -> str:
-    for filename in ("job_status.json", "job_record.json"):
-        path = dataset_dir / filename
-        if not path.exists():
-            continue
-        job = (_read_json(path).get("fine_tuning_job") or {})
-        model = str(job.get("fine_tuned_model") or "")
-        if model:
-            return model
-    return ""
 
 
 def _extract_expected(record: Dict[str, Any]) -> Dict[str, Any]:
@@ -126,6 +117,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Compare base and fine-tuned models on the prepared holdout set.")
     parser.add_argument("--dataset-dir", default=str(DEFAULT_OUTPUT_ROOT / "latest"))
     parser.add_argument("--base-model", default=settings.OPENAI_FINE_TUNE_BASE_MODEL or settings.OPENAI_MODEL)
+    parser.add_argument("--job-id", default="")
     parser.add_argument("--fine-tuned-model", default="")
     parser.add_argument("--max-items", type=int, default=DEFAULT_MIN_EVAL_SAMPLES)
     parser.add_argument("--confirm-cost", action="store_true")
@@ -133,6 +125,24 @@ def main() -> int:
     args = parser.parse_args()
 
     dataset_dir = Path(args.dataset_dir)
+    try:
+        preflight = validate_openai_fine_tuning_dataset_dir(
+            dataset_dir,
+            require_ready=True,
+            require_validation=True,
+            min_eval_samples=DEFAULT_MIN_EVAL_SAMPLES,
+        )
+        base_url = validate_official_openai_base_url(os.getenv("OPENAI_BASE_URL", settings.OPENAI_BASE_URL))
+        model_info = resolve_fine_tuned_model_for_eval(
+            dataset_dir,
+            requested_model=args.fine_tuned_model,
+            requested_job_id=args.job_id,
+            require_succeeded=not args.dry_run,
+            preflight=preflight,
+        )
+    except OpenAIFineTuningDataError as exc:
+        raise SystemExit(str(exc)) from exc
+
     validation_path = dataset_dir / "validation_openai.jsonl"
     if not validation_path.exists():
         raise SystemExit(f"Validation file not found: {validation_path}")
@@ -140,17 +150,25 @@ def main() -> int:
     if len(records) < DEFAULT_MIN_EVAL_SAMPLES:
         raise SystemExit(f"Need at least {DEFAULT_MIN_EVAL_SAMPLES} validation samples for eval; current={len(records)}.")
 
-    fine_tuned_model = args.fine_tuned_model or _model_from_status(dataset_dir)
+    fine_tuned_model = model_info.get("fine_tuned_model") or args.fine_tuned_model
     if not fine_tuned_model and not args.dry_run:
         raise SystemExit("Fine-tuned model id is required via --fine-tuned-model or job_status.json.")
+    provenance = build_openai_sft_provenance(
+        dataset_dir,
+        preflight=preflight,
+        base_model=args.base_model,
+        base_url=base_url,
+    )
     if args.dry_run:
         result = {
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "dataset_dir": str(dataset_dir),
+            "job_id": model_info.get("job_id"),
             "base_model": args.base_model,
             "fine_tuned_model": fine_tuned_model,
             "evaluated_items": min(args.max_items, len(records)),
             "dry_run": True,
+            "provenance": provenance,
             "message": "Eval preflight passed; no OpenAI API call was made.",
         }
         _write_json(dataset_dir / "eval_preflight.json", result)
@@ -158,11 +176,12 @@ def main() -> int:
         return 0
     if not args.confirm_cost:
         raise SystemExit("Refusing to run paid OpenAI eval without --confirm-cost.")
-    key = (settings.OPENAI_API_KEY or "").strip()
-    if not key or key == "your-openai-api-key":
-        raise SystemExit("OPENAI_API_KEY is required and must not be the placeholder value.")
+    try:
+        api_key = openai_api_key_from_env()
+    except OpenAIFineTuningDataError as exc:
+        raise SystemExit(str(exc)) from exc
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY, base_url=settings.OPENAI_BASE_URL)
+    client = OpenAI(api_key=api_key, base_url=base_url)
     items = []
     for index, record in enumerate(records[: args.max_items], start=1):
         messages = _prompt_messages(record)
@@ -184,12 +203,14 @@ def main() -> int:
     result = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "dataset_dir": str(dataset_dir),
+        "job_id": model_info.get("job_id"),
         "base_model": args.base_model,
         "fine_tuned_model": fine_tuned_model,
         "evaluated_items": len(items),
         "base_average_score": round(base_average, 3),
         "fine_tuned_average_score": round(fine_tuned_average, 3),
         "conclusion": "fine_tuned_better_or_equal" if fine_tuned_average >= base_average else "base_better_on_heuristic",
+        "provenance": provenance,
         "items": items,
     }
     _write_json(dataset_dir / "eval_result.json", result)

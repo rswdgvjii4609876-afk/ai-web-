@@ -409,7 +409,13 @@ function renderContent(text) {
     .replace(/```json\s*\{[\s\S]*?\}\s*```/g, '')
     .replace(/\{[^{}]*"score"\s*:\s*[\d.]+[^{}]*\}/g, '')
     .trim()
-  return cleaned.replace(/\n/g, '<br>')
+  return cleaned
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\n/g, '<br>')
 }
 
 function scrollToBottom() {
@@ -474,6 +480,7 @@ async function handleSubmit() {
     await submitAnswerStream(
       interviewId,
       myAnswer,
+      currentIndex.value,
       chunk => {
         rawStreamText += chunk
         let display = rawStreamText

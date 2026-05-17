@@ -3,6 +3,16 @@ from urllib.parse import quote
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
+_PLACEHOLDER_VALUES = {
+    "demo",
+    "your-secret-key-change-in-production",
+    "your-openai-api-key",
+    "your-deepseek-api-key",
+    "dummy-api-key",
+    "demo123",
+    "password",
+}
+
 
 class Settings(BaseSettings):
     # Environment
@@ -43,6 +53,8 @@ class Settings(BaseSettings):
     # Celery
     CELERY_BROKER_URL: str = ""
     CELERY_RESULT_BACKEND: str = ""
+    CELERY_WORKER_CONCURRENCY: int = 2
+    CELERY_WORKER_REPLICAS: int = 1
 
     # HTTP proxy, used only when explicitly enabled
     USE_HTTP_PROXY: bool = False
@@ -125,6 +137,7 @@ class Settings(BaseSettings):
             redis_url = f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"
         self.CELERY_BROKER_URL = redis_url
         self.CELERY_RESULT_BACKEND = redis_url
+        self._validate_production_settings()
 
     def get_cors_origins(self) -> list[str]:
         if self.ENV in {"development", "preview"}:
@@ -136,6 +149,51 @@ class Settings(BaseSettings):
             for origin in self.BACKEND_CORS_ORIGINS.split(",")
             if origin.strip()
         ]
+
+    @staticmethod
+    def _is_placeholder(value: str | None) -> bool:
+        normalized = (value or "").strip()
+        if not normalized:
+            return True
+        if normalized in _PLACEHOLDER_VALUES:
+            return True
+        return normalized.startswith("<") and normalized.endswith(">")
+
+    def _validate_production_settings(self) -> None:
+        if self.ENV != "production":
+            return
+
+        errors: list[str] = []
+        cors_origins = self.get_cors_origins()
+        if not cors_origins or "*" in cors_origins:
+            errors.append("BACKEND_CORS_ORIGINS must list explicit production origins")
+        if any("<" in origin or ">" in origin for origin in cors_origins):
+            errors.append("BACKEND_CORS_ORIGINS must not contain placeholder domains")
+        if any("localhost" in origin or "127.0.0.1" in origin for origin in cors_origins):
+            errors.append("BACKEND_CORS_ORIGINS must not contain local development origins")
+        if self._is_placeholder(self.FRONTEND_URL) or "<" in self.FRONTEND_URL or ">" in self.FRONTEND_URL:
+            errors.append("FRONTEND_URL must be set to the production frontend URL")
+        if "localhost" in self.FRONTEND_URL or "127.0.0.1" in self.FRONTEND_URL:
+            errors.append("FRONTEND_URL must not be a local development URL")
+        if self._is_placeholder(self.SECRET_KEY) or len(self.SECRET_KEY.strip()) < 32:
+            errors.append("SECRET_KEY must be a non-placeholder value with at least 32 characters")
+        if self._is_placeholder(self.POSTGRES_USER):
+            errors.append("POSTGRES_USER must be set to a non-placeholder value")
+        if self._is_placeholder(self.POSTGRES_PASSWORD):
+            errors.append("POSTGRES_PASSWORD must be set to a non-placeholder value")
+        if self._is_placeholder(self.POSTGRES_DB):
+            errors.append("POSTGRES_DB must be set to a non-placeholder value")
+        if self._is_placeholder(self.REDIS_PASSWORD):
+            errors.append("REDIS_PASSWORD must be set in production")
+        if self._is_placeholder(self.DEEPSEEK_API_KEY):
+            errors.append("DEEPSEEK_API_KEY must be set for production AI flows")
+        if self.DB_POOL_SIZE < 1 or self.DB_MAX_OVERFLOW < 0:
+            errors.append("DB_POOL_SIZE must be >= 1 and DB_MAX_OVERFLOW must be >= 0")
+        if self.CELERY_WORKER_CONCURRENCY < 1 or self.CELERY_WORKER_REPLICAS < 1:
+            errors.append("CELERY_WORKER_CONCURRENCY and CELERY_WORKER_REPLICAS must be >= 1")
+
+        if errors:
+            raise ValueError("Invalid production configuration: " + "; ".join(errors))
 
 
 settings = Settings()

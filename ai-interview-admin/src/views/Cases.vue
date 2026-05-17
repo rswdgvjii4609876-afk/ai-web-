@@ -161,7 +161,7 @@
               <div>
                 <span>数据授权</span>
                 <strong :class="selectedCaseAuthorized ? 'success-text' : 'warn-text'">
-                  {{ selectedCaseAuthorized ? '已授权，可人工标注' : '未授权，不能沉淀评分' }}
+                  {{ selectedCaseReviewable ? '已授权，可人工标注' : selectedCaseAuthorized ? '无评分权限或未完成' : '未授权，不能沉淀评分' }}
                 </strong>
               </div>
             </div>
@@ -245,8 +245,8 @@
           <p v-if="noticeMessage" :class="['notice', noticeType === 'error' ? 'error-text' : 'success-text']">{{ noticeMessage }}</p>
 
           <div class="drawer-actions">
-            <button class="btn-primary" type="button" :disabled="saving || !selectedCaseAuthorized" @click="saveReview">
-              {{ saving ? '保存中...' : selectedCaseAuthorized ? '保存人工标注' : '未授权，不能标注' }}
+            <button class="btn-primary" type="button" :disabled="saving || !selectedCaseReviewable" @click="saveReview">
+              {{ saving ? '保存中...' : selectedCaseReviewable ? '保存人工标注' : '不能标注' }}
             </button>
             <router-link v-if="selectedCase" :to="`/interviews/${selectedCase.id}`" class="btn-secondary">打开完整详情</router-link>
           </div>
@@ -260,7 +260,9 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { interviewApi } from '../api'
+import { useAuthStore } from '../stores/auth'
 
+const authStore = useAuthStore()
 const cases = ref([])
 const total = ref(0)
 const loading = ref(false)
@@ -305,6 +307,11 @@ const reviewForm = ref(defaultReview())
 const reviewOf = (item) => ({ ...defaultReview(), ...(item?.training_sample_review || {}) })
 const caseConsent = (item) => Boolean(item?.data_contribution_consent)
 const selectedCaseAuthorized = computed(() => caseConsent(selectedDetail.value || selectedCase.value))
+const selectedCaseReviewable = computed(() => (
+  selectedCaseAuthorized.value &&
+  authStore.canReviewCases &&
+  (selectedDetail.value?.status || selectedCase.value?.status) === 'completed'
+))
 
 const filteredCases = computed(() => {
   const target = filters.value.target_position.trim().toLowerCase()
@@ -407,9 +414,11 @@ function closeDrawer() {
 
 async function saveReview() {
   if (!selectedCase.value) return
-  if (!selectedCaseAuthorized.value) {
+  if (!selectedCaseReviewable.value) {
     noticeType.value = 'error'
-    noticeMessage.value = '该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程。'
+    noticeMessage.value = selectedCaseAuthorized.value
+      ? '当前账号没有人工评分权限，或该面试尚未完成。'
+      : '该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程。'
     return
   }
   saving.value = true

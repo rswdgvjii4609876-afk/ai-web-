@@ -9,6 +9,9 @@ class AdminBase(BaseSchema):
     last_name: Optional[str] = None
     is_active: Optional[bool] = None
     can_manage_admins: Optional[bool] = False
+    can_review_cases: Optional[bool] = False
+    can_export_datasets: Optional[bool] = False
+    can_delete_records: Optional[bool] = False
 
 
 class AdminCreate(AdminBase):
@@ -22,11 +25,17 @@ class AdminUpdate(BaseSchema):
     password: Optional[str] = None
     is_active: Optional[bool] = None
     can_manage_admins: Optional[bool] = None
+    can_review_cases: Optional[bool] = None
+    can_export_datasets: Optional[bool] = None
+    can_delete_records: Optional[bool] = None
 
 @add_padded_id()
 class AdminResponse(BaseResponseSchema, AdminBase):
     is_active: bool
     can_manage_admins: bool = False
+    can_review_cases: bool = False
+    can_export_datasets: bool = False
+    can_delete_records: bool = False
     role: Optional[str] = None
     is_root_admin: bool = False
     padded_id: Optional[str] = None

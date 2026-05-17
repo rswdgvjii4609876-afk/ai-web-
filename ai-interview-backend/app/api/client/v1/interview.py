@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.client.deps import get_current_user
+from app.api.client.deps import get_current_user, require_base_privacy_consent
 from app.db.session import get_db
 from app.exceptions.http_exceptions import ValidationError
 from app.models.user import User
@@ -62,14 +62,14 @@ async def start_interview(
             raise ValidationError(message=BASE_PRIVACY_CONSENT_ERROR)
         privacy_consent_service.apply_base_consent(current_user, agreed=True)
 
-    privacy_snapshot = (
-        privacy_consent_service.build_snapshot(
-            current_user,
-            data_contribution_consent=bool(data.data_contribution_consent),
-            source="interview_start",
-        )
-        if data.data_contribution_consent is not None
-        else None
+    effective_data_consent = privacy_consent_service.effective_data_contribution_consent(
+        current_user,
+        data.data_contribution_consent,
+    )
+    privacy_snapshot = privacy_consent_service.build_snapshot(
+        current_user,
+        data_contribution_consent=effective_data_consent,
+        source="interview_start",
     )
 
     try:
@@ -87,7 +87,7 @@ async def start_interview(
                 data.ai_provider,
                 data.ai_model,
             ),
-            data_contribution_consent=data.data_contribution_consent,
+            data_contribution_consent=effective_data_consent,
             privacy_consent_snapshot=privacy_snapshot,
         )
     except ValidationError:
@@ -107,7 +107,7 @@ async def start_interview(
 async def submit_answer(
     interview_id: int,
     data: AnswerSubmit,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await interview_service.submit_answer(
@@ -115,6 +115,7 @@ async def submit_answer(
         user_id=current_user.id,
         interview_id=interview_id,
         answer=data.answer,
+        question_index=data.question_index,
         ai_config=deepseek_config_service.build_runtime_config(
             current_user,
             require_personal_key=True,
@@ -127,7 +128,7 @@ async def submit_answer(
 async def submit_answer_stream(
     interview_id: int,
     data: AnswerSubmit,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     generator = interview_service.submit_answer_stream(
@@ -135,6 +136,7 @@ async def submit_answer_stream(
         user_id=current_user.id,
         interview_id=interview_id,
         answer=data.answer,
+        question_index=data.question_index,
         ai_config=deepseek_config_service.build_runtime_config(
             current_user,
             require_personal_key=True,
@@ -155,7 +157,7 @@ async def submit_answer_stream(
 async def update_case_data_contribution_consent(
     interview_id: int,
     data: CaseDataContributionConsentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     if not privacy_consent_service.has_base_consent(current_user):
@@ -172,7 +174,7 @@ async def update_case_data_contribution_consent(
 @router.get("/{interview_id}/report")
 async def get_report(
     interview_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await interview_service.get_report(
@@ -186,7 +188,7 @@ async def get_report(
 @router.get("/{interview_id}/messages")
 async def get_messages(
     interview_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await interview_service.get_interview_messages(
@@ -199,7 +201,7 @@ async def get_messages(
 
 @router.get("")
 async def get_interviews(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await interview_service.get_interviews(
@@ -212,7 +214,7 @@ async def get_interviews(
 @router.delete("/{interview_id}")
 async def delete_interview(
     interview_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await interview_service.delete_interview(

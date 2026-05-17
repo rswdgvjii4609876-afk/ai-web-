@@ -1,5 +1,7 @@
+import asyncio
 import json
 import sys
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -13,6 +15,7 @@ from app.services.agent_orchestrator.asset_guardrails import (
     validate_eval_score_rows,
     validate_sft_preview_bundle,
     validate_sft_preview_record,
+    validate_trace_preview_asset,
 )
 from app.api.client.v1 import competition as competition_api
 from app.services.agent_orchestrator.demo_cases import (
@@ -23,6 +26,67 @@ from app.services.agent_orchestrator.demo_cases import (
 from app.services.agent_orchestrator.demo_pipeline import run_demo_pipeline
 from app.services.agent_orchestrator.evaluator import build_eval_rows, evaluate_trace
 from app.services.agent_orchestrator.sft_preview import build_sft_preview_bundle
+
+
+EVAL_DIMENSIONS = [
+    "focus_score",
+    "evidence_score",
+    "depth_score",
+    "polish_score",
+    "role_fit_score",
+    "format_score",
+    "report_score",
+]
+BASELINE_SCORES = {
+    "focus_score": 3,
+    "evidence_score": 2,
+    "depth_score": 3,
+    "polish_score": 2,
+    "role_fit_score": 3,
+    "format_score": 3,
+    "report_score": 3,
+    "total_score": 19,
+}
+AGENT_SCORES = {
+    "focus_score": 5,
+    "evidence_score": 5,
+    "depth_score": 5,
+    "polish_score": 5,
+    "role_fit_score": 4,
+    "format_score": 5,
+    "report_score": 5,
+    "total_score": 34,
+}
+
+
+def _eval_row(case_id, variant, scores, note):
+    return {
+        "case_id": case_id,
+        "target_role": "Python 后端开发工程师",
+        "sample_origin": "demo_constructed",
+        "for_training": False,
+        "for_competition_demo": True,
+        "preview": True,
+        "model_variant": variant,
+        **scores,
+        "judge_note": note,
+    }
+
+
+def _eval_csv_row(case_id, variant, scores, note):
+    values = [
+        case_id,
+        "Python 后端开发工程师",
+        "demo_constructed",
+        "False",
+        "True",
+        "True",
+        variant,
+        *[str(scores[dimension]) for dimension in EVAL_DIMENSIONS],
+        str(scores["total_score"]),
+        note,
+    ]
+    return ",".join(values) + "\n"
 
 
 def test_generate_demo_cases_are_marked_as_preview_only():
@@ -50,10 +114,22 @@ def test_agent_trace_contains_resume_polish_and_eval_dimensions():
     trace = run_demo_pipeline(generate_demo_cases()[0])
 
     agents = [step.agent for step in trace.steps]
-    assert "ResumePolishAgent" in agents
+    assert agents == [
+        "ResumeEvidenceAgent",
+        "RoleProfileAgent",
+        "GapAnalysisAgent",
+        "ResumePolishAgent",
+        "InterviewFollowupAgent",
+        "ReportAgent",
+        "LearningTaskAgent",
+        "DataGovernanceAgent",
+        "EvalAgent",
+        "SFTPreviewAgent",
+    ]
     assert trace.for_training is False
     assert trace.sample_origin == "demo_constructed"
     assert trace.eval_score is not None
+    validate_trace_preview_asset(trace.model_dump())
 
     score = evaluate_trace(trace)
     assert score.total_score == sum(
@@ -122,20 +198,29 @@ def test_eval_rows_include_baseline_and_agent_variant_for_each_case():
         assert variants == ["baseline_prompt_preview", "agent_optimized"]
     assert all(row["total_score"] == 19 for row in rows if row["model_variant"] == "baseline_prompt_preview")
     assert all(row["total_score"] == 34 for row in rows if row["model_variant"] == "agent_optimized")
+    assert all(row["sample_origin"] == "demo_constructed" for row in rows)
+    assert all(row["for_training"] is False for row in rows)
+    assert all(row["for_competition_demo"] is True for row in rows)
+    assert all(row["preview"] is True for row in rows)
+    for row in rows:
+        assert row["total_score"] == sum(row[dimension] for dimension in EVAL_DIMENSIONS)
 
 
 def test_competition_api_rejects_incomplete_or_wrong_eval_rows(monkeypatch, tmp_path):
     eval_dir = tmp_path / "eval"
     eval_dir.mkdir()
     csv_path = eval_dir / "eval_score_table.csv"
-    header = "case_id,target_role,model_variant,total_score,judge_note\n"
+    header = (
+        "case_id,target_role,sample_origin,for_training,for_competition_demo,preview,model_variant,"
+        "focus_score,evidence_score,depth_score,polish_score,role_fit_score,format_score,report_score,total_score,judge_note\n"
+    )
     baseline_note = "Preview baseline rule score; not a real model run; not a holdout eval; not a fine-tuned model result."
     agent_note = "Preview rule score; not a real model run; not a holdout eval; not a fine-tuned model result."
 
     monkeypatch.setattr(competition_api, "_eval_dir", lambda: eval_dir)
 
     csv_path.write_text(
-        header + f"python_backend,Python 后端开发工程师,baseline_prompt_preview,19,{baseline_note}\n",
+        header + _eval_csv_row("python_backend", "baseline_prompt_preview", BASELINE_SCORES, baseline_note),
         encoding="utf-8",
     )
     with pytest.raises(HTTPException) as missing_exc:
@@ -144,8 +229,8 @@ def test_competition_api_rejects_incomplete_or_wrong_eval_rows(monkeypatch, tmp_
 
     csv_path.write_text(
         header
-        + f"python_backend,Python 后端开发工程师,baseline_prompt_preview,19,{baseline_note}\n"
-        + f"python_backend,Python 后端开发工程师,agent_optimized,33,{agent_note}\n",
+        + _eval_csv_row("python_backend", "baseline_prompt_preview", BASELINE_SCORES, baseline_note)
+        + _eval_csv_row("python_backend", "agent_optimized", {**AGENT_SCORES, "total_score": 33}, agent_note),
         encoding="utf-8",
     )
     with pytest.raises(HTTPException) as score_exc:
@@ -154,8 +239,8 @@ def test_competition_api_rejects_incomplete_or_wrong_eval_rows(monkeypatch, tmp_
 
     csv_path.write_text(
         header
-        + f"python_backend,Python 后端开发工程师,baseline_prompt_preview,19,{baseline_note}\n"
-        + f"python_backend,Python 后端开发工程师,agent_optimized,34,{agent_note}\n",
+        + _eval_csv_row("python_backend", "baseline_prompt_preview", BASELINE_SCORES, baseline_note)
+        + _eval_csv_row("python_backend", "agent_optimized", AGENT_SCORES, agent_note),
         encoding="utf-8",
     )
     rows = competition_api._load_eval_score_rows("python_backend")
@@ -272,6 +357,7 @@ def test_eval_preview_summary_guardrails_reject_pii_or_missing_boundary():
         "# Eval Preview Summary\n"
         "- 样本类型：`demo_constructed`\n"
         "- 评估类型：`preview/demo`\n"
+        "- 评分规则：七维规则评分，满分 `35`\n"
         "- 说明：`baseline_prompt_preview` 是规则基线，不是真实模型实测；"
         "不代表真实 holdout eval 或 fine-tuned model 结果。\n"
     )
@@ -286,23 +372,87 @@ def test_eval_preview_summary_guardrails_reject_pii_or_missing_boundary():
 
 def test_eval_score_row_guardrails_reject_missing_boundary():
     rows = [
-        {
-            "case_id": "python_backend",
-            "target_role": "Python 后端开发工程师",
-            "model_variant": "baseline_prompt_preview",
-            "total_score": 19,
-            "judge_note": "preview only",
-        },
-        {
-            "case_id": "python_backend",
-            "target_role": "Python 后端开发工程师",
-            "model_variant": "agent_optimized",
-            "total_score": 34,
-            "judge_note": "preview only",
-        },
+        _eval_row("python_backend", "baseline_prompt_preview", BASELINE_SCORES, "preview only"),
+        _eval_row("python_backend", "agent_optimized", AGENT_SCORES, "preview only"),
     ]
     with pytest.raises(ValueError, match="non-real-model boundary"):
         validate_eval_score_rows("python_backend", rows)
+
+
+def test_eval_score_row_guardrails_reject_missing_dimension_or_wrong_sum():
+    note = "Preview rule score; not a real model run; not a holdout eval; not a fine-tuned model result."
+    missing_dimension = _eval_row("python_backend", "baseline_prompt_preview", BASELINE_SCORES, note)
+    missing_dimension.pop("polish_score")
+    rows = [
+        missing_dimension,
+        _eval_row("python_backend", "agent_optimized", AGENT_SCORES, note),
+    ]
+    with pytest.raises(ValueError, match="polish_score"):
+        validate_eval_score_rows("python_backend", rows)
+
+    wrong_sum = _eval_row("python_backend", "agent_optimized", {**AGENT_SCORES, "total_score": 33}, note)
+    rows = [
+        _eval_row("python_backend", "baseline_prompt_preview", BASELINE_SCORES, note),
+        wrong_sum,
+    ]
+    with pytest.raises(ValueError, match="7-dimension sum"):
+        validate_eval_score_rows("python_backend", rows)
+
+
+def test_trace_guardrails_reject_incomplete_agent_order():
+    trace = run_demo_pipeline(generate_demo_cases()[0]).model_dump()
+    trace["steps"] = [step for step in trace["steps"] if step["agent"] != "SFTPreviewAgent"]
+
+    with pytest.raises(ValueError, match="complete Agent order"):
+        validate_trace_preview_asset(trace)
+
+
+def test_competition_eval_preview_api_includes_demo_flags():
+    response = asyncio.run(competition_api.get_eval_preview("python_backend"))
+    payload = json.loads(response.body)["data"]
+
+    assert payload["sample_origin"] == "demo_constructed"
+    assert payload["for_training"] is False
+    assert payload["for_competition_demo"] is True
+    assert payload["preview"] is True
+    assert [row["model_variant"] for row in payload["score_rows"]] == ["baseline_prompt_preview", "agent_optimized"]
+    assert all(row["sample_origin"] == "demo_constructed" for row in payload["score_rows"])
+    assert all(row["for_training"] in (False, "False", "false") for row in payload["score_rows"])
+
+
+def test_competition_demo_cases_api_includes_top_level_demo_flags():
+    response = asyncio.run(competition_api.list_demo_cases())
+    payload = json.loads(response.body)["data"]
+
+    assert payload["preview"] is True
+    assert payload["sample_origin"] == "demo_constructed"
+    assert payload["for_training"] is False
+    assert payload["for_competition_demo"] is True
+    assert [case["case_id"] for case in payload["items"]] == [
+        "python_backend",
+        "product_assistant",
+        "hr_specialist",
+    ]
+
+
+def test_sft_preview_summary_guardrails_require_competition_demo_counts():
+    bundle = build_sft_preview_bundle(generate_demo_cases())
+    validate_sft_preview_bundle(bundle["summary"], bundle["train"])
+
+    missing_created_for = {**bundle["summary"], "created_for": "other"}
+    with pytest.raises(ValueError, match="created_for=competition_demo"):
+        validate_sft_preview_bundle(missing_created_for, bundle["train"])
+
+    wrong_count = json.loads(json.dumps(bundle["summary"], ensure_ascii=False))
+    wrong_count["counts"]["demo_constructed"] = 2
+    with pytest.raises(ValueError, match="three demo_constructed cases"):
+        validate_sft_preview_bundle(wrong_count, bundle["train"])
+
+
+def test_legacy_demo_api_route_is_not_registered():
+    registry_path = Path(__file__).resolve().parents[1] / "app" / "route" / "router_registry.py"
+
+    assert "app.api.client.v1.demo" not in registry_path.read_text(encoding="utf-8")
 
 
 def test_generate_competition_assets_restores_sys_argv(monkeypatch, tmp_path):

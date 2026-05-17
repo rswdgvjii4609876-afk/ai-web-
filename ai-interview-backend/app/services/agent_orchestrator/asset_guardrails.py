@@ -8,6 +8,49 @@ from typing import Any, Dict, Iterable, List
 
 CASE_ORDER = ("python_backend", "product_assistant", "hr_specialist")
 CASE_ID_SET = set(CASE_ORDER)
+EVAL_DIMENSIONS = (
+    "focus_score",
+    "evidence_score",
+    "depth_score",
+    "polish_score",
+    "role_fit_score",
+    "format_score",
+    "report_score",
+)
+EXPECTED_EVAL_SCORES = {
+    "baseline_prompt_preview": {
+        "focus_score": 3,
+        "evidence_score": 2,
+        "depth_score": 3,
+        "polish_score": 2,
+        "role_fit_score": 3,
+        "format_score": 3,
+        "report_score": 3,
+        "total_score": 19,
+    },
+    "agent_optimized": {
+        "focus_score": 5,
+        "evidence_score": 5,
+        "depth_score": 5,
+        "polish_score": 5,
+        "role_fit_score": 4,
+        "format_score": 5,
+        "report_score": 5,
+        "total_score": 34,
+    },
+}
+TRACE_AGENT_ORDER = (
+    "ResumeEvidenceAgent",
+    "RoleProfileAgent",
+    "GapAnalysisAgent",
+    "ResumePolishAgent",
+    "InterviewFollowupAgent",
+    "ReportAgent",
+    "LearningTaskAgent",
+    "DataGovernanceAgent",
+    "EvalAgent",
+    "SFTPreviewAgent",
+)
 
 DIRECT_IDENTIFIER_PATTERNS = (
     re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
@@ -94,23 +137,128 @@ def validate_demo_case_set(cases: Iterable[Dict[str, Any]], *, label: str = "dem
     return sort_demo_cases(items)
 
 
+def _as_int(value: Any, *, label: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be an integer") from exc
+
+
+def _is_bool_flag(value: Any, expected: bool) -> bool:
+    if isinstance(value, bool):
+        return value is expected
+    normalized = str(value).strip().lower()
+    return normalized in {str(expected).lower(), "1" if expected else "0"}
+
+
+def _validate_eval_score_row(case_id: str, row: Dict[str, Any], *, label: str) -> None:
+    if str(row.get("case_id")) != case_id:
+        raise ValueError(f"{label} row case_id must match {case_id}")
+    if row.get("sample_origin") != "demo_constructed":
+        raise ValueError(f"{label} for {case_id} must use sample_origin=demo_constructed")
+    if not _is_bool_flag(row.get("for_training"), False):
+        raise ValueError(f"{label} for {case_id} must use for_training=false")
+    if not _is_bool_flag(row.get("for_competition_demo"), True):
+        raise ValueError(f"{label} for {case_id} must use for_competition_demo=true")
+    if not _is_bool_flag(row.get("preview"), True):
+        raise ValueError(f"{label} for {case_id} must use preview=true")
+    variant = str(row.get("model_variant"))
+    expected = EXPECTED_EVAL_SCORES.get(variant)
+    if expected is None:
+        raise ValueError(f"{label} uses unsupported model_variant={variant}")
+
+    dimension_values = {}
+    for dimension in EVAL_DIMENSIONS:
+        if dimension not in row:
+            raise ValueError(f"{label} for {case_id}/{variant} must include {dimension}")
+        value = _as_int(row.get(dimension), label=f"{label}.{dimension}")
+        if not 1 <= value <= 5:
+            raise ValueError(f"{label} for {case_id}/{variant} {dimension} must be between 1 and 5")
+        if value != expected[dimension]:
+            raise ValueError(f"{label} for {case_id}/{variant} {dimension} must be {expected[dimension]}")
+        dimension_values[dimension] = value
+
+    total_score = _as_int(row.get("total_score"), label=f"{label}.total_score")
+    if total_score != sum(dimension_values.values()):
+        raise ValueError(f"{label} for {case_id}/{variant} total_score must equal the 7-dimension sum")
+    if total_score != expected["total_score"]:
+        raise ValueError(f"{label} for {case_id}/{variant} must use total_score={expected['total_score']}")
+
+    judge_note = str(row.get("judge_note", ""))
+    required_note_fragments = (
+        "not a real model run",
+        "not a holdout eval",
+        "not a fine-tuned model result",
+    )
+    if any(fragment not in judge_note for fragment in required_note_fragments):
+        raise ValueError(f"{label} for {case_id}/{variant} must include non-real-model boundary")
+
+
 def validate_trace_preview_asset(trace: Dict[str, Any], *, label: str = "trace") -> None:
     validate_demo_preview_asset(trace, label=label)
-    if trace.get("eval_score", {}).get("total_score", 0) > 35:
-        raise ValueError(f"{label} eval_score.total_score must be <= 35")
     steps = trace.get("steps") or []
-    if not any(step.get("agent") == "ResumePolishAgent" for step in steps):
-        raise ValueError(f"{label} must include ResumePolishAgent")
+    step_agents = [step.get("agent") for step in steps]
+    if tuple(step_agents) != TRACE_AGENT_ORDER:
+        raise ValueError(f"{label} must include the complete Agent order: {', '.join(TRACE_AGENT_ORDER)}")
+    for index, step in enumerate(steps, start=1):
+        if int(step.get("step", -1)) != index:
+            raise ValueError(f"{label} step numbers must be continuous from 1 to {len(TRACE_AGENT_ORDER)}")
+        if not isinstance(step.get("output"), dict):
+            raise ValueError(f"{label} step {index} output must be an object")
+
+    data_governance = steps[7].get("output") or {}
+    validate_demo_preview_asset(
+        {
+            "case_id": trace.get("case_id"),
+            "sample_origin": data_governance.get("sample_origin"),
+            "for_training": data_governance.get("for_training"),
+            "for_competition_demo": data_governance.get("for_competition_demo"),
+        },
+        label=f"{label}.DataGovernanceAgent",
+    )
+    if "不作为真实训练样本" not in str(data_governance.get("claim", "")):
+        raise ValueError(f"{label}.DataGovernanceAgent must state the non-training claim boundary")
+
+    eval_score = trace.get("eval_score") or {}
+    eval_row = {
+        "case_id": trace.get("case_id"),
+        "target_role": trace.get("target_role"),
+        "sample_origin": trace.get("sample_origin"),
+        "for_training": trace.get("for_training"),
+        "for_competition_demo": trace.get("for_competition_demo"),
+        "preview": True,
+        "model_variant": "agent_optimized",
+        **eval_score,
+    }
+    _validate_eval_score_row(str(trace.get("case_id")), eval_row, label=f"{label}.eval_score")
+    if steps[8].get("output") != eval_score:
+        raise ValueError(f"{label}.EvalAgent output must match trace.eval_score")
+
+    sft_summary = trace.get("sft_preview_summary") or {}
+    validate_sft_preview_summary(sft_summary, label=f"{label}.sft_preview_summary")
+    if steps[9].get("output") != sft_summary:
+        raise ValueError(f"{label}.SFTPreviewAgent output must match trace.sft_preview_summary")
 
 
 def validate_sft_preview_summary(summary: Dict[str, Any], *, label: str = "sft summary") -> None:
     if summary.get("dataset_type") != "sft_preview":
         raise ValueError(f"{label} must use dataset_type=sft_preview")
+    if summary.get("created_for") != "competition_demo":
+        raise ValueError(f"{label} must use created_for=competition_demo")
     if summary.get("ready_for_real_training") is not False:
         raise ValueError(f"{label} must use ready_for_real_training=false")
     counts = summary.get("counts") or {}
     if counts.get("real_authorized", 0) != 0:
         raise ValueError(f"{label} must not claim real_authorized samples")
+    demo_count = _as_int(counts.get("demo_constructed"), label=f"{label}.counts.demo_constructed")
+    if demo_count != len(CASE_ORDER):
+        raise ValueError(f"{label} must cover the three demo_constructed cases")
+    train_preview_count = _as_int(
+        counts.get("train_preview_records"),
+        label=f"{label}.counts.train_preview_records",
+    )
+    if train_preview_count < demo_count:
+        raise ValueError(f"{label} must include at least one preview record per demo case")
     validate_no_direct_identifiers(summary, label=label)
 
 
@@ -140,6 +288,7 @@ def validate_eval_preview_summary(summary: str, *, label: str = "eval summary") 
         "baseline_prompt_preview",
         "demo_constructed",
         "preview",
+        "35",
     )
     missing = [fragment for fragment in required_fragments if fragment not in summary]
     boundary_ok = (
@@ -147,9 +296,11 @@ def validate_eval_preview_summary(summary: str, *, label: str = "eval summary") 
         or "not a real holdout eval" in summary
         or "not a holdout eval" in summary
     )
+    model_run_ok = "不是真实模型实测" in summary or "not a real model run" in summary
     fine_tune_ok = "fine-tuned model" in summary or "真实微调" in summary
-    if missing or not boundary_ok or not fine_tune_ok:
-        raise ValueError(f"{label} must clearly mark demo/preview baseline and non-real-eval boundary")
+    dimension_ok = "七维" in summary or "7维" in summary or "7 维" in summary or "dimensions=7" in summary
+    if missing or not boundary_ok or not model_run_ok or not fine_tune_ok or not dimension_ok:
+        raise ValueError(f"{label} must clearly mark demo/preview baseline, 7-dimension score, and non-real-eval boundary")
 
 
 def validate_eval_score_rows(case_id: str, rows: List[Dict[str, Any]], *, label: str = "eval score rows") -> List[Dict[str, Any]]:
@@ -160,19 +311,6 @@ def validate_eval_score_rows(case_id: str, rows: List[Dict[str, Any]], *, label:
     variants = [row.get("model_variant") for row in rows]
     if variants != ["baseline_prompt_preview", "agent_optimized"]:
         raise ValueError(f"{label} for {case_id} must use baseline_prompt_preview then agent_optimized")
-    expected_scores = {"baseline_prompt_preview": 19, "agent_optimized": 34}
     for row in rows:
-        if str(row.get("case_id")) != case_id:
-            raise ValueError(f"{label} row case_id must match {case_id}")
-        variant = str(row.get("model_variant"))
-        if int(row.get("total_score", -1)) != expected_scores[variant]:
-            raise ValueError(f"{label} for {case_id}/{variant} must use total_score={expected_scores[variant]}")
-        judge_note = str(row.get("judge_note", ""))
-        required_note_fragments = (
-            "not a real model run",
-            "not a holdout eval",
-            "not a fine-tuned model result",
-        )
-        if any(fragment not in judge_note for fragment in required_note_fragments):
-            raise ValueError(f"{label} for {case_id}/{variant} must include non-real-model boundary")
+        _validate_eval_score_row(case_id, row, label=label)
     return rows

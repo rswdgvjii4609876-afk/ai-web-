@@ -3,7 +3,7 @@ from typing import Any, Dict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.exceptions.http_exceptions import NotFoundError
+from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.models.interview import Interview
 from app.models.training_review import TrainingReview
 
@@ -19,13 +19,21 @@ class TrainingReviewService:
         return text[:max_length] if max_length else text
 
     @staticmethod
-    async def _ensure_interview_owner(db: AsyncSession, user_id: int, interview_id: int) -> Interview:
+    async def _ensure_interview_owner(
+        db: AsyncSession,
+        user_id: int,
+        interview_id: int,
+        *,
+        require_completed: bool = False,
+    ) -> Interview:
         result = await db.execute(
             select(Interview).where(Interview.id == interview_id, Interview.user_id == user_id)
         )
         interview = result.scalar_one_or_none()
         if not interview:
             raise NotFoundError(message="面试记录不存在")
+        if require_completed and interview.status != "completed":
+            raise ValidationError(message="面试尚未完成，暂不能保存训练复盘")
         return interview
 
     @staticmethod
@@ -68,7 +76,12 @@ class TrainingReviewService:
         interview_id: int,
         data: Dict[str, Any],
     ) -> Dict[str, Any]:
-        await TrainingReviewService._ensure_interview_owner(db, user_id, interview_id)
+        await TrainingReviewService._ensure_interview_owner(
+            db,
+            user_id,
+            interview_id,
+            require_completed=True,
+        )
         result = await db.execute(
             select(TrainingReview).where(
                 TrainingReview.user_id == user_id,

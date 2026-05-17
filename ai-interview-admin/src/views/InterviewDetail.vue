@@ -85,18 +85,19 @@
         </div>
 
         <div class="review-actions">
-          <button class="btn-primary" :disabled="saveLoading || !detailAuthorized" @click="saveReview">
-            {{ saveLoading ? '保存中...' : detailAuthorized ? '保存标注' : '未授权，不能标注' }}
+          <button class="btn-primary" :disabled="saveLoading || !canSaveReview" @click="saveReview">
+            {{ saveLoading ? '保存中...' : canSaveReview ? '保存标注' : '不能标注' }}
           </button>
           <button
             class="btn-secondary"
-            :disabled="exportLoading || detail.status !== 'completed' || !detailAuthorized"
+            :disabled="exportLoading || !canExportSample"
             @click="downloadTrainingSample"
           >
             {{ exportLoading ? '导出中...' : '导出评测样本 JSON' }}
           </button>
           <span class="helper-text" v-if="detail.status !== 'completed'">仅已完成测评可导出评测样本</span>
           <span class="helper-text" v-else-if="!detailAuthorized">仅已获得本次案例数据贡献授权的测评可导出</span>
+          <span class="helper-text" v-else-if="!authStore.canExportDatasets">当前账号没有数据导出权限</span>
         </div>
 
         <p v-if="reviewNotice" :class="['review-notice', reviewNoticeType === 'error' ? 'notice-error' : 'notice-success']">
@@ -138,8 +139,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { interviewApi } from '../api'
+import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
+const authStore = useAuthStore()
 const interviewId = route.params.id
 const detail = ref(null)
 const loading = ref(true)
@@ -186,6 +189,18 @@ const reviewStatusClass = computed(() => (
 ))
 
 const detailAuthorized = computed(() => Boolean(detail.value?.data_contribution_consent))
+const detailReviewed = computed(() => detail.value?.training_sample_review?.review_status === 'reviewed')
+const canSaveReview = computed(() => (
+  detailAuthorized.value &&
+  authStore.canReviewCases &&
+  detail.value?.status === 'completed'
+))
+const canExportSample = computed(() => (
+  detailAuthorized.value &&
+  authStore.canExportDatasets &&
+  detail.value?.status === 'completed' &&
+  detailReviewed.value
+))
 
 const exportRecommended = computed(() => (
   detailAuthorized.value && !!reviewForm.value.is_high_quality && !reviewForm.value.has_hallucination
@@ -220,9 +235,11 @@ const loadDetail = async () => {
 }
 
 const saveReview = async () => {
-  if (!detailAuthorized.value) {
+  if (!canSaveReview.value) {
     reviewNoticeType.value = 'error'
-    reviewNotice.value = '该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程。'
+    reviewNotice.value = detailAuthorized.value
+      ? '当前账号没有人工评分权限，或该面试尚未完成。'
+      : '该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程。'
     return
   }
   saveLoading.value = true
@@ -242,9 +259,11 @@ const saveReview = async () => {
 }
 
 const downloadTrainingSample = async () => {
-  if (!detailAuthorized.value) {
+  if (!canExportSample.value) {
     reviewNoticeType.value = 'error'
-    reviewNotice.value = '该面试未获得去标识化数据贡献授权，不能导出评测样本。'
+    reviewNotice.value = detailAuthorized.value
+      ? '当前账号没有数据导出权限，或该样本尚未完成人工复核。'
+      : '该面试未获得去标识化数据贡献授权，不能导出评测样本。'
     return
   }
   exportLoading.value = true

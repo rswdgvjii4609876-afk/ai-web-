@@ -81,6 +81,31 @@ class LearningTaskService:
         return value if isinstance(value, (dict, list)) else None
 
     @staticmethod
+    def _quality(task: Dict[str, Any]) -> Dict[str, Any]:
+        issues: List[str] = []
+        if not LearningTaskService._text(task.get("learning_material")):
+            issues.append("学习材料")
+        if not LearningTaskService._text(task.get("practice_task")):
+            issues.append("练习任务")
+        if not LearningTaskService._normalize_criteria(task.get("acceptance_criteria")):
+            issues.append("验收方式")
+        if not LearningTaskService._int_or_none(task.get("estimated_minutes")):
+            issues.append("预计耗时")
+        if not LearningTaskService._text(
+            task.get("evidence_basis") or task.get("route_stage") or task.get("route_source")
+        ):
+            issues.append("来源依据或路线阶段")
+
+        passed = 5 - len(issues)
+        level = "high" if passed >= 5 else "usable" if passed >= 3 else "needs_improvement"
+        label = {
+            "high": "高质量",
+            "usable": "可用",
+            "needs_improvement": "待完善",
+        }[level]
+        return {"quality_level": level, "quality_label": label, "quality_issues": issues}
+
+    @staticmethod
     def _normalize_input(data: Dict[str, Any]) -> Dict[str, Any]:
         title = LearningTaskService._text(data.get("title"))
         ability_name = LearningTaskService._clean_optional(
@@ -148,7 +173,7 @@ class LearningTaskService:
     @staticmethod
     def _serialize(item: LearningTask) -> Dict[str, Any]:
         task_key = item.task_key
-        return {
+        payload = {
             "id": item.id,
             "task_key": task_key,
             "task_id": task_key,
@@ -176,6 +201,8 @@ class LearningTaskService:
             "created_at": item.created_at.isoformat() if item.created_at else "",
             "updated_at": item.updated_at.isoformat() if item.updated_at else "",
         }
+        payload.update(LearningTaskService._quality(payload))
+        return payload
 
     @staticmethod
     def _list_response(items: Iterable[LearningTask]) -> Dict[str, Any]:

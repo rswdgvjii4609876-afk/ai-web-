@@ -170,11 +170,15 @@ class LearningPlanService:
         db: AsyncSession,
         *,
         route_kind: Optional[str] = None,
+        plan_group: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         await learning_route_service.ensure_seeded_from_builtins(db)
         query = select(LearningRouteStage).where(LearningRouteStage.is_active.is_(True))
         if route_kind:
             query = query.where(LearningRouteStage.route_kind == route_kind)
+        group = cls._text(plan_group)
+        if group:
+            query = query.where(LearningRouteStage.plan_group == group)
         query = query.order_by(LearningRouteStage.sort_order.asc(), LearningRouteStage.id.asc())
         result = await db.execute(query)
         return [
@@ -205,6 +209,13 @@ class LearningPlanService:
         profile = MatchingEngine._resolve_profile(target_position)
         tasks: List[Dict[str, Any]] = []
         resolver = cls._resolver_from_records(records)
+        plan_groups = sorted(
+            {
+                cls._text(route.get("plan_group"))
+                for route in records
+                if cls._text(route.get("plan_group"))
+            }
+        )
         for index, ability in enumerate(abilities[:8], start=1):
             task = MatchingEngine._build_learning_task(
                 item=ability,
@@ -219,6 +230,7 @@ class LearningPlanService:
                 **(task.get("task_metadata") or {}),
                 "learning_plan_version": LEARNING_PLAN_V2,
                 "route_kind": "mature_plan" if any(route.get("route_kind") == "mature_plan" for route in records) else "template",
+                "plan_group": plan_groups[0] if len(plan_groups) == 1 else "",
                 "source_evidence_status": ability.get("evidence_status") or "needs_verification",
                 "source_verification_priority": ability.get("verification_priority") or "medium",
             }
@@ -390,13 +402,20 @@ class LearningPlanService:
 
         try:
             route_kind = "mature_plan" if mode == "mature_plan" else "template"
-            records = await cls._route_records(db, route_kind=route_kind)
+            mature_plan_group = cls._text(payload.get("mature_plan_group")) if mode == "mature_plan" else ""
+            records = await cls._route_records(
+                db,
+                route_kind=route_kind,
+                plan_group=mature_plan_group or None,
+            )
         except SQLAlchemyError as exc:
             await db.rollback()
             logger.exception("Learning plan route lookup failed: %s", exc)
             raise ValidationError(message=user_facing_db_error(exc)) from exc
 
         if mode == "mature_plan" and not records:
+            if cls._text(payload.get("mature_plan_group")):
+                raise ValidationError(message="所选成熟学习计划暂无启用阶段，请重新选择计划或联系管理员。")
             raise ValidationError(message="后台暂无启用的成熟学习计划，请先选择 AI 生成，或让管理员复制模板为成熟计划。")
         if not records:
             records = []
@@ -410,6 +429,7 @@ class LearningPlanService:
             {
                 "mode": mode,
                 "allow_web_search": bool(payload.get("allow_web_search")),
+                "mature_plan_group": cls._text(payload.get("mature_plan_group")),
                 "supplemental_materials_used": bool(supplemental_text),
                 "resource_requirement": "只支持轻量文本、链接和摘要；不要上传大型文件。",
             }

@@ -224,7 +224,14 @@
 ```json
 {
   "dataset_type": "sft_preview",
+  "created_for": "competition_demo",
   "ready_for_real_training": false,
+  "counts": {
+    "demo_constructed": 3,
+    "real_authorized": 0,
+    "train_preview_records": 6,
+    "validation_preview_records": 0
+  },
   "preview_tasks": [
     "interview_followup",
     "evidence_bound_resume_polish"

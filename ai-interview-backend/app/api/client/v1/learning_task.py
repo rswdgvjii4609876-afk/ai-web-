@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.client.deps import get_current_user
+from app.api.client.deps import require_base_privacy_consent
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.client.learning_task import LearningTaskBulkUpsert, LearningTaskPatch
@@ -13,7 +13,7 @@ router = APIRouter()
 
 @router.get("")
 async def list_learning_tasks(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await learning_task_service.list_tasks(db=db, user_id=current_user.id)
@@ -23,7 +23,7 @@ async def list_learning_tasks(
 @router.post("/bulk-upsert")
 async def bulk_upsert_learning_tasks(
     payload: LearningTaskBulkUpsert,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     tasks = [item.model_dump(exclude_unset=True) for item in payload.tasks]
@@ -40,7 +40,7 @@ async def bulk_upsert_learning_tasks(
 async def patch_learning_task(
     task_key: str,
     payload: LearningTaskPatch,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await learning_task_service.patch_task(
@@ -55,7 +55,7 @@ async def patch_learning_task(
 @router.delete("/{task_key}")
 async def delete_learning_task(
     task_key: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await learning_task_service.delete_task(db=db, user_id=current_user.id, task_key=task_key)

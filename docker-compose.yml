@@ -31,6 +31,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -88,6 +90,29 @@ services:
       retries: 5
       start_period: 10s
 
+  migrate:
+    build:
+      context: ./ai-interview-backend
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+        APT_DEBIAN_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian
+        APT_SECURITY_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian-security
+    image: ai-interview-backend:prod
+    container_name: ai-interview-migrate
+    restart: "no"
+    env_file:
+      - ./.env
+    environment:
+      ENV: production
+    command: alembic upgrade head
+    networks:
+      - ai-private
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   celery-worker:
     build:
       context: ./ai-interview-backend
@@ -104,7 +129,7 @@ services:
       - ./.env
     environment:
       ENV: production
-    command: celery -A app.core.celery_app worker --loglevel=info
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
     volumes:
       - ./ai-interview-backend/logs:/app/logs
       - ./ai-interview-backend/uploads:/app/uploads
@@ -117,6 +142,12 @@ services:
         condition: service_healthy
       app:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.celery_app inspect ping -d celery@$HOSTNAME | grep -q OK"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
 
   celery-beat:
     build:
@@ -148,6 +179,12 @@ services:
         condition: service_healthy
       app:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'celery -A app.core.celery_app beat'"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
 
   frontend:
     build:
@@ -191,6 +228,23 @@ services:
     depends_on:
       app:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  portal:
+    build:
+      context: ./portal
+      dockerfile: Dockerfile
+    image: ai-interview-portal:prod
+    container_name: ai-interview-portal
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORTAL_LOCAL_PORT:-13002}:80"
+    networks:
+      - shared_gateway
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
       interval: 30s

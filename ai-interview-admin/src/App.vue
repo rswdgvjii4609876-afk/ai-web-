@@ -25,10 +25,10 @@
         <router-link to="/learning-routes" active-class="active">
           <span class="nav-icon">▣</span> 学习路线管理
         </router-link>
-        <router-link to="/cases" active-class="active">
+        <router-link v-if="authStore.canReviewCases" to="/cases" active-class="active">
           <span class="nav-icon">□</span> 案例标注
         </router-link>
-        <router-link to="/evaluation-datasets" active-class="active">
+        <router-link v-if="authStore.canExportDatasets" to="/evaluation-datasets" active-class="active">
           <span class="nav-icon">🧪</span> 评测样本
         </router-link>
         <router-link to="/interviews" active-class="active">

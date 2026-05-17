@@ -80,6 +80,9 @@ async def create_first_admin() -> None:
             password=Admin.get_password_hash(password),
             role="superadmin",
             can_manage_admins=email.lower() == ROOT_ADMIN_EMAIL,
+            can_review_cases=email.lower() == ROOT_ADMIN_EMAIL,
+            can_export_datasets=email.lower() == ROOT_ADMIN_EMAIL,
+            can_delete_records=email.lower() == ROOT_ADMIN_EMAIL,
             is_active=True,
         )
 

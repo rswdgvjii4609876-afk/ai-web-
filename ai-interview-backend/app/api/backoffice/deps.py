@@ -28,3 +28,35 @@ async def get_current_admin(
     if admin is None or not admin.is_active:
         raise HTTPException(status_code=403, detail="Inactive admin")
     return admin
+
+
+def _has_admin_permission(admin: Admin, permission: str) -> bool:
+    return bool(getattr(admin, "is_root_admin", False)) or bool(getattr(admin, permission, False))
+
+
+def _forbid(message: str) -> None:
+    raise HTTPException(status_code=403, detail=message)
+
+
+async def require_case_reviewer_admin(
+    current_admin: Admin = Depends(get_current_admin),
+) -> Admin:
+    if not _has_admin_permission(current_admin, "can_review_cases"):
+        _forbid("Not enough permissions to review cases")
+    return current_admin
+
+
+async def require_dataset_export_admin(
+    current_admin: Admin = Depends(get_current_admin),
+) -> Admin:
+    if not _has_admin_permission(current_admin, "can_export_datasets"):
+        _forbid("Not enough permissions to export datasets")
+    return current_admin
+
+
+async def require_record_delete_admin(
+    current_admin: Admin = Depends(get_current_admin),
+) -> Admin:
+    if not _has_admin_permission(current_admin, "can_delete_records"):
+        _forbid("Not enough permissions to delete records")
+    return current_admin

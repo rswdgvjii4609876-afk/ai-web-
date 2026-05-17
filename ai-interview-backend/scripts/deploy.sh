@@ -8,7 +8,7 @@ set -e  # Exit on any error
 # Configuration
 COMPOSE_FILES="${COMPOSE_FILES:-"-f docker-compose.yml -f docker-compose.prod.yml"}"
 API_PORT="${API_PORT:-8001}"
-HEALTH_ENDPOINT="http://localhost:${API_PORT}/api/v1/config/health"
+HEALTH_ENDPOINT="http://127.0.0.1:${API_PORT}/api/v1/config/health"
 TIMEOUT=120
 
 echo "🚀 Starting Prepwise deployment..."
@@ -30,7 +30,7 @@ check_health() {
     echo "⏳ Waiting for application to be ready..."
 
     while [ $timeout -gt 0 ]; do
-        if curl -f $HEALTH_ENDPOINT >/dev/null 2>&1; then
+        if docker compose $COMPOSE_FILES exec -T app python -c "import urllib.request; urllib.request.urlopen('${HEALTH_ENDPOINT}')" >/dev/null 2>&1; then
             echo "✅ Application is ready!"
             return 0
         fi
@@ -95,7 +95,7 @@ main() {
 
     # Final health check
     echo "🏥 Final health check..."
-    if curl -f $HEALTH_ENDPOINT; then
+    if docker compose $COMPOSE_FILES exec -T app python -c "import urllib.request; print(urllib.request.urlopen('${HEALTH_ENDPOINT}').read().decode())"; then
         echo "✅ Deployment completed successfully!"
         echo "🔗 Application is available at: $HEALTH_ENDPOINT"
     else

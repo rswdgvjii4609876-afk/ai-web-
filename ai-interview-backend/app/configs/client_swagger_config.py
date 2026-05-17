@@ -132,14 +132,6 @@ CLIENT_OPENAPI_TAGS = [
         },
     },
     {
-        "name": "client-demo",
-        "description": "Client demonstration interfaces",
-        "externalDocs": {
-            "description": "Learn more",
-            "url": "https://fastapi.tiangolo.com/",
-        },
-    },
-    {
         "name": "client-config",
         "description": "Client configuration interfaces",
         "externalDocs": {

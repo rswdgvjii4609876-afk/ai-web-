@@ -16,7 +16,10 @@ class PrivacyConsentService:
 
     @staticmethod
     def has_base_consent(user: User) -> bool:
-        return bool(getattr(user, "privacy_agreed_at", None))
+        return (
+            bool(getattr(user, "privacy_agreed_at", None))
+            and getattr(user, "privacy_policy_version", None) == PRIVACY_POLICY_VERSION
+        )
 
     @staticmethod
     def apply_base_consent(user: User, *, agreed: bool) -> None:
@@ -40,6 +43,8 @@ class PrivacyConsentService:
         user: User,
         explicit_consent: Optional[bool] = None,
     ) -> bool:
+        if not PrivacyConsentService.has_base_consent(user):
+            return False
         if explicit_consent is not None:
             return bool(explicit_consent)
         return bool(getattr(user, "data_contribution_consent", False))

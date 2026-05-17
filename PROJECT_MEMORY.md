@@ -1,5 +1,21 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-17 最新主线：阶段 152-158 全链条代码审查修复
+
+当前最高优先级已从单点 Career-AgentOS Preview 修复，升级为全链条代码级收口。依据 6 个子 agent 的审查结果，本轮按“数据安全优先、用户闭环第二、比赛展示第三、SFT 真实训练门禁第四、部署收口最后”执行阶段 152-158。
+
+已落地的阶段口径：
+
+- 阶段 152：P0 数据安全与隐私授权硬门禁。基础隐私协议必须匹配当前版本；未同意基础协议的老用户不能继续上传、润色、学习计划、面试、报告或训练复盘；生产环境不公开 `uploads/resumes`，只公开头像；生产环境不挂载 client/backoffice Swagger/OpenAPI。
+- 阶段 153：后台权限、人工评分与导出准入。新增 `can_review_cases`、`can_export_datasets`、`can_delete_records`；训练/评测导出统一要求本次案例授权、面试完成、人工复核 `review_status=reviewed`，并执行 PII 脱敏/拦截。
+- 阶段 154：用户主链路稳定性。流式答题使用统一 API baseURL/token 处理；答题提交增加 `question_index` 与状态保护；RAG/岗位知识库只能作为岗位要求和追问参考，不能写成候选人真实经历；报告坏 JSON 不再静默伪装为空报告。
+- 阶段 155：简历润色、快照与学习任务质量。简历润色增加“可改但不造假”确定性校验；学习计划优先使用 `resume_evaluation_snapshot`；学习任务质量由后端计算并返回。
+- 阶段 156：Career-AgentOS Preview 严谨化。Eval Preview 固定 7 维 35 分；每个 case 必须包含 `baseline_prompt_preview=19/35` 与 `agent_optimized=34/35`；Trace 必须包含完整 Agent 顺序；旧 `/api/v1/demo/competition` 与旧 `CompetitionDemo.vue` 已清理。
+- 阶段 157：OpenAI SFT 真实训练门禁。`--real-jsonl` 已禁用，避免自声明 JSONL 伪造授权/复核元数据；create/check/eval 全部进入 shared preflight，未授权、未复核、含 PII、样本不足、job 不匹配或非官方 OpenAI base URL 均不得创建或绑定真实 job。
+- 阶段 158：部署与健康检查。health 增加 Alembic head 检查；生产配置增加 fail-fast；Celery 并发进入数据库容量预算；部署文档统一根目录 `docker compose` 口径。
+
+当前仍不能宣称：C1/C2/C3 真实闭环已通过、真实 OpenAI SFT 已完成、已有 `fine_tuned_model`、构造样本是真实用户数据、微调效果有固定百分比提升。
+
 更新时间：2026-05-17
 
 项目目录：`D:\apps\ai-interview`  

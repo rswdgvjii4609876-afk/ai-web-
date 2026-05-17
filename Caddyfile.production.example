@@ -15,7 +15,7 @@
 <AI_INTERVIEW_DOMAIN> {
     encode gzip zstd
 
-    @backend path /api/* /uploads/* /client/* /backoffice/*
+    @backend path /api/* /uploads/avatars/*
     handle @backend {
         reverse_proxy ai-interview-app:8001
     }
@@ -28,7 +28,7 @@
 <AI_INTERVIEW_ADMIN_DOMAIN> {
     encode gzip zstd
 
-    @backend path /api/* /uploads/* /client/* /backoffice/*
+    @backend path /api/* /uploads/avatars/*
     handle @backend {
         reverse_proxy ai-interview-app:8001
     }

@@ -8,13 +8,13 @@
         </p>
       </div>
       <div class="head-actions">
-        <button class="btn-primary" :disabled="exportLoading || !hasCompletedSamples" @click="downloadBundle">
+        <button class="btn-primary" :disabled="exportLoading || !authStore.canExportDatasets || !hasCompletedSamples" @click="downloadBundle">
           {{ exportLoading ? '导出中...' : '导出验证数据 ZIP' }}
         </button>
-        <button class="btn-secondary" :disabled="fineTuningExportLoading || !hasFineTuningSamples" @click="downloadFineTuningJsonl">
+        <button class="btn-secondary" :disabled="fineTuningExportLoading || !authStore.canExportDatasets || !hasFineTuningSamples" @click="downloadFineTuningJsonl">
           {{ fineTuningExportLoading ? '导出中...' : '导出微调 JSONL' }}
         </button>
-        <button class="btn-secondary" :disabled="reportExportLoading" @click="downloadFineTuningReport">
+        <button class="btn-secondary" :disabled="reportExportLoading || !authStore.canExportDatasets" @click="downloadFineTuningReport">
           {{ reportExportLoading ? '导出中...' : '导出准备报告 MD' }}
         </button>
       </div>
@@ -215,7 +215,9 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { competitionApi, interviewApi } from '../api'
+import { useAuthStore } from '../stores/auth'
 
+const authStore = useAuthStore()
 const loading = ref(true)
 const exportLoading = ref(false)
 const fineTuningExportLoading = ref(false)
@@ -255,6 +257,7 @@ const loadPreview = async () => {
 }
 
 const downloadBundle = async () => {
+  if (!authStore.canExportDatasets) return
   exportLoading.value = true
   noticeMessage.value = ''
   try {
@@ -292,6 +295,7 @@ const loadCompetitionPreview = async () => {
 }
 
 const downloadFineTuningJsonl = async () => {
+  if (!authStore.canExportDatasets) return
   fineTuningExportLoading.value = true
   noticeMessage.value = ''
   try {
@@ -316,6 +320,7 @@ const downloadFineTuningJsonl = async () => {
 }
 
 const downloadFineTuningReport = async () => {
+  if (!authStore.canExportDatasets) return
   reportExportLoading.value = true
   noticeMessage.value = ''
   try {

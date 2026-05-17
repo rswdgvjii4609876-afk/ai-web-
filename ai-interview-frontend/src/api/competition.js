@@ -1,6 +1,6 @@
 import api from './request'
 
-export function getCompetitionDemoCases() {
+export function getCompetitionCases() {
   return api.get('/competition/demo-cases')
 }
 

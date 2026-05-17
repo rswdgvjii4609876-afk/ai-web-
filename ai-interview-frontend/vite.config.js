@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
           target: devProxyTarget,
           changeOrigin: true
         },
-        '/uploads': {
+        '/uploads/avatars': {
           target: devProxyTarget,
           changeOrigin: true
         }

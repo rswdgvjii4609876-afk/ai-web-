@@ -41,6 +41,51 @@ async function refreshAccessToken() {
   return payload.data.access_token
 }
 
+export function buildApiUrl(path) {
+  if (/^https?:\/\//i.test(path)) return path
+  const normalizedBase = baseURL.replace(/\/+$/, '')
+  const normalizedPath = String(path || '').replace(/^\/+/, '')
+  return `${normalizedBase}/${normalizedPath}`
+}
+
+function withAuthHeaders(options, token) {
+  const headers = new Headers(options.headers || {})
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  return {
+    ...options,
+    headers
+  }
+}
+
+export async function fetchWithAuthRetry(path, options = {}) {
+  const authStore = useAuthStore()
+  const url = buildApiUrl(path)
+  let response = await fetch(url, withAuthHeaders(options, authStore.token))
+
+  if ((response.status === 401 || response.status === 403) && !String(path).includes('/auth/refresh')) {
+    try {
+      refreshPromise = refreshPromise || refreshAccessToken()
+      const nextToken = await refreshPromise
+      response = await fetch(url, withAuthHeaders(options, nextToken))
+    } catch (refreshError) {
+      authStore.logout()
+      router.push('/login')
+      throw new Error(refreshError.message || '登录状态已失效，请重新登录')
+    } finally {
+      refreshPromise = null
+    }
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    authStore.logout()
+    router.push('/login')
+  }
+
+  return response
+}
+
 api.interceptors.request.use(config => {
   const authStore = useAuthStore()
   if (authStore.token) {

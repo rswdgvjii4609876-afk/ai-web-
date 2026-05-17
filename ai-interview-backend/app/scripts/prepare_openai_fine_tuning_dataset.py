@@ -15,7 +15,6 @@ from app.services.client.openai_fine_tuning_service import (
     DEFAULT_OUTPUT_ROOT,
     build_openai_fine_tuning_dataset,
     load_constructed_seed_records,
-    load_json_records,
     load_jsonl_records,
     write_openai_fine_tuning_bundle,
 )
@@ -55,9 +54,13 @@ async def main() -> int:
     parser = argparse.ArgumentParser(
         description="Prepare OpenAI chat fine-tuning JSONL from reviewed authorized samples and constructed seeds."
     )
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_ROOT / "latest"))
+    parser.add_argument("--output-dir", "--dataset-dir", dest="output_dir", default=str(DEFAULT_OUTPUT_ROOT / "latest"))
     parser.add_argument("--constructed-path", default=str(DEFAULT_CONSTRUCTED_SAMPLES_PATH))
-    parser.add_argument("--real-jsonl", default="", help="Optional existing internal fine_tuning_sft.jsonl file.")
+    parser.add_argument(
+        "--real-jsonl",
+        default="",
+        help="Disabled until a trusted reviewed-export manifest is implemented; use DB-reviewed samples only.",
+    )
     parser.add_argument("--skip-db", action="store_true", help="Do not read real samples from the database.")
     parser.add_argument("--no-constructed", action="store_true", help="Do not include constructed seed samples.")
     parser.add_argument("--db-limit", type=int, default=None)
@@ -68,7 +71,10 @@ async def main() -> int:
 
     real_records: List[Dict[str, Any]] = []
     if args.real_jsonl:
-        real_records.extend(load_json_records(Path(args.real_jsonl)))
+        raise SystemExit(
+            "--real-jsonl is disabled for OpenAI SFT preparation because self-declared JSONL metadata "
+            "cannot prove privacy authorization or manual review. Use the database/backoffice reviewed export path."
+        )
     if not args.skip_db:
         try:
             real_records.extend(await _load_real_records_from_db(limit=args.db_limit))

@@ -5,7 +5,10 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.db.session import get_db
 from app.core.security import AuthBase
+from app.constants.privacy import BASE_PRIVACY_CONSENT_ERROR
+from app.exceptions.http_exceptions import ValidationError
 from app.models.user import User
+from app.services.client.privacy_consent_service import privacy_consent_service
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
 
@@ -31,3 +34,11 @@ async def get_current_user(
     if not user.is_active:
         raise HTTPException(status_code=401, detail="用户已被禁用")
     return user
+
+
+async def require_base_privacy_consent(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if not privacy_consent_service.has_base_consent(current_user):
+        raise ValidationError(message=BASE_PRIVACY_CONSENT_ERROR)
+    return current_user

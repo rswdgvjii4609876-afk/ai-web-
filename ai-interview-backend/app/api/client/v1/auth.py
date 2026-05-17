@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.client.deps import get_current_user
+from app.api.client.deps import get_current_user, require_base_privacy_consent
 from app.db.session import get_db
 from app.exceptions.http_exceptions import ValidationError
 from app.models.user import User
@@ -29,6 +29,7 @@ from app.schemas.client.user import UserProfile
 from app.schemas.response import ApiResponse
 from app.services.client.auth import client_auth_service
 from app.services.client.privacy_consent_service import privacy_consent_service
+from app.constants.privacy import BASE_PRIVACY_CONSENT_ERROR
 from app.services.common.deepseek_config_service import deepseek_config_service
 
 router = APIRouter()
@@ -157,6 +158,7 @@ def _serialize_user_profile(current_user: User) -> dict:
         "privacy_agreed_at": current_user.privacy_agreed_at.isoformat()
         if current_user.privacy_agreed_at
         else None,
+        "privacy_base_consent_valid": privacy_consent_service.has_base_consent(current_user),
         "data_contribution_consent": bool(current_user.data_contribution_consent),
         "data_contribution_consent_at": current_user.data_contribution_consent_at.isoformat()
         if current_user.data_contribution_consent_at
@@ -227,6 +229,8 @@ async def update_profile(
         profile_message = "资料更新成功，已记录隐私协议同意"
 
     if data_contribution_consent is not None:
+        if data_contribution_consent and not privacy_consent_service.has_base_consent(current_user):
+            raise ValidationError(message=BASE_PRIVACY_CONSENT_ERROR)
         privacy_consent_service.set_data_contribution_consent(
             current_user,
             consent=bool(data_contribution_consent),
@@ -318,7 +322,7 @@ async def update_profile(
 @router.post("/me/ai-connection-test")
 async def test_ai_connection(
     data: AIConnectionTestRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
 ):
     from app.services.client.ai_service import AIService
 
@@ -340,7 +344,7 @@ os.makedirs(AVATAR_DIR, exist_ok=True)
 @router.post("/me/avatar")
 async def upload_avatar(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     if not file.content_type or not file.content_type.startswith("image/"):

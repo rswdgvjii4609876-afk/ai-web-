@@ -1,6 +1,6 @@
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.constants.competition import DEFAULT_TARGET_POSITION
 
@@ -43,6 +43,15 @@ class InterviewStartResponse(BaseSchema):
 
 class AnswerSubmit(BaseSchema):
     answer: str = Field(..., min_length=1, max_length=5000)
+    question_index: int = Field(..., ge=0)
+
+    @field_validator("answer")
+    @classmethod
+    def answer_must_not_be_blank(cls, value: str) -> str:
+        text = (value or "").strip()
+        if not text:
+            raise ValueError("回答内容不能为空")
+        return text
 
 
 class AnswerResponse(BaseSchema):

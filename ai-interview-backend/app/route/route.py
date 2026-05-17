@@ -103,15 +103,16 @@ def create_app():
 
     register_routes(app, get_client_routes())
     register_routes(app, get_backoffice_routes())
-    register_routes(app, get_common_routes())
 
-    client_docs_app = create_client_app()
-    backoffice_docs_app = create_backoffice_app()
-    app.mount("/client", client_docs_app)
-    app.mount("/backoffice", backoffice_docs_app)
+    if settings.ENV in ["development", "preview"]:
+        register_routes(app, get_common_routes())
+        client_docs_app = create_client_app()
+        backoffice_docs_app = create_backoffice_app()
+        app.mount("/client", client_docs_app)
+        app.mount("/backoffice", backoffice_docs_app)
 
     os.makedirs("uploads/avatars", exist_ok=True)
-    app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+    app.mount("/uploads/avatars", StaticFiles(directory="uploads/avatars"), name="avatars")
 
     @app.exception_handler(APIException)
     async def api_exception_handler(request: Request, exc: APIException):

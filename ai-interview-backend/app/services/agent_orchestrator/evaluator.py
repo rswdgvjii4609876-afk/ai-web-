@@ -78,6 +78,10 @@ def build_eval_rows(traces: List[AgentTrace]) -> List[Dict[str, Any]]:
             {
                 "case_id": trace.case_id,
                 "target_role": trace.target_role,
+                "sample_origin": trace.sample_origin,
+                "for_training": trace.for_training,
+                "for_competition_demo": trace.for_competition_demo,
+                "preview": True,
                 "model_variant": "baseline_prompt_preview",
                 **BASELINE_PROMPT_PREVIEW.model_dump(),
             }
@@ -87,6 +91,10 @@ def build_eval_rows(traces: List[AgentTrace]) -> List[Dict[str, Any]]:
             {
                 "case_id": trace.case_id,
                 "target_role": trace.target_role,
+                "sample_origin": trace.sample_origin,
+                "for_training": trace.for_training,
+                "for_competition_demo": trace.for_competition_demo,
+                "preview": True,
                 "model_variant": "agent_optimized",
                 **score.model_dump(),
             }

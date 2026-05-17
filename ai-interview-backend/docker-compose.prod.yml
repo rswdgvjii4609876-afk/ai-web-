@@ -29,6 +29,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -90,6 +92,29 @@ services:
       retries: 5
       start_period: 10s
 
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+        APT_DEBIAN_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian
+        APT_SECURITY_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/debian-security
+    image: ai-interview-backend:prod
+    container_name: ai-interview-migrate
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      ENV: production
+    command: alembic upgrade head
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   celery-worker:
     build:
       context: .
@@ -106,7 +131,7 @@ services:
       - .env
     environment:
       ENV: production
-    command: celery -A app.core.celery_app worker --loglevel=info
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-2}
     volumes:
       - ./logs:/app/logs
       - ./uploads:/app/uploads

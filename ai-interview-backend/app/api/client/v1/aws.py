@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.utils import utils
 from app.db.session import get_db
-from app.api.client.deps import get_current_user
+from app.api.client.deps import require_base_privacy_consent
 from app.exceptions.http_exceptions import APIException
 from app.schemas.response import ApiResponse
 from typing import Optional
@@ -15,7 +15,7 @@ router = APIRouter()
 async def get_temporary_credentials(
     language: str = Header(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_base_privacy_consent)
 ):
     """获取S3临时访问凭证"""
     try:

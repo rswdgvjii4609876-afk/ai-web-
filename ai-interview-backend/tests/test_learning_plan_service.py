@@ -12,6 +12,7 @@ def test_learning_plan_builds_editable_tasks_from_route_records():
             "route_source": "test_template",
             "route_stage": "fastapi_framework",
             "route_kind": "template",
+            "plan_group": "python-backend-30d",
             "stage_title": "FastAPI 接口训练",
             "title": "FastAPI 接口训练",
             "material_type": "backend_route",
@@ -53,3 +54,4 @@ def test_learning_plan_builds_editable_tasks_from_route_records():
     assert task["target_position"] == "Python后端开发工程师"
     assert task["route_stage"] == "fastapi_framework"
     assert task["estimated_minutes"] == 90
+    assert task["task_metadata"]["plan_group"] == "python-backend-30d"

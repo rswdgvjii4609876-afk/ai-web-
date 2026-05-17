@@ -99,6 +99,19 @@
           <ul class="compact-list">
             <li v-for="task in sftSummary.tasks || []" :key="task">{{ task }}</li>
           </ul>
+          <div v-if="sftSummary.notes?.length" class="sft-notes">
+            <p v-for="note in sftSummary.notes" :key="note">{{ note }}</p>
+          </div>
+          <div v-if="visibleSftRecords.length" class="sft-records">
+            <article v-for="record in visibleSftRecords" :key="record.record_id" class="sft-record">
+              <div class="sft-record-head">
+                <strong>{{ record.task_type }}</strong>
+                <span>{{ record.sample_origin }} / for_training={{ String(record.for_training) }} / demo={{ String(record.for_competition_demo) }}</span>
+              </div>
+              <p class="record-id">{{ record.record_id }}</p>
+              <pre class="sft-preview-code">{{ formatAssistantPreview(record) }}</pre>
+            </article>
+          </div>
         </article>
       </section>
     </template>
@@ -109,7 +122,7 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   getCompetitionAgentTrace,
-  getCompetitionDemoCases,
+  getCompetitionCases,
   getCompetitionEvalPreview,
   getCompetitionSftPreview
 } from '../api/competition'
@@ -126,6 +139,14 @@ const loading = ref(false)
 const error = ref('')
 
 const sftSummary = computed(() => sftPreview.value?.summary || {})
+const sftRecords = computed(() => sftPreview.value?.preview_records || [])
+const visibleSftRecords = computed(() => {
+  const selectedRecords = sftRecords.value.filter(record => {
+    const metadata = record.metadata || {}
+    return metadata.case_id === selectedCaseId.value || String(record.record_id || '').startsWith(`${selectedCaseId.value}_`)
+  })
+  return selectedRecords.length ? selectedRecords : sftRecords.value
+})
 const evalRows = computed(() => evalPreview.value?.score_rows || [])
 const evalBoundary = computed(() => {
   const summary = evalPreview.value?.summary || ''
@@ -140,6 +161,16 @@ function sortCases(items) {
 
 function formatOutput(value) {
   return JSON.stringify(value || {}, null, 2)
+}
+
+function formatAssistantPreview(record) {
+  const assistant = (record.messages || []).find(message => message.role === 'assistant')
+  const content = assistant?.content || ''
+  try {
+    return JSON.stringify(JSON.parse(content), null, 2)
+  } catch {
+    return content
+  }
 }
 
 async function selectCase(caseId) {
@@ -158,7 +189,7 @@ async function selectCase(caseId) {
 
 onMounted(async () => {
   try {
-    const caseResult = await getCompetitionDemoCases()
+    const caseResult = await getCompetitionCases()
     cases.value = sortCases(caseResult.items || [])
     claimBoundary.value = caseResult.claim_boundary || claimBoundary.value
     sftPreview.value = await getCompetitionSftPreview()
@@ -366,6 +397,50 @@ pre {
   color: #6b7280;
   font-size: 12px;
   line-height: 1.6;
+}
+.sft-notes {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.sft-notes p {
+  margin: 0;
+}
+.sft-records {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.sft-record {
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.sft-record-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  color: #111827;
+  font-size: 13px;
+}
+.sft-record-head span,
+.record-id {
+  color: #6b7280;
+  font-size: 12px;
+}
+.record-id {
+  margin: 6px 0 0;
+  word-break: break-all;
+}
+.sft-preview-code {
+  max-height: 180px;
+  margin-top: 10px;
+  background: #0f172a;
 }
 .score-grid span,
 .compact-list li {

@@ -57,7 +57,7 @@
             <td>{{ formatDate(i.created_at) }}</td>
             <td>
               <router-link :to="`/interviews/${i.id}`" class="btn-primary btn-sm" style="color:white;display:inline-block">详情</router-link>
-              <button class="btn-danger btn-sm" style="margin-left:6px" @click="handleDelete(i.id)">删除</button>
+              <button class="btn-danger btn-sm" style="margin-left:6px" :disabled="!authStore.canDeleteRecords" @click="handleDelete(i.id)">删除</button>
             </td>
           </tr>
         </tbody>
@@ -75,7 +75,9 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { interviewApi } from '../api'
+import { useAuthStore } from '../stores/auth'
 
+const authStore = useAuthStore()
 const interviews = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -108,6 +110,7 @@ async function loadInterviews() {
 }
 
 async function handleDelete(id) {
+  if (!authStore.canDeleteRecords) return
   if (!confirm('确定要删除这条面试记录吗？')) return
   try {
     await interviewApi.delete(id)

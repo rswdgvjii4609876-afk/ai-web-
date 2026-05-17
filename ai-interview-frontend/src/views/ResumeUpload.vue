@@ -669,7 +669,7 @@ function applyAiProfile(data) {
 
 function applyPrivacyProfile(data) {
   privacyProfile.value = data || {}
-  privacyBaseAgreed.value = Boolean(data?.privacy_agreed_at)
+  privacyBaseAgreed.value = Boolean(data?.privacy_base_consent_valid)
   dataContributionConsent.value = Boolean(data?.data_contribution_consent)
 }
 

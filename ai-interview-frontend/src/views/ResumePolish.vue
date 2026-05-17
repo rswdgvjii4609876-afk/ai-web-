@@ -185,7 +185,7 @@ watch(polishResult, value => {
 onMounted(async () => {
   try {
     const profile = await getProfile()
-    privacyBaseAgreed.value = Boolean(profile?.privacy_agreed_at)
+    privacyBaseAgreed.value = Boolean(profile?.privacy_base_consent_valid)
     dataContributionConsent.value = Boolean(profile?.data_contribution_consent)
   } catch (err) {
     console.error('加载隐私授权状态失败', err)

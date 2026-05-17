@@ -187,7 +187,7 @@
           当前协议版本：{{ profile.privacy_policy_version || '未记录' }}；
           同意时间：{{ formatConsentTime(profile.privacy_agreed_at) }}
         </p>
-        <label v-if="!profile.privacy_agreed_at" class="privacy-setting-check required">
+        <label v-if="!profile.privacy_base_consent_valid" class="privacy-setting-check required">
           <input v-model="privacyForm.privacy_agreed" type="checkbox" />
           <span>
             我已阅读并同意
@@ -195,7 +195,11 @@
           </span>
         </label>
         <label class="privacy-setting-check">
-          <input v-model="privacyForm.data_contribution_consent" type="checkbox" />
+          <input
+            v-model="privacyForm.data_contribution_consent"
+            type="checkbox"
+            :disabled="!profile.privacy_base_consent_valid && !privacyForm.privacy_agreed"
+          />
           <span>
             同意后续将去标识化后的简历、学校/专业/项目或实习经历、目标岗位、面试问答、报告和人工评分
             用于系统评测、比赛材料、质量改进和数据集沉淀。
@@ -363,7 +367,7 @@ const activeBaseUrlValue = computed({
 function applyProfile(data) {
   profile.value = data || {}
   privacyForm.value = {
-    privacy_agreed: Boolean(data.privacy_agreed_at),
+    privacy_agreed: Boolean(data.privacy_base_consent_valid),
     data_contribution_consent: Boolean(data.data_contribution_consent)
   }
   form.value = {
@@ -432,6 +436,14 @@ function handleClearSavedKey() {
 async function handleSaveProfile() {
   profileMsg.value = ''
   testAiMessage.value = ''
+  if (
+    privacyForm.value.data_contribution_consent
+    && !profile.value.privacy_base_consent_valid
+    && !privacyForm.value.privacy_agreed
+  ) {
+    profileMsg.value = '请先阅读并同意《隐私协议与个人信息处理说明》，再开启数据贡献授权'
+    return
+  }
   saving.value = true
   try {
     const payload = {
@@ -461,7 +473,7 @@ async function handleSaveProfile() {
     if (clearSavedKeyPending.value.openai) {
       payload.clear_openai_api_key = true
     }
-    if (!profile.value.privacy_agreed_at && privacyForm.value.privacy_agreed) {
+    if (!profile.value.privacy_base_consent_valid && privacyForm.value.privacy_agreed) {
       payload.privacy_agreed = true
     }
     if (Boolean(profile.value.data_contribution_consent) !== Boolean(privacyForm.value.data_contribution_consent)) {

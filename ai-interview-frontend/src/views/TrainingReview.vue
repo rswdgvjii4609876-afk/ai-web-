@@ -184,7 +184,11 @@ const selectedCaseDataContributionConsent = computed(() => Boolean(
 const summary = computed(() => buildTrainingReviewSummary({
   report: report.value,
   interview: selectedInterview.value || {},
-  tasks: tasks.value
+  tasks: tasks.value,
+  caseContext: {
+    interview_id: selectedInterviewId.value,
+    resume_id: reportData.value?.resume_id || selectedInterview.value?.resume_id
+  }
 }))
 
 onMounted(loadPage)

@@ -23,11 +23,6 @@ CLIENT_ROUTES = [
         tags=["client-auth"]
     ),
     RouteConfig(
-        module_path="app.api.client.v1.demo",
-        prefix=f"{settings.API_V1_STR}/demo",
-        tags=["client-demo"]
-    ),
-    RouteConfig(
         module_path="app.api.client.v1.config",
         prefix=f"{settings.API_V1_STR}/config",
         tags=["client-config"]

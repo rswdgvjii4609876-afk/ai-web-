@@ -13,6 +13,13 @@ from app.exceptions.http_exceptions import APIException
 
 router = APIRouter()
 
+ADMIN_PERMISSION_FIELDS = {
+    "can_manage_admins",
+    "can_review_cases",
+    "can_export_datasets",
+    "can_delete_records",
+}
+
 
 def _can_manage_admins(admin: Admin) -> bool:
     return bool(getattr(admin, "can_manage_admins", False)) or bool(getattr(admin, "is_root_admin", False))
@@ -28,6 +35,10 @@ def _require_root_admin(current_admin: Admin) -> None:
         raise APIException(status_code=403, message="Only the root admin can change admin-management permission")
 
 
+def _permission_payload_requests_grant(payload: dict) -> bool:
+    return any(bool(payload.get(field)) for field in ADMIN_PERMISSION_FIELDS if field in payload)
+
+
 @router.post("", response_model=AdminResponse)
 async def create_admin(
     admin_data: AdminCreate,
@@ -36,7 +47,7 @@ async def create_admin(
 ):
     """Create new admin (admin-management permission required)"""
     _require_admin_manager(current_admin)
-    if admin_data.can_manage_admins:
+    if _permission_payload_requests_grant(admin_data.model_dump()):
         _require_root_admin(current_admin)
     
     async with transaction(db):
@@ -117,9 +128,9 @@ async def update_admin(
         raise APIException(status_code=status.HTTP_404_NOT_FOUND, message="Admin not found")
 
     update_payload = admin_data.model_dump(exclude_unset=True)
-    if "can_manage_admins" in update_payload:
+    if any(field in update_payload for field in ADMIN_PERMISSION_FIELDS):
         _require_root_admin(current_admin)
-        if target.is_root_admin and update_payload["can_manage_admins"] is False:
+        if target.is_root_admin and any(update_payload.get(field) is False for field in ADMIN_PERMISSION_FIELDS):
             raise APIException(status_code=403, message="Cannot revoke root admin permission")
 
     if target.is_root_admin:

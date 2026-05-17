@@ -42,7 +42,7 @@ celery_app.conf.update(
     accept_content=["json"],
     result_serializer="json",
     task_track_started=True,
-    worker_concurrency=os.cpu_count(),
+    worker_concurrency=settings.CELERY_WORKER_CONCURRENCY or os.cpu_count(),
     task_time_limit=30 * 60,
     task_soft_time_limit=15 * 60,
 )

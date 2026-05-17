@@ -7,6 +7,7 @@ API_LOCAL_PORT="${API_LOCAL_PORT:-18001}"
 REPORT_PATH="${REPORT_PATH:-docs/competition/server_validation_reports/stage138_server_closed_loop_latest.md}"
 
 DO_DEPLOY=0
+ALLOW_DESTRUCTIVE_RESET="${ALLOW_DESTRUCTIVE_RESET:-0}"
 READINESS_ONLY=0
 REPORT_ENABLED=1
 REPORT_WRITTEN=0
@@ -25,7 +26,7 @@ CHECK_NOTES=()
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/stage138_server_closed_loop_verify.sh [--deploy] [--readiness-only] [--report PATH] [--no-report]
+  bash scripts/stage138_server_closed_loop_verify.sh [--deploy] [--allow-reset] [--readiness-only] [--report PATH] [--no-report]
 
 Stage 138 verifies deployment readiness plus the C1/C2/C3 closed-loop data gate.
 
@@ -44,7 +45,12 @@ closed-loop records are recorded as WARN instead of failing the whole script.
 Environment overrides:
   PROJECT_DIR=/opt/apps/ai-interview
   API_LOCAL_PORT=18001
+  ALLOW_DESTRUCTIVE_RESET=1
   REPORT_PATH=docs/competition/server_validation_reports/stage138_server_closed_loop_latest.md
+
+Safety:
+  --deploy fetches origin/main but refuses git reset --hard unless --allow-reset
+  or ALLOW_DESTRUCTIVE_RESET=1 is provided.
 EOF
 }
 
@@ -52,6 +58,9 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --deploy)
       DO_DEPLOY=1
+      ;;
+    --allow-reset)
+      ALLOW_DESTRUCTIVE_RESET=1
       ;;
     --readiness-only)
       READINESS_ONLY=1
@@ -265,6 +274,14 @@ echo "commit: $PROJECT_COMMIT_BEFORE"
 if [ "$DO_DEPLOY" -eq 1 ]; then
   section "Deploy origin/main"
   run git fetch origin
+  if [ "$ALLOW_DESTRUCTIVE_RESET" != "1" ]; then
+    echo "Refusing to run git reset --hard origin/main without explicit approval." >&2
+    echo "Re-run with --allow-reset or ALLOW_DESTRUCTIVE_RESET=1 after confirming no local server changes must be kept." >&2
+    exit 2
+  fi
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "WARNING: local uncommitted changes will be discarded by git reset --hard origin/main." >&2
+  fi
   run git reset --hard origin/main
   PROJECT_COMMIT_AFTER="$(git log --oneline -1)"
   echo "after reset: $PROJECT_COMMIT_AFTER"

@@ -7,11 +7,39 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.exceptions.http_exceptions import ValidationError
+from app.schemas.client.interview import AnswerSubmit
 from app.services.client.ai_service import AIService
 from app.services.client.interview_service import InterviewService
+
+
+@pytest.mark.unit
+def test_answer_submit_requires_question_index():
+    with pytest.raises(PydanticValidationError):
+        AnswerSubmit(answer="I handled the rollout.")
+
+    payload = AnswerSubmit(answer="I handled the rollout.", question_index=0)
+    assert payload.question_index == 0
+
+
+@pytest.mark.unit
+def test_merge_report_defaults_diagnoses_non_object_report_payload():
+    report = InterviewService._merge_report_defaults(
+        report=["bad"],
+        report_signals={
+            "common_gaps": ["缺少量化结果"],
+            "common_strengths": ["表达结构清晰"],
+            "training_priorities": ["补充 STAR 案例"],
+        },
+        interview_mode="single",
+    )
+
+    assert report["weaknesses"] == ["缺少量化结果"]
+    assert report["strengths"] == ["表达结构清晰"]
+    assert report["report_diagnostics"][0]["reason"] == "invalid_report_payload_type"
 
 
 @pytest.mark.unit
@@ -394,6 +422,32 @@ def test_apply_blueprint_to_question_plan_adds_track_and_traceable_fields():
     assert "Led a platform rebuild" in enriched[0]["selected_followups"]
 
 
+@pytest.mark.unit
+def test_apply_blueprint_keeps_role_calibration_out_of_candidate_evidence_summary():
+    question_plan = [{"index": 0, "question": "Describe Redis failure handling."}]
+    blueprint = {
+        "priority_question_tracks": [
+            {
+                "track": "Redis failure handling",
+                "reason": "Knowledge base slice requires Redis failure handling",
+                "evidence_ids": [],
+                "role_requirement_source_ids": [94],
+            }
+        ],
+        "blueprint_evidence": {
+            "resume_evidence_summary": ["Resume says Redis only as a skill"],
+            "slice_summaries": ["Knowledge base slice #94: Redis failure handling"],
+        },
+    }
+
+    enriched = InterviewService._apply_blueprint_to_question_plan(question_plan, blueprint)
+
+    assert enriched[0]["blueprint_evidence_ids"] == []
+    assert enriched[0]["blueprint_role_calibration_ids"] == [94]
+    assert "Knowledge base slice requires Redis failure handling" not in enriched[0]["blueprint_evidence_summary"]
+    assert "Knowledge base slice requires Redis failure handling" in enriched[0]["blueprint_role_calibration_summary"]
+
+
 @pytest.mark.asyncio
 async def test_evaluate_round_falls_back_to_single_when_panel_evaluation_fails(monkeypatch):
     async def _raise_panel(**kwargs):
@@ -429,6 +483,100 @@ async def test_evaluate_round_falls_back_to_single_when_panel_evaluation_fails(m
     assert mode == "single_fallback"
     assert evaluation["feedback"] == "Need more concrete ownership evidence."
     assert evaluation["next_best_followup"]["target_gap"] == "ownership clarity"
+
+
+class _FakeScalarResult:
+    def __init__(self, value):
+        self.value = value
+
+    def scalar_one_or_none(self):
+        return self.value
+
+
+class _FakeListResult:
+    def __init__(self, values):
+        self.values = values
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.values
+
+
+class _FakeSubmitAnswerDb:
+    def __init__(self, interview, resume, messages=None):
+        self.results = [_FakeScalarResult(interview), _FakeScalarResult(resume), _FakeListResult(messages or [])]
+        self.added = []
+        self.committed = False
+
+    async def execute(self, _statement):
+        return self.results.pop(0)
+
+    def add(self, item):
+        self.added.append(item)
+
+    async def commit(self):
+        self.committed = True
+
+
+@pytest.mark.unit
+def test_submit_answer_requires_index_and_handles_dirty_total_questions(monkeypatch):
+    interview = SimpleNamespace(
+        id=1,
+        user_id=7,
+        resume_id=3,
+        knowledge_base_snapshot=None,
+        status="in_progress",
+        current_question_index=0,
+        questions_data=[{"index": 0, "question": "Describe the rollout."}],
+        total_questions=5,
+        interview_mode="single",
+        panel_snapshot=None,
+        target_position="Python Backend Engineer",
+        difficulty="medium",
+        overall_score=None,
+        report=None,
+    )
+    resume = SimpleNamespace(id=3)
+
+    async def fake_evaluate_round(**_kwargs):
+        return "single", {"score": 8.0, "feedback": "Good evidence."}
+
+    async def fake_report(**_kwargs):
+        return {"overall": "ok"}
+
+    monkeypatch.setattr(InterviewService, "_load_resume_payload", staticmethod(lambda _resume: {"skills": ["Python"]}))
+    monkeypatch.setattr(InterviewService, "_load_resume_analysis_payload", staticmethod(lambda _resume: {}))
+    monkeypatch.setattr(InterviewService, "_evaluate_round", staticmethod(fake_evaluate_round))
+    monkeypatch.setattr(AIService, "generate_report", staticmethod(fake_report))
+
+    async def _run():
+        with pytest.raises(ValidationError, match="question_index"):
+            await InterviewService.submit_answer(
+                db=_FakeSubmitAnswerDb(interview, resume),
+                user_id=7,
+                interview_id=1,
+                answer="I handled the rollout.",
+                question_index=None,
+            )
+
+        db = _FakeSubmitAnswerDb(interview, resume)
+        result = await InterviewService.submit_answer(
+            db=db,
+            user_id=7,
+            interview_id=1,
+            answer="I handled the rollout.",
+            question_index=0,
+        )
+
+        assert result["is_finished"] is True
+        assert result["next_question"] is None
+        assert interview.status == "completed"
+        assert interview.current_question_index == 1
+        assert db.committed is True
+
+    asyncio.run(_run())
 
 
 def test_start_interview_returns_business_error_when_record_commit_fails(monkeypatch):
@@ -502,6 +650,83 @@ def test_start_interview_returns_business_error_when_record_commit_fails(monkeyp
     assert db.rollback_called is True
     assert "数据库写入异常" in exc.value.detail
     assert "alembic upgrade head" in exc.value.detail
+
+
+def test_start_interview_does_not_inherit_resume_contribution_consent(monkeypatch):
+    resume = SimpleNamespace(
+        id=10,
+        user_id=3,
+        status="completed",
+        parsed_content=json.dumps({"name": "Demo", "skills": ["Python"]}),
+        analysis="{}",
+        target_position="Python后端开发工程师",
+        data_contribution_consent=True,
+        privacy_consent_snapshot={"source": "resume_upload", "data_contribution_consent": True},
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return resume
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return None
+
+    class _CommitFailingDb:
+        def __init__(self):
+            self.added = None
+
+        async def execute(self, query):
+            return _Result()
+
+        def add(self, item):
+            self.added = item
+
+        async def commit(self):
+            raise SQLAlchemyError("stop after interview construction")
+
+        async def rollback(self):
+            return None
+
+        async def refresh(self, item):
+            return None
+
+    async def _blueprint(**kwargs):
+        return {}
+
+    async def _questions(**kwargs):
+        return [
+            {"index": 0, "question": "请先做一个自我介绍。", "category": "self-intro"},
+            {"index": 1, "question": "介绍一个 Python 项目。", "category": "project"},
+            {"index": 2, "question": "说说数据库索引。", "category": "technical"},
+        ]
+
+    monkeypatch.setattr(AIService, "extract_interview_blueprint", _blueprint)
+    monkeypatch.setattr(AIService, "generate_questions", _questions)
+
+    db = _CommitFailingDb()
+
+    async def _run():
+        await InterviewService.start_interview(
+            db=db,
+            user_id=3,
+            resume_id=10,
+            target_position="Python后端开发工程师",
+            knowledge_base_id=None,
+            difficulty="medium",
+            total_questions=3,
+            multi_interviewer_enabled=False,
+            ai_config={"api_key": "test", "provider": "deepseek"},
+        )
+
+    with pytest.raises(ValidationError):
+        asyncio.run(_run())
+
+    assert db.added.data_contribution_consent is False
+    assert db.added.privacy_consent_snapshot["source"] == "interview_start"
+    assert db.added.privacy_consent_snapshot["data_contribution_consent"] is False
 
 
 @pytest.mark.unit
@@ -688,6 +913,56 @@ def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_defau
         include_user_email=True,
     )
     assert sample_with_pii["interview"]["user_email"] == "candidate@example.com"
+    assert sample["training_sample_review"]["reviewer_email"] == "[REDACTED_EMAIL]"
+    assert sample["export_notes"]["pii_redaction"]["redacted"] is True
+
+
+@pytest.mark.unit
+def test_build_training_sample_redacts_free_text_direct_identifiers():
+    interview = SimpleNamespace(
+        id=101,
+        user_id=1,
+        resume_id=2,
+        knowledge_base_id=None,
+        target_position="测试工程师",
+        difficulty="medium",
+        total_questions=1,
+        status="completed",
+        current_question_index=1,
+        interview_mode="single",
+        overall_score=Decimal("8.0"),
+        created_at=datetime(2026, 5, 17, 10, 0, 0),
+        knowledge_base_snapshot=None,
+        panel_snapshot={
+            "training_sample_review": {
+                "is_high_quality": True,
+                "has_hallucination": False,
+                "reviewed_at": "2026-05-17T10:10:00+00:00",
+                "notes": "候选人邮箱 candidate@example.com，手机号 13812345678。",
+                "resume_source": "2590603008詹已誉简历.pdf",
+            }
+        },
+        questions_data=[
+            {
+                "index": 0,
+                "question": "请介绍测试项目。",
+                "answer": "我的邮箱是 candidate@example.com，手机号 13812345678。",
+                "feedback": "文件名：2590603008詹已誉简历.pdf",
+            }
+        ],
+        report="",
+        data_contribution_consent=True,
+        privacy_consent_snapshot=None,
+    )
+
+    sample = InterviewService.build_training_sample(interview=interview, messages=[])
+    payload = json.dumps(sample, ensure_ascii=False)
+
+    assert "candidate@example.com" not in payload
+    assert "13812345678" not in payload
+    assert "2590603008詹已誉简历.pdf" not in payload
+    assert "[REDACTED_EMAIL]" in payload
+    assert sample["export_notes"]["pii_redaction"]["redaction_count"] >= 3
 
 
 @pytest.mark.unit
@@ -739,6 +1014,7 @@ def test_build_evaluation_dataset_bundle_classifies_samples_and_allows_overlap()
         followup_worthy=False,
         report_actionable=False,
         reviewed=True,
+        consent=True,
         followup_signal=False,
         report_signal=False,
     ):
@@ -748,6 +1024,7 @@ def test_build_evaluation_dataset_bundle_classifies_samples_and_allows_overlap()
                 "status": "completed",
                 "overall_score": score,
                 "target_position": "Python Backend Engineer",
+                "data_contribution_consent": consent,
             },
             "rounds": [
                 {
@@ -798,6 +1075,13 @@ def test_build_evaluation_dataset_bundle_classifies_samples_and_allows_overlap()
             followup_signal=True,
             report_signal=True,
         ),
+        make_sample(
+            104,
+            score=9.0,
+            is_high_quality=True,
+            reviewed=True,
+            consent=False,
+        ),
     ]
 
     bundle = InterviewService.build_evaluation_dataset_bundle(samples)
@@ -805,8 +1089,8 @@ def test_build_evaluation_dataset_bundle_classifies_samples_and_allows_overlap()
     datasets = {item["dataset_type"]: item for item in preview["datasets"]}
     manifest = bundle["manifest"]
 
-    assert preview["stats"]["completed_samples"] == 3
-    assert preview["stats"]["reviewed_samples"] == 2
+    assert preview["stats"]["completed_samples"] == 4
+    assert preview["stats"]["reviewed_samples"] == 3
     assert "data_contribution_consent=true" in preview["filters"]["base_requirements"]
     assert datasets["golden_cases"]["count"] == 1
     assert datasets["golden_cases"]["example_interview_ids"] == [101]
@@ -836,11 +1120,18 @@ def test_build_evaluation_dataset_bundle_classifies_samples_and_allows_overlap()
 
 @pytest.mark.unit
 def test_build_fine_tuning_dataset_bundle_exports_sft_and_counterexamples():
-    def make_sample(interview_id, *, has_hallucination=False, reviewed=True, consent=True):
+    def make_sample(
+        interview_id,
+        *,
+        has_hallucination=False,
+        reviewed=True,
+        consent=True,
+        status="completed",
+    ):
         return {
             "interview": {
                 "id": interview_id,
-                "status": "completed",
+                "status": status,
                 "overall_score": 8.4,
                 "target_position": "Python Backend Engineer",
                 "data_contribution_consent": consent,
@@ -888,6 +1179,7 @@ def test_build_fine_tuning_dataset_bundle_exports_sft_and_counterexamples():
             make_sample(202, has_hallucination=True),
             make_sample(203, consent=False),
             make_sample(204, reviewed=False),
+            make_sample(205, status="in_progress"),
         ]
     )
 
@@ -902,6 +1194,7 @@ def test_build_fine_tuning_dataset_bundle_exports_sft_and_counterexamples():
     assert stats["reviewed_samples"] == 3
     assert stats["sft_ready_samples"] == 1
     assert stats["hallucination_counterexamples"] == 1
+    assert "status=completed" in preview["base_requirements"]
     assert "data_contribution_consent=true" in preview["base_requirements"]
 
     record = json.loads(sft_lines[0])
@@ -954,6 +1247,34 @@ def test_build_fine_tuning_readiness_report_summarizes_readiness_without_trainin
             "report_summary": {
                 "common_gaps": ["Redis reliability"],
                 "training_priorities": ["failure diagnosis"],
+            },
+        },
+        {
+            "interview": {
+                "id": 302,
+                "status": "in_progress",
+                "overall_score": 8.1,
+                "target_position": "Python Backend Engineer",
+                "data_contribution_consent": True,
+            },
+            "rounds": [
+                {
+                    "question": "Draft question",
+                    "answer": "Draft answer",
+                    "evaluation": {
+                        "next_best_followup": {
+                            "question": "Draft follow-up?",
+                        },
+                    },
+                }
+            ],
+            "training_sample_review": {
+                "review_status": "reviewed",
+                "quality_tier": "high",
+                "is_high_quality": True,
+                "has_hallucination": False,
+                "followup_worthy": True,
+                "report_actionable": True,
             },
         }
     ]

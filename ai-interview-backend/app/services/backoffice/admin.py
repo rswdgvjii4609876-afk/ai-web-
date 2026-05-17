@@ -30,6 +30,9 @@ class AdminService:
             password=hashed_password,
             is_active=True if admin_data.is_active is None else admin_data.is_active,
             can_manage_admins=bool(admin_data.can_manage_admins),
+            can_review_cases=bool(admin_data.can_review_cases),
+            can_export_datasets=bool(admin_data.can_export_datasets),
+            can_delete_records=bool(admin_data.can_delete_records),
             role="superadmin" if admin_data.can_manage_admins else "admin"
         )
         
@@ -149,6 +152,14 @@ class AdminService:
         if "can_manage_admins" in admin_data:
             update_data["can_manage_admins"] = admin_data["can_manage_admins"]
             update_data["role"] = "superadmin" if admin_data["can_manage_admins"] else "admin"
+
+        for permission_key in (
+            "can_review_cases",
+            "can_export_datasets",
+            "can_delete_records",
+        ):
+            if permission_key in admin_data:
+                update_data[permission_key] = admin_data[permission_key]
         
         # 执行更新
         if update_data:

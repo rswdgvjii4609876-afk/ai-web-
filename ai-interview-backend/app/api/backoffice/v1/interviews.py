@@ -8,7 +8,12 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.backoffice.deps import get_current_admin
+from app.api.backoffice.deps import (
+    get_current_admin,
+    require_case_reviewer_admin,
+    require_dataset_export_admin,
+    require_record_delete_admin,
+)
 from app.db.session import get_db
 from app.models.admin import Admin
 from app.models.interview import Interview
@@ -91,7 +96,7 @@ async def export_training_samples(
     min_score: Optional[float] = None,
     include_user_email: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export completed interviews as versioned training samples."""
     safe_limit = min(max(int(limit or 20), 1), 100)
@@ -118,7 +123,7 @@ async def export_training_samples(
 async def get_evaluation_dataset_preview(
     include_user_email: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Preview offline evaluation datasets derived from reviewed interview samples."""
     try:
@@ -156,7 +161,7 @@ async def get_evaluation_dataset_preview(
 async def export_evaluation_datasets(
     include_user_email: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export offline evaluation datasets as ZIP + JSONL files."""
     try:
@@ -201,7 +206,7 @@ async def export_evaluation_datasets(
 async def export_fine_tuning_samples(
     include_user_email: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export reviewed authorized samples as JSONL for future fine-tuning preparation."""
     try:
@@ -232,7 +237,7 @@ async def export_fine_tuning_samples(
 async def export_fine_tuning_readiness_report(
     include_user_email: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export a Markdown readiness report for future fine-tuning preparation."""
     try:
@@ -320,7 +325,7 @@ async def update_interview_training_sample_review(
     interview_id: int,
     payload: TrainingSampleReviewUpdate,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_case_reviewer_admin),
 ):
     """Save manual review signals for one interview training sample."""
     interview = await db.get(Interview, interview_id)
@@ -329,6 +334,12 @@ async def update_interview_training_sample_review(
     if not interview.data_contribution_consent:
         return ApiResponse.failed(
             message="该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程",
+            body_code=400,
+            http_code=400,
+        )
+    if interview.status != "completed":
+        return ApiResponse.failed(
+            message="该面试尚未完成，不能保存人工评分",
             body_code=400,
             http_code=400,
         )
@@ -346,7 +357,7 @@ async def get_interview_training_sample(
     interview_id: int,
     include_user_email: bool = False,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export one interview as a versioned training sample."""
     result = await db.execute(
@@ -362,6 +373,19 @@ async def get_interview_training_sample(
     if not interview.data_contribution_consent:
         return ApiResponse.failed(
             message="该面试未获得去标识化数据贡献授权，不能导出训练样本",
+            body_code=400,
+            http_code=400,
+        )
+    if interview.status != "completed":
+        return ApiResponse.failed(
+            message="该面试尚未完成，不能导出训练样本",
+            body_code=400,
+            http_code=400,
+        )
+    training_sample_review = interview_service.get_training_sample_review(interview.panel_snapshot)
+    if training_sample_review.get("review_status") != "reviewed":
+        return ApiResponse.failed(
+            message="该面试尚未完成人工复核，不能导出训练样本",
             body_code=400,
             http_code=400,
         )
@@ -383,7 +407,7 @@ async def get_interview_training_sample(
 async def delete_interview(
     interview_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_record_delete_admin),
 ):
     """Delete one interview record from backoffice."""
     result = await interview_service.delete_interview_admin(db, interview_id)

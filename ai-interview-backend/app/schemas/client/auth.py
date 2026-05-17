@@ -77,6 +77,7 @@ class UserProfile(BaseSchema):
     location: Optional[str]
     privacy_policy_version: Optional[str] = None
     privacy_agreed_at: Optional[str] = None
+    privacy_base_consent_valid: bool = False
     data_contribution_consent: bool = False
     data_contribution_consent_at: Optional[str] = None
     data_contribution_withdrawn_at: Optional[str] = None

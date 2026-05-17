@@ -167,13 +167,14 @@ docker compose ps
 
 ```bash
 curl -fsS http://127.0.0.1:18001/api/v1/config/health
-curl -fsS http://127.0.0.1:18001/api/v1/demo/competition
+curl -fsS http://127.0.0.1:18001/api/v1/competition/demo-cases
+curl -fsS http://127.0.0.1:18001/api/v1/competition/sft-preview
 ```
 
 浏览器检查：
 
 - 用户端工作台
-- 参赛演示页
+- 参赛演示页：`/competition/agent-trace`，旧 `/competition-demo` 仅保留兼容跳转
 - 简历测评页
 - 岗位画像库
 - 后台公共岗位画像

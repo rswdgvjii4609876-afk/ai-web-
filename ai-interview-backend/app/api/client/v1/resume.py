@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.client.deps import get_current_user
+from app.api.client.deps import get_current_user, require_base_privacy_consent
 from app.core.celery_app import celery_app
 from app.db.session import get_db
 from app.exceptions.http_exceptions import ValidationError
@@ -121,7 +121,7 @@ async def upload_resume(
 @router.get("/{resume_id}")
 async def get_resume(
     resume_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await resume_service.get_resume(db, resume_id, current_user.id)
@@ -134,7 +134,7 @@ async def polish_resume(
     payload: ResumePolishRequest,
     ai_provider: Optional[str] = None,
     ai_model: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     ai_config = _build_resume_runtime_config(current_user, ai_provider, ai_model)
@@ -152,7 +152,7 @@ async def polish_resume(
 
 @router.get("")
 async def get_resumes(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await resume_service.get_user_resumes(db, current_user.id)

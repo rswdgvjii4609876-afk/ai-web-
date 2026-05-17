@@ -23,6 +23,9 @@ class Admin(BaseModel):
     password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     can_manage_admins = Column(Boolean, default=False, nullable=False)
+    can_review_cases = Column(Boolean, default=False, nullable=False)
+    can_export_datasets = Column(Boolean, default=False, nullable=False)
+    can_delete_records = Column(Boolean, default=False, nullable=False)
 
     @property
     def is_root_admin(self) -> bool:

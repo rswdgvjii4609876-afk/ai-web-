@@ -1226,6 +1226,37 @@ class AIService:
             if len(ordered) >= limit:
                 break
         return ordered
+
+    @staticmethod
+    def _is_role_reference_text(*values: Any) -> bool:
+        tokens = (
+            "kb",
+            "knowledge",
+            "knowledge_base",
+            "rag",
+            "slice",
+            "position",
+            "role profile",
+            "岗位知识库",
+            "知识库",
+            "岗位画像",
+            "岗位要求",
+        )
+        text = " ".join(AIService._string_or_empty(value).lower() for value in values)
+        return any(token in text for token in tokens)
+
+    @staticmethod
+    def _split_candidate_and_role_ids(
+        *,
+        evidence_ids: List[int],
+        role_requirement_source_ids: List[int],
+        role_reference: bool,
+    ) -> tuple[List[int], List[int]]:
+        if not role_reference:
+            return evidence_ids, role_requirement_source_ids
+        role_ids = AIService._normalize_id_list([*role_requirement_source_ids, *evidence_ids])
+        return [], role_ids
+
     @staticmethod
     def _normalize_blueprint_requirement_list(
         items: Any,
@@ -1251,16 +1282,42 @@ class AIService:
                     or item.get("summary")
                     or item.get("support")
                 )
-                evidence_ids = AIService._normalize_id_list(
-                    item.get("evidence_ids") or item.get("slice_ids") or item.get("used_slice_ids")
+                raw_source = AIService._string_or_empty(item.get("source"))
+                raw_evidence_ids = AIService._normalize_id_list(item.get("evidence_ids"))
+                role_requirement_source_ids = AIService._normalize_id_list(
+                    item.get("role_requirement_source_ids")
+                    or item.get("calibration_slice_ids")
+                    or item.get("slice_ids")
+                    or item.get("used_slice_ids")
                 )
-                source = AIService._string_or_empty(item.get("source")) or "resume_or_kb"
+                role_only_source = AIService._is_role_reference_text(raw_source)
+                role_reference_evidence = AIService._is_role_reference_text(evidence, requirement)
+                implicit_slice_reference = (
+                    not raw_source
+                    and bool(role_requirement_source_ids or raw_evidence_ids)
+                    and role_reference_evidence
+                )
+                if role_reference_evidence or implicit_slice_reference:
+                    role_only_source = True
+                if role_only_source:
+                    evidence_ids, role_requirement_source_ids = AIService._split_candidate_and_role_ids(
+                        evidence_ids=raw_evidence_ids,
+                        role_requirement_source_ids=role_requirement_source_ids,
+                        role_reference=True,
+                    )
+                    source = "role_calibration"
+                else:
+                    evidence_ids = raw_evidence_ids
+                    source = raw_source or ("resume_gap" if support_level == "unsupported" else "resume_evidence")
                 effective_level = AIService._string_or_empty(item.get("support_level")) or support_level
+                if role_only_source and effective_level == "strong":
+                    effective_level = "weak"
             else:
                 requirement = AIService._string_or_empty(item)
                 evidence = ""
                 evidence_ids = []
-                source = "resume_or_kb"
+                role_requirement_source_ids = []
+                source = "resume_gap" if support_level == "unsupported" else "resume_evidence"
                 effective_level = support_level
             if not requirement:
                 continue
@@ -1270,7 +1327,9 @@ class AIService:
                     "evidence": evidence,
                     "support_level": effective_level,
                     "source": source,
+                    "candidate_evidence_source": source,
                     "evidence_ids": evidence_ids,
+                    "role_requirement_source_ids": role_requirement_source_ids,
                 }
             )
             if len(normalized) >= limit:
@@ -1301,14 +1360,25 @@ class AIService:
                     or item.get("support")
                     or item.get("quote")
                 )
-                evidence_ids = AIService._normalize_id_list(
-                    item.get("evidence_ids") or item.get("slice_ids") or item.get("used_slice_ids")
+                raw_source = AIService._string_or_empty(item.get("source"))
+                evidence_ids = AIService._normalize_id_list(item.get("evidence_ids"))
+                role_requirement_source_ids = AIService._normalize_id_list(
+                    item.get("role_requirement_source_ids")
+                    or item.get("calibration_slice_ids")
+                    or item.get("slice_ids")
+                    or item.get("used_slice_ids")
+                )
+                evidence_ids, role_requirement_source_ids = AIService._split_candidate_and_role_ids(
+                    evidence_ids=evidence_ids,
+                    role_requirement_source_ids=role_requirement_source_ids,
+                    role_reference=AIService._is_role_reference_text(raw_source, evidence, risk_reason),
                 )
             else:
                 claim = AIService._string_or_empty(item)
                 risk_reason = ""
                 evidence = ""
                 evidence_ids = []
+                role_requirement_source_ids = []
             if not claim:
                 continue
             normalized.append(
@@ -1317,6 +1387,7 @@ class AIService:
                     "risk_reason": risk_reason,
                     "evidence": evidence,
                     "evidence_ids": evidence_ids,
+                    "role_requirement_source_ids": role_requirement_source_ids,
                 }
             )
             if len(normalized) >= limit:
@@ -1345,14 +1416,25 @@ class AIService:
                 requirement_status = AIService._string_or_empty(
                     item.get("requirement_status") or item.get("status")
                 ) or "weak"
-                evidence_ids = AIService._normalize_id_list(
-                    item.get("evidence_ids") or item.get("slice_ids") or item.get("used_slice_ids")
+                raw_source = AIService._string_or_empty(item.get("source"))
+                evidence_ids = AIService._normalize_id_list(item.get("evidence_ids"))
+                role_requirement_source_ids = AIService._normalize_id_list(
+                    item.get("role_requirement_source_ids")
+                    or item.get("calibration_slice_ids")
+                    or item.get("slice_ids")
+                    or item.get("used_slice_ids")
+                )
+                evidence_ids, role_requirement_source_ids = AIService._split_candidate_and_role_ids(
+                    evidence_ids=evidence_ids,
+                    role_requirement_source_ids=role_requirement_source_ids,
+                    role_reference=AIService._is_role_reference_text(raw_source, reason, track),
                 )
             else:
                 track = AIService._string_or_empty(item)
                 reason = ""
                 requirement_status = "weak"
                 evidence_ids = []
+                role_requirement_source_ids = []
             if not track:
                 continue
             normalized.append(
@@ -1361,6 +1443,7 @@ class AIService:
                     "reason": reason,
                     "requirement_status": requirement_status,
                     "evidence_ids": evidence_ids,
+                    "role_requirement_source_ids": role_requirement_source_ids,
                 }
             )
             if len(normalized) >= limit:
@@ -1604,7 +1687,8 @@ class AIService:
                     "evidence": item.get("evidence") or item.get("skill"),
                     "support_level": "strong",
                     "source": "resume_evidence",
-                    "evidence_ids": slice_ids[:2],
+                    "evidence_ids": [],
+                    "role_requirement_source_ids": slice_ids[:2],
                 }
             )
         for item in (evidence.get("projects") or [])[:2]:
@@ -1614,7 +1698,8 @@ class AIService:
                     "evidence": item.get("evidence") or item.get("title"),
                     "support_level": "strong",
                     "source": "resume_evidence",
-                    "evidence_ids": slice_ids[:2],
+                    "evidence_ids": [],
+                    "role_requirement_source_ids": slice_ids[:2],
                 }
             )
         for item in (evidence.get("ambiguity_flags") or [])[:3]:
@@ -1624,7 +1709,8 @@ class AIService:
                     "evidence": "Resume evidence exists but is ambiguous and needs verification.",
                     "support_level": "weak",
                     "source": "resume_evidence",
-                    "evidence_ids": slice_ids[:2],
+                    "evidence_ids": [],
+                    "role_requirement_source_ids": slice_ids[:2],
                 }
             )
             high_risk_claims.append(
@@ -1632,7 +1718,8 @@ class AIService:
                     "claim": item,
                     "risk_reason": "The resume wording is ambiguous and can be challenged in follow-up questions.",
                     "evidence": item,
-                    "evidence_ids": slice_ids[:2],
+                    "evidence_ids": [],
+                    "role_requirement_source_ids": slice_ids[:2],
                 }
             )
         for item in (evidence.get("missing_evidence_flags") or [])[:4]:
@@ -1643,6 +1730,7 @@ class AIService:
                     "support_level": "unsupported",
                     "source": "resume_gap",
                     "evidence_ids": [],
+                    "role_requirement_source_ids": slice_ids[:2],
                 }
             )
         for item in (evidence.get("followup_candidates") or [])[:4]:
@@ -1651,7 +1739,8 @@ class AIService:
                     "track": item,
                     "reason": "Resume evidence suggests this is worth probing early.",
                     "requirement_status": "weak",
-                    "evidence_ids": slice_ids[:2],
+                    "evidence_ids": [],
+                    "role_requirement_source_ids": slice_ids[:2],
                 }
             )
 
@@ -1704,13 +1793,15 @@ class AIService:
                     "Return pure JSON only. "
                     "Stay grounded in the parsed resume, resume evidence, routed knowledge slices, and target position. "
                     "Do not invent candidate experience, ownership, metrics, or JD requirements that are unsupported. "
+                    "Candidate evidence can only come from the resume or interview answers; routed knowledge slices are role-calibration sources only. "
+                    "Never use a knowledge-base slice as proof that the candidate has real experience. "
                     "If evidence is weak, put it into weakly_supported_requirements or unsupported_requirements. "
                     "Schema: "
-                    '{"matched_requirements":[{"requirement":"","evidence":"","support_level":"strong","source":"resume_or_kb","evidence_ids":[1]}],'
-                    '"weakly_supported_requirements":[{"requirement":"","evidence":"","support_level":"weak","source":"resume_or_kb","evidence_ids":[1]}],'
-                    '"unsupported_requirements":[{"requirement":"","evidence":"","support_level":"unsupported","source":"resume_or_kb","evidence_ids":[]}],'
+                    '{"matched_requirements":[{"requirement":"","evidence":"","support_level":"strong","source":"resume_evidence","candidate_evidence_source":"resume_evidence","evidence_ids":[1],"role_requirement_source_ids":[101]}],'
+                    '"weakly_supported_requirements":[{"requirement":"","evidence":"","support_level":"weak","source":"resume_evidence","candidate_evidence_source":"resume_evidence","evidence_ids":[1],"role_requirement_source_ids":[101]}],'
+                    '"unsupported_requirements":[{"requirement":"","evidence":"","support_level":"unsupported","source":"resume_gap","candidate_evidence_source":"resume_gap","evidence_ids":[],"role_requirement_source_ids":[101]}],'
                     '"high_risk_claims":[{"claim":"","risk_reason":"","evidence":"","evidence_ids":[1]}],'
-                    '"priority_question_tracks":[{"track":"","reason":"","requirement_status":"weak","evidence_ids":[1]}],'
+                    '"priority_question_tracks":[{"track":"","reason":"","requirement_status":"weak","evidence_ids":[1],"role_requirement_source_ids":[101]}],'
                     '"training_focus":[""],'
                     '"blueprint_evidence":{"resume_evidence_summary":[""],"resume_followup_candidates":[""],"slice_ids":[1],"slice_summaries":[""],"knowledge_base_title":"","target_position":""},'
                     '"evidence_summary":[""]}. '
@@ -1797,7 +1888,8 @@ class AIService:
         rules = [
             "Grounding rules:",
             "- Do not invent candidate experience, metrics, incidents, architecture details, business impact, or project facts.",
-            "- Treat the resume, routed slices, chat history, and answer content as the only trusted evidence sources.",
+            "- Treat the resume, chat history, and answer content as trusted candidate evidence sources.",
+            "- Treat routed slices as trusted role-calibration sources only, not candidate evidence.",
             "- Position knowledge and routed RAG slices calibrate what to ask; they are not proof that the candidate has that experience or skill.",
             "- Low-confidence routed evidence must be phrased as a verification target, not as a factual conclusion.",
         ]
@@ -1857,8 +1949,13 @@ class AIService:
                 )
             if item.get("blueprint_evidence_summary"):
                 lines.append(
-                    "  blueprint_evidence: "
+                    "  candidate_evidence_or_verification_reason: "
                     + " | ".join((item.get("blueprint_evidence_summary") or [])[:2])
+                )
+            if item.get("blueprint_role_calibration_summary"):
+                lines.append(
+                    "  role_calibration: "
+                    + " | ".join((item.get("blueprint_role_calibration_summary") or [])[:2])
                 )
             for slice_item in (item.get("selected_slices") or [])[:3]:
                 lines.append(f"  routed_slice: {AIService._slice_line(slice_item, limit=180)}")
@@ -1914,11 +2011,11 @@ class AIService:
         blueprint_evidence = (interview_blueprint or {}).get("blueprint_evidence") or {}
         if blueprint_evidence.get("slice_ids"):
             lines.append(
-                "- Blueprint slice ids: "
+                "- Role-calibration slice ids: "
                 + ", ".join(str(item) for item in blueprint_evidence.get("slice_ids")[:6])
             )
         if blueprint_evidence.get("slice_summaries"):
-            lines.append("- Blueprint evidence highlights:")
+            lines.append("- Role-calibration highlights:")
             for item in blueprint_evidence.get("slice_summaries")[:3]:
                 lines.append(f"  - {item}")
         return "\n".join(lines)
@@ -1935,13 +2032,19 @@ class AIService:
             lines.append(f"Requirement status: {status}")
         evidence_summary = AIService._string_list((question_meta or {}).get("blueprint_evidence_summary"), limit=3)
         if evidence_summary:
-            lines.append(f"Blueprint evidence: {'; '.join(evidence_summary)}")
+            lines.append(f"Candidate evidence / verification reason: {'; '.join(evidence_summary)}")
         target_gap = AIService._string_or_empty((question_meta or {}).get("question_target_gap"))
         if target_gap:
             lines.append(f"Question target gap: {target_gap}")
         target_evidence = AIService._string_list((question_meta or {}).get("question_target_evidence"), limit=3)
         if target_evidence:
-            lines.append(f"Question target evidence: {'; '.join(target_evidence)}")
+            lines.append(f"Candidate evidence target: {'; '.join(target_evidence)}")
+        role_calibration = AIService._string_list(
+            (question_meta or {}).get("blueprint_role_calibration_summary"),
+            limit=3,
+        )
+        if role_calibration:
+            lines.append(f"Role-calibration context: {'; '.join(role_calibration)}")
         question_reason = AIService._string_or_empty((question_meta or {}).get("question_reason"))
         if question_reason:
             lines.append(f"Question reason: {question_reason}")

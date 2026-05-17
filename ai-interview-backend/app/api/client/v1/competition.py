@@ -114,6 +114,7 @@ def _load_eval_summary() -> str:
             "# Eval Preview Summary\n\n"
             "- 样本类型：`demo_constructed`\n"
             "- 评估类型：`preview/demo`\n"
+            "- 评分规则：七维规则评分，满分 `35`\n"
             "- 说明：本结果仅用于比赛沙盘展示；`baseline_prompt_preview` 是规则基线，"
             "不是真实模型实测；不代表真实 holdout eval 或 fine-tuned model 结果。\n"
         )
@@ -131,12 +132,20 @@ def _fallback_eval_score_rows(case_id: str, trace: Dict[str, Any]) -> List[Dict[
             {
                 "case_id": case_id,
                 "target_role": trace.get("target_role"),
+                "sample_origin": trace.get("sample_origin", "demo_constructed"),
+                "for_training": trace.get("for_training", False),
+                "for_competition_demo": trace.get("for_competition_demo", True),
+                "preview": True,
                 "model_variant": "baseline_prompt_preview",
                 **BASELINE_PROMPT_PREVIEW.model_dump(),
             },
             {
                 "case_id": case_id,
                 "target_role": trace.get("target_role"),
+                "sample_origin": trace.get("sample_origin", "demo_constructed"),
+                "for_training": trace.get("for_training", False),
+                "for_competition_demo": trace.get("for_competition_demo", True),
+                "preview": True,
                 "model_variant": "agent_optimized",
                 **(trace.get("eval_score") or {}),
             },
@@ -188,6 +197,7 @@ async def list_demo_cases():
             "preview": True,
             "sample_origin": "demo_constructed",
             "for_training": False,
+            "for_competition_demo": True,
             "claim_boundary": CLAIM_BOUNDARY,
         }
     )
@@ -207,6 +217,9 @@ async def get_eval_preview(case_id: str):
     return ApiResponse.success(
         data={
             "case_id": case_id,
+            "sample_origin": trace.get("sample_origin", "demo_constructed"),
+            "for_training": trace.get("for_training", False),
+            "for_competition_demo": trace.get("for_competition_demo", True),
             "eval_score": trace.get("eval_score"),
             "score_rows": _load_eval_score_rows(case_id, trace),
             "summary": _load_eval_summary(),

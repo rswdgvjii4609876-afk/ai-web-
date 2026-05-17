@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict
 
 from openai import OpenAI
 
 from app.core.config import settings
-from app.services.client.openai_fine_tuning_service import DEFAULT_OUTPUT_ROOT
-
-
-def _read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+from app.services.client.openai_fine_tuning_service import (
+    DEFAULT_OUTPUT_ROOT,
+    OpenAIFineTuningDataError,
+    build_openai_sft_provenance,
+    openai_api_key_from_env,
+    validate_official_openai_base_url,
+    validate_openai_fine_tuning_dataset_dir,
+)
 
 
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
@@ -27,12 +30,6 @@ def _sdk_dump(obj: Any) -> Dict[str, Any]:
         return obj.to_dict()
     return json.loads(json.dumps(obj, default=str))
 
-
-def _has_real_openai_key() -> bool:
-    key = (settings.OPENAI_API_KEY or "").strip()
-    return bool(key and key != "your-openai-api-key")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Upload prepared JSONL files and create an OpenAI SFT job.")
     parser.add_argument("--dataset-dir", default=str(DEFAULT_OUTPUT_ROOT / "latest"))
@@ -40,40 +37,48 @@ def main() -> int:
     parser.add_argument("--suffix", default=settings.OPENAI_FINE_TUNE_SUFFIX)
     parser.add_argument("--confirm-cost", action="store_true", help="Required for real OpenAI upload/job creation.")
     parser.add_argument("--dry-run", action="store_true", help="Run local preflight only; do not call OpenAI.")
+    parser.add_argument("--force-new-job", action="store_true", help="Allow creating a new job when job_record.json already exists.")
     args = parser.parse_args()
 
     dataset_dir = Path(args.dataset_dir)
-    summary_path = dataset_dir / "summary.json"
     train_path = dataset_dir / "train_openai.jsonl"
     validation_path = dataset_dir / "validation_openai.jsonl"
-    if not summary_path.exists():
-        raise SystemExit(f"summary.json not found: {summary_path}")
-    summary = _read_json(summary_path)
-    if not summary.get("ready_for_openai_job"):
-        raise SystemExit("Dataset is not ready for OpenAI job: " + "; ".join(summary.get("blockers") or []))
-    if not train_path.exists() or not train_path.read_text(encoding="utf-8").strip():
-        raise SystemExit(f"Training file is empty or missing: {train_path}")
     if not args.model:
         raise SystemExit("OPENAI_FINE_TUNE_BASE_MODEL or --model is required.")
+    job_record_path = dataset_dir / "job_record.json"
+    if job_record_path.exists() and not args.force_new_job:
+        raise SystemExit(f"Refusing to create another OpenAI fine-tuning job because job_record.json already exists: {job_record_path}")
 
-    preflight = {
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "dataset_dir": str(dataset_dir),
-        "base_model": args.model,
-        "suffix": args.suffix,
-        "counts": summary.get("counts"),
+    try:
+        base_url = validate_official_openai_base_url(os.getenv("OPENAI_BASE_URL", settings.OPENAI_BASE_URL))
+        preflight = validate_openai_fine_tuning_dataset_dir(dataset_dir, require_ready=True)
+    except OpenAIFineTuningDataError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    provenance = build_openai_sft_provenance(
+        dataset_dir,
+        preflight=preflight,
+        base_model=args.model,
+        suffix=args.suffix,
+        base_url=base_url,
+    )
+    preflight_record = {
+        **provenance,
         "dry_run": bool(args.dry_run),
+        "force_new_job": bool(args.force_new_job),
     }
     if args.dry_run:
-        _write_json(dataset_dir / "job_preflight.json", preflight)
+        _write_json(dataset_dir / "job_preflight.json", preflight_record)
         print("PASS: create job preflight passed; dry_run=true, no OpenAI API call was made.")
         return 0
     if not args.confirm_cost:
         raise SystemExit("Refusing to create paid OpenAI fine-tuning job without --confirm-cost.")
-    if not _has_real_openai_key():
-        raise SystemExit("OPENAI_API_KEY is required and must not be the placeholder value.")
+    try:
+        api_key = openai_api_key_from_env()
+    except OpenAIFineTuningDataError as exc:
+        raise SystemExit(str(exc)) from exc
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY, base_url=settings.OPENAI_BASE_URL)
+    client = OpenAI(api_key=api_key, base_url=base_url)
     with train_path.open("rb") as train_file:
         training_file = client.files.create(file=train_file, purpose="fine-tune")
 
@@ -88,8 +93,11 @@ def main() -> int:
         job_kwargs["validation_file"] = validation_file_id
     job = client.fine_tuning.jobs.create(**job_kwargs)
     record = {
-        **preflight,
+        **provenance,
         "dry_run": False,
+        "force_new_job": bool(args.force_new_job),
+        "job_id": getattr(job, "id", ""),
+        "job_kwargs": {**job_kwargs, "training_file": training_file.id, "validation_file": validation_file_id},
         "training_file_id": training_file.id,
         "validation_file_id": validation_file_id,
         "fine_tuning_job": _sdk_dump(job),

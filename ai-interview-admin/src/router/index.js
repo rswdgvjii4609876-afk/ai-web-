@@ -12,8 +12,8 @@ const routes = [
   { path: '/interview-experiences', name: 'InterviewExperiences', component: () => import('../views/InterviewExperiences.vue'), meta: { auth: true } },
   { path: '/knowledge-package', name: 'KnowledgePackage', component: () => import('../views/KnowledgePackage.vue'), meta: { auth: true } },
   { path: '/learning-routes', name: 'LearningRoutes', component: () => import('../views/LearningRoutes.vue'), meta: { auth: true } },
-  { path: '/cases', name: 'Cases', component: () => import('../views/Cases.vue'), meta: { auth: true } },
-  { path: '/evaluation-datasets', name: 'EvaluationDatasets', component: () => import('../views/EvaluationDatasets.vue'), meta: { auth: true } },
+  { path: '/cases', name: 'Cases', component: () => import('../views/Cases.vue'), meta: { auth: true, reviewCases: true } },
+  { path: '/evaluation-datasets', name: 'EvaluationDatasets', component: () => import('../views/EvaluationDatasets.vue'), meta: { auth: true, exportDatasets: true } },
   { path: '/interviews', name: 'Interviews', component: () => import('../views/Interviews.vue'), meta: { auth: true } },
   { path: '/interviews/:id', name: 'InterviewDetail', component: () => import('../views/InterviewDetail.vue'), meta: { auth: true } }
 ]
@@ -27,7 +27,12 @@ router.beforeEach(async (to, from, next) => {
   if (
     to.meta.auth &&
     authStore.isLoggedIn &&
-    (!authStore.id || (to.meta.manageAdmins && !authStore.canManageAdmins))
+    (
+      !authStore.id ||
+      (to.meta.manageAdmins && !authStore.canManageAdmins) ||
+      (to.meta.reviewCases && !authStore.canReviewCases) ||
+      (to.meta.exportDatasets && !authStore.canExportDatasets)
+    )
   ) {
     try {
       const me = await authApi.me()
@@ -39,6 +44,8 @@ router.beforeEach(async (to, from, next) => {
   }
 
   if (to.meta.manageAdmins && !authStore.canManageAdmins) return next('/')
+  if (to.meta.reviewCases && !authStore.canReviewCases) return next('/')
+  if (to.meta.exportDatasets && !authStore.canExportDatasets) return next('/')
   next()
 })
 

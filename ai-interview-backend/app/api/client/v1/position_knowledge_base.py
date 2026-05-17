@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.client.deps import get_current_user
+from app.api.client.deps import require_base_privacy_consent
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.client.position_knowledge_base import (
@@ -21,7 +21,7 @@ router = APIRouter()
 @router.get("")
 async def get_position_knowledge_bases(
     target_position: Optional[str] = Query(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await position_knowledge_base_service.list_items(
@@ -35,7 +35,7 @@ async def get_position_knowledge_bases(
 @router.post("")
 async def create_position_knowledge_base(
     data: PositionKnowledgeBaseCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await position_knowledge_base_service.create_item(
@@ -49,7 +49,7 @@ async def create_position_knowledge_base(
 @router.get("/{knowledge_base_id}/slices")
 async def get_position_knowledge_base_slices(
     knowledge_base_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await position_knowledge_base_service.list_item_slices(
@@ -63,7 +63,7 @@ async def get_position_knowledge_base_slices(
 @router.post("/{knowledge_base_id}/slices/rebuild")
 async def rebuild_position_knowledge_base_slices(
     knowledge_base_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await position_knowledge_base_service.rebuild_item_slices(
@@ -78,7 +78,7 @@ async def rebuild_position_knowledge_base_slices(
 async def update_position_knowledge_base(
     knowledge_base_id: int,
     data: PositionKnowledgeBaseUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await position_knowledge_base_service.update_item(
@@ -93,7 +93,7 @@ async def update_position_knowledge_base(
 @router.delete("/{knowledge_base_id}")
 async def delete_position_knowledge_base(
     knowledge_base_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
     result = await position_knowledge_base_service.delete_item(

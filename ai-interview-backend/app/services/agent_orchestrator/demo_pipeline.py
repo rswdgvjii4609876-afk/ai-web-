@@ -114,7 +114,14 @@ def run_demo_pipeline(case: Dict[str, Any]) -> AgentTrace:
     trace.eval_score = evaluate_trace(trace)
     trace.sft_preview_summary = {
         "dataset_type": "sft_preview",
+        "created_for": "competition_demo",
         "ready_for_real_training": False,
+        "counts": {
+            "demo_constructed": 3,
+            "real_authorized": 0,
+            "train_preview_records": 6,
+            "validation_preview_records": 0,
+        },
         "preview_tasks": ["interview_followup", "evidence_bound_resume_polish"],
     }
     trace.steps.append(

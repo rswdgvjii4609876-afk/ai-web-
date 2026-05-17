@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import io
 import json
 import logging
+import re
 import zipfile
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Sequence
@@ -36,6 +37,19 @@ TRAINING_SAMPLE_DATASET_SPLITS = {"", "train", "validation", "test", "holdout", 
 EVALUATION_DATASET_SCHEMA_VERSION = "ai-interview.evaluation-dataset.v1"
 FINE_TUNING_SAMPLE_SCHEMA_VERSION = "ai-interview.fine-tuning-sample.v1"
 FINE_TUNING_READINESS_REPORT_VERSION = "ai-interview.fine-tuning-readiness-report.v1"
+DIRECT_IDENTIFIER_REPLACEMENTS = (
+    (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[REDACTED_EMAIL]"),
+    (re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "[REDACTED_PHONE]"),
+    (re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)"), "[REDACTED_ID]"),
+    (
+        re.compile(
+            r"(姓名|手机号|手机|电话|邮箱|电子邮箱|学号|证件号|身份证|详细住址|家庭住址|住址|文件名)\s*[:：]\s*[^,，;；\n]{2,}"
+        ),
+        r"\1：[REDACTED]",
+    ),
+    (re.compile(r"[\w\u4e00-\u9fff-]{2,}\.(?:pdf|doc|docx)", re.IGNORECASE), "[REDACTED_FILE]"),
+    (re.compile(r"\d{6,}[\u4e00-\u9fff]{2,6}[^,，;；\n\s]{0,12}"), "[REDACTED_IDENTIFIER]"),
+)
 EVALUATION_DATASET_DEFINITIONS = (
     {
         "dataset_type": "golden_cases",
@@ -408,12 +422,6 @@ class InterviewService:
             [
                 *((question_meta or {}).get("question_target_evidence") or []),
                 *((question_meta or {}).get("blueprint_evidence_summary") or []),
-                *((question_meta or {}).get("evidence_summary") or []),
-                *[
-                    InterviewService._slice_label(item)
-                    for item in ((question_meta or {}).get("selected_slices") or [])[:2]
-                    if item
-                ],
             ],
             limit=4,
         )
@@ -461,9 +469,9 @@ class InterviewService:
                 )
             elif target_evidence:
                 reason = (
-                    f"围绕已命中的简历/知识库证据继续核实“{target_gap}”是否真实成立。"
+                    f"围绕已命中的简历证据与岗位知识库追问依据继续核实“{target_gap}”是否真实成立。"
                     if target_gap
-                    else "围绕已命中的简历/知识库证据继续核实候选人的真实能力边界。"
+                    else "围绕已命中的简历证据与岗位知识库追问依据继续核实候选人的真实能力边界。"
                 )
             else:
                 reason = (
@@ -515,11 +523,14 @@ class InterviewService:
                 continue
             if slice_id not in global_evidence_ids:
                 global_evidence_ids.append(slice_id)
-        global_evidence_summary = InterviewService._unique_strings(
+        global_candidate_evidence_summary = InterviewService._unique_strings(
             [
-                *(interview_blueprint.get("evidence_summary") or []),
-                *(blueprint_evidence.get("slice_summaries") or []),
+                *(blueprint_evidence.get("resume_evidence_summary") or []),
             ],
+            limit=4,
+        )
+        global_role_calibration_summary = InterviewService._unique_strings(
+            blueprint_evidence.get("slice_summaries") or [],
             limit=4,
         )
 
@@ -539,21 +550,37 @@ class InterviewService:
                         continue
                     if slice_id not in track_ids:
                         track_ids.append(slice_id)
+                track_role_ids = []
+                for value in track_item.get("role_requirement_source_ids") or []:
+                    try:
+                        slice_id = int(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if slice_id not in track_role_ids:
+                        track_role_ids.append(slice_id)
             else:
                 track_name = ""
                 track_status = "weak"
                 track_reason = ""
                 track_ids = []
+                track_role_ids = []
 
             if not track_name and training_focus:
                 track_name = training_focus[min(index, len(training_focus) - 1)]
             if track_name:
                 base_intent = str(next_item.get("intent") or "").strip()
+                candidate_summary_seed = [track_reason] if track_reason and track_ids else []
+                role_summary_seed = [track_reason] if track_reason and not track_ids else []
                 next_item["blueprint_track"] = track_name
                 next_item["blueprint_requirement_status"] = track_status
-                next_item["blueprint_evidence_ids"] = track_ids[:4] or global_evidence_ids[:4]
+                next_item["blueprint_evidence_ids"] = track_ids[:4]
+                next_item["blueprint_role_calibration_ids"] = track_role_ids[:4] or global_evidence_ids[:4]
                 next_item["blueprint_evidence_summary"] = InterviewService._unique_strings(
-                    [track_reason, *global_evidence_summary],
+                    [*candidate_summary_seed, *global_candidate_evidence_summary],
+                    limit=3,
+                )
+                next_item["blueprint_role_calibration_summary"] = InterviewService._unique_strings(
+                    [*role_summary_seed, *global_role_calibration_summary],
                     limit=3,
                 )
                 next_item["intent"] = (
@@ -1000,6 +1027,12 @@ class InterviewService:
                 or [],
                 "blueprint_evidence_summary": raw.get("blueprint_evidence_summary")
                 or plan.get("blueprint_evidence_summary")
+                or [],
+                "blueprint_role_calibration_ids": raw.get("blueprint_role_calibration_ids")
+                or plan.get("blueprint_role_calibration_ids")
+                or [],
+                "blueprint_role_calibration_summary": raw.get("blueprint_role_calibration_summary")
+                or plan.get("blueprint_role_calibration_summary")
                 or [],
                 "blueprint_high_risk_claims": raw.get("blueprint_high_risk_claims")
                 or plan.get("blueprint_high_risk_claims")
@@ -1574,7 +1607,17 @@ class InterviewService:
         report_signals: Dict,
         interview_mode: str,
     ) -> Dict:
-        merged = dict(report or {})
+        diagnostics: List[Dict[str, Any]] = []
+        if isinstance(report, dict):
+            merged = dict(report or {})
+        else:
+            logger.warning("Report payload is not an object: %s", type(report).__name__)
+            merged = InterviewService._fallback_report_from_signals(
+                report_signals=report_signals,
+                reason="invalid_report_payload_type",
+                detail=f"报告生成返回 {type(report).__name__}，已使用面试记录生成基础报告。",
+            )
+            diagnostics.extend(merged.pop("report_diagnostics", []))
         if not merged.get("weaknesses") and report_signals.get("common_gaps"):
             merged["weaknesses"] = report_signals["common_gaps"]
         if not merged.get("strengths") and report_signals.get("common_strengths"):
@@ -1597,7 +1640,45 @@ class InterviewService:
             merged["grounding_confidence_summary"] = report_signals["grounding_confidence_summary"]
         if not merged.get("evidence_stats") and report_signals.get("evidence_stats"):
             merged["evidence_stats"] = report_signals["evidence_stats"]
+        if diagnostics:
+            merged["report_diagnostics"] = [
+                *(merged.get("report_diagnostics") or []),
+                *diagnostics,
+            ]
         return merged
+
+    @staticmethod
+    def _fallback_report_from_signals(
+        report_signals: Optional[Dict],
+        reason: str,
+        detail: str = "",
+    ) -> Dict[str, Any]:
+        signals = report_signals or {}
+        common_gaps = signals.get("common_gaps") or []
+        common_strengths = signals.get("common_strengths") or []
+        training_priorities = signals.get("training_priorities") or []
+        evidence_summary = signals.get("evidence_summary") or []
+        return {
+            "summary": "报告生成服务返回异常，系统已基于本次面试记录、评分和证据信号生成基础报告。",
+            "strengths": common_strengths[:6],
+            "weaknesses": common_gaps[:6],
+            "suggestions": (training_priorities or common_gaps or ["围绕本次面试暴露的薄弱点继续补充可验证案例。"])[:6],
+            "hire_recommendation": "建议结合人工复核和后续训练结果再判断。",
+            "training_priorities": training_priorities[:6],
+            "common_gaps": common_gaps[:6],
+            "common_strengths": common_strengths[:6],
+            "evidence_summary": evidence_summary[:6],
+            "followup_loop_summary": signals.get("followup_loop_summary") or [],
+            "claim_confidence_summary": signals.get("claim_confidence_summary") or [],
+            "grounding_confidence_summary": signals.get("grounding_confidence_summary") or {},
+            "evidence_stats": signals.get("evidence_stats") or {},
+            "report_diagnostics": [
+                {
+                    "reason": reason,
+                    "detail": detail or "报告生成异常，已启用基础报告兜底。",
+                }
+            ],
+        }
 
     @staticmethod
     def _json_dict_from_text(value: Optional[str]) -> Dict[str, Any]:
@@ -1618,6 +1699,72 @@ class InterviewService:
             return value
         except TypeError:
             return str(value)
+
+    @staticmethod
+    def _redact_direct_identifiers(text: str) -> tuple[str, int]:
+        redacted = text
+        total = 0
+        for pattern, replacement in DIRECT_IDENTIFIER_REPLACEMENTS:
+            redacted, count = pattern.subn(replacement, redacted)
+            total += count
+        return redacted, total
+
+    @staticmethod
+    def _sanitize_export_payload(
+        value: Any,
+        *,
+        preserve_user_email: bool = False,
+        path: tuple[str, ...] = (),
+    ) -> tuple[Any, int]:
+        if isinstance(value, dict):
+            clean: Dict[str, Any] = {}
+            total = 0
+            for key, item in value.items():
+                next_path = (*path, str(key))
+                if preserve_user_email and next_path == ("interview", "user_email"):
+                    clean[key] = item
+                    continue
+                clean_item, count = InterviewService._sanitize_export_payload(
+                    item,
+                    preserve_user_email=preserve_user_email,
+                    path=next_path,
+                )
+                clean[key] = clean_item
+                total += count
+            return clean, total
+        if isinstance(value, list):
+            clean_items = []
+            total = 0
+            for index, item in enumerate(value):
+                clean_item, count = InterviewService._sanitize_export_payload(
+                    item,
+                    preserve_user_email=preserve_user_email,
+                    path=(*path, str(index)),
+                )
+                clean_items.append(clean_item)
+                total += count
+            return clean_items, total
+        if isinstance(value, str):
+            return InterviewService._redact_direct_identifiers(value)
+        return value, 0
+
+    @staticmethod
+    def _is_reviewed_training_sample(sample: Dict[str, Any]) -> bool:
+        review = sample.get("training_sample_review") or {}
+        return review.get("review_status") == "reviewed"
+
+    @staticmethod
+    def _is_export_ready_training_sample(sample: Dict[str, Any]) -> bool:
+        interview = sample.get("interview") or {}
+        export_notes = sample.get("export_notes") or {}
+        return bool(
+            interview.get("status") == "completed"
+            and (
+                interview.get("data_contribution_consent")
+                or export_notes.get("data_contribution_consent")
+            )
+            and InterviewService._is_reviewed_training_sample(sample)
+        )
 
     @staticmethod
     def _normalize_training_sample_review(review: Any) -> Dict[str, Any]:
@@ -1691,6 +1838,10 @@ class InterviewService:
         interview = await db.get(Interview, interview_id)
         if not interview:
             raise NotFoundError(message="面试记录不存在")
+        if not getattr(interview, "data_contribution_consent", False):
+            raise ValidationError(message="该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程")
+        if getattr(interview, "status", None) != "completed":
+            raise ValidationError(message="该面试尚未完成，不能保存人工评分")
 
         panel_snapshot = interview.panel_snapshot if isinstance(interview.panel_snapshot, dict) else {}
         next_review = InterviewService._normalize_training_sample_review(review_data)
@@ -1850,7 +2001,17 @@ class InterviewService:
                 "intended_use": "offline review, hallucination analysis, follow-up quality review, and future fine-tuning preparation",
             },
         }
-        return json.loads(json.dumps(sample, ensure_ascii=False, default=InterviewService._json_safe))
+        safe_sample = json.loads(json.dumps(sample, ensure_ascii=False, default=InterviewService._json_safe))
+        safe_sample, redaction_count = InterviewService._sanitize_export_payload(
+            safe_sample,
+            preserve_user_email=bool(include_user_email and user_email),
+        )
+        safe_sample["export_notes"]["pii_redaction"] = {
+            "applied": True,
+            "redacted": redaction_count > 0,
+            "redaction_count": redaction_count,
+        }
+        return safe_sample
 
     @staticmethod
     async def get_completed_training_samples(
@@ -1858,6 +2019,7 @@ class InterviewService:
         include_user_email: bool = False,
         min_score: Optional[float] = None,
         limit: Optional[int] = None,
+        require_reviewed: bool = True,
     ) -> List[Dict[str, Any]]:
         query = (
             select(Interview, User.email)
@@ -1868,9 +2030,6 @@ class InterviewService:
         )
         if min_score is not None:
             query = query.where(Interview.overall_score >= min_score)
-        if limit is not None:
-            query = query.limit(limit)
-
         result = await db.execute(query)
         rows = result.all()
         interview_ids = [interview.id for interview, _ in rows]
@@ -1888,14 +2047,17 @@ class InterviewService:
         samples: List[Dict[str, Any]] = []
         for interview, email in rows:
             try:
-                samples.append(
-                    InterviewService.build_training_sample(
-                        interview=interview,
-                        messages=messages_by_interview.get(interview.id, []),
-                        user_email=email,
-                        include_user_email=include_user_email,
-                    )
+                sample = InterviewService.build_training_sample(
+                    interview=interview,
+                    messages=messages_by_interview.get(interview.id, []),
+                    user_email=email,
+                    include_user_email=include_user_email,
                 )
+                if require_reviewed and not InterviewService._is_reviewed_training_sample(sample):
+                    continue
+                samples.append(sample)
+                if limit is not None and len(samples) >= limit:
+                    break
             except Exception as exc:
                 logger.warning("Skip malformed training sample interview_id=%s: %s", interview.id, exc)
         return samples
@@ -1925,14 +2087,18 @@ class InterviewService:
     def _match_evaluation_datasets(sample: Dict[str, Any]) -> Dict[str, List[str]]:
         interview = sample.get("interview") or {}
         review = sample.get("training_sample_review") or {}
+        export_notes = sample.get("export_notes") or {}
         try:
             overall_score = float(interview.get("overall_score") or 0)
         except (TypeError, ValueError):
             overall_score = 0.0
         base_rules = [
             "status=completed",
+            "data_contribution_consent=true",
             "training_sample_review.review_status=reviewed",
         ]
+        if not (interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent")):
+            return {}
         if interview.get("status") != "completed" or review.get("review_status") != "reviewed":
             return {}
 
@@ -1995,6 +2161,8 @@ class InterviewService:
         interview = sample.get("interview") or {}
         review = sample.get("training_sample_review") or {}
         export_notes = sample.get("export_notes") or {}
+        if interview.get("status") != "completed":
+            return None
         if review.get("review_status") != "reviewed":
             return None
         if not (interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent")):
@@ -2070,6 +2238,9 @@ class InterviewService:
                 "case_id": review.get("case_id"),
                 "target_position": interview.get("target_position"),
                 "quality_tier": review.get("quality_tier"),
+                "review_status": review.get("review_status"),
+                "reviewed_at": review.get("reviewed_at"),
+                "reviewer_present": bool(review.get("reviewer_email")),
                 "is_high_quality": bool(review.get("is_high_quality")),
                 "has_hallucination": bool(review.get("has_hallucination")),
                 "followup_worthy": bool(review.get("followup_worthy")),
@@ -2093,11 +2264,14 @@ class InterviewService:
             interview = sample.get("interview") or {}
             export_notes = sample.get("export_notes") or {}
             review = sample.get("training_sample_review") or {}
-            if interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent"):
+            is_completed = interview.get("status") == "completed"
+            if is_completed and (
+                interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent")
+            ):
                 authorized_samples += 1
-            if review.get("review_status") == "reviewed":
+            if is_completed and review.get("review_status") == "reviewed":
                 reviewed_samples += 1
-            if review.get("is_high_quality") and not review.get("has_hallucination"):
+            if is_completed and review.get("is_high_quality") and not review.get("has_hallucination"):
                 high_quality_samples += 1
 
             record = InterviewService._build_fine_tuning_record(sample)
@@ -2140,6 +2314,7 @@ class InterviewService:
                 },
             ],
             "base_requirements": [
+                "status=completed",
                 "data_contribution_consent=true",
                 "training_sample_review.review_status=reviewed",
                 "positive_sft_requires_has_hallucination=false",
@@ -2161,13 +2336,10 @@ class InterviewService:
         reviewed_authorized_count = 0
         for sample in samples:
             interview = sample.get("interview") or {}
-            review = sample.get("training_sample_review") or {}
-            export_notes = sample.get("export_notes") or {}
-            if interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent"):
-                if review.get("review_status") == "reviewed":
-                    reviewed_authorized_count += 1
-                    position = str(interview.get("target_position") or "未填写岗位").strip()
-                    position_counter[position or "未填写岗位"] += 1
+            if InterviewService._is_export_ready_training_sample(sample):
+                reviewed_authorized_count += 1
+                position = str(interview.get("target_position") or "未填写岗位").strip()
+                position_counter[position or "未填写岗位"] += 1
 
         top_positions = [
             {"target_position": position, "count": count}
@@ -2493,12 +2665,12 @@ class InterviewService:
         effective_data_consent = (
             bool(data_contribution_consent)
             if data_contribution_consent is not None
-            else bool(getattr(resume, "data_contribution_consent", False))
+            else False
         )
         privacy_snapshot = (
             dict(privacy_consent_snapshot)
             if isinstance(privacy_consent_snapshot, dict)
-            else dict(getattr(resume, "privacy_consent_snapshot", None) or {})
+            else {}
         )
         privacy_snapshot.update(
             {
@@ -2705,7 +2877,11 @@ class InterviewService:
             "interview_mode": interview_mode,
             "training_focus": interview_blueprint.get("training_focus") or [],
             "high_risk_claims": InterviewService._blueprint_claim_strings(interview_blueprint),
-            "blueprint_evidence_summary": interview_blueprint.get("evidence_summary") or [],
+            "blueprint_evidence_summary": (
+                (interview_blueprint.get("blueprint_evidence") or {}).get("resume_evidence_summary")
+                or interview_blueprint.get("evidence_summary")
+                or []
+            ),
             "interview_blueprint": interview_blueprint,
             "data_contribution_consent": bool(interview.data_contribution_consent),
         }
@@ -2716,13 +2892,21 @@ class InterviewService:
         user_id: int,
         interview_id: int,
         answer: str,
+        question_index: Optional[int] = None,
         ai_config: Optional[Dict] = None,
     ) -> Dict:
+        answer = str(answer or "").strip()
+        if not answer:
+            raise ValidationError(message="回答内容不能为空")
+
+        if question_index is None:
+            raise ValidationError(message="question_index is required to prevent stale answer submission")
+
         result = await db.execute(
             select(Interview).where(
                 Interview.id == interview_id,
                 Interview.user_id == user_id,
-            )
+            ).with_for_update()
         )
         interview = result.scalar_one_or_none()
         if not interview:
@@ -2732,7 +2916,14 @@ class InterviewService:
 
         resume_result = await db.execute(select(Resume).where(Resume.id == interview.resume_id))
         resume = resume_result.scalar_one_or_none()
-        parsed_resume = json.loads(resume.parsed_content) if resume and resume.parsed_content else {}
+        if not resume:
+            raise ValidationError(message="答题失败：关联简历不存在，请重新开始面试")
+        try:
+            parsed_resume = InterviewService._load_resume_payload(resume)
+        except ValidationError as exc:
+            message = str(getattr(exc, "detail", "") or "关联简历解析结果异常，请重新上传简历或重新开始面试")
+            message = message.replace("开始面试失败：", "答题失败：")
+            raise ValidationError(message=message) from exc
         knowledge_base_context = interview.knowledge_base_snapshot or None
 
         messages_result = await db.execute(
@@ -2743,10 +2934,37 @@ class InterviewService:
         messages = messages_result.scalars().all()
         chat_history = [{"role": item.role, "content": item.content} for item in messages]
 
-        current_index = interview.current_question_index
+        current_index = int(interview.current_question_index or 0)
         questions = InterviewService._serialize_questions(interview.questions_data or [])
+        if not questions:
+            logger.warning("Submit answer failed: empty questions_data interview_id=%s", interview_id)
+            raise ValidationError(message="面试题目状态异常，请重新开始面试")
+        effective_total_questions = min(int(interview.total_questions or len(questions)), len(questions))
+        if effective_total_questions <= 0:
+            logger.warning("Submit answer failed: invalid total_questions interview_id=%s", interview_id)
+            raise ValidationError(message="Interview question state is invalid; please restart the interview")
+        if int(interview.total_questions or 0) != len(questions):
+            logger.warning(
+                "Submit answer using effective question count: interview_id=%s total_questions=%s questions_len=%s",
+                interview_id,
+                interview.total_questions,
+                len(questions),
+            )
+        if current_index < 0 or current_index >= len(questions):
+            logger.warning(
+                "Submit answer failed: invalid current_question_index interview_id=%s index=%s total=%s",
+                interview_id,
+                current_index,
+                len(questions),
+            )
+            raise ValidationError(message="面试进度状态异常，请刷新页面或重新开始面试")
+        if int(question_index) != current_index:
+            raise ValidationError(message="当前题目已更新，请刷新页面后继续作答")
         current_question_meta = dict(questions[current_index])
-        current_question = current_question_meta["question"]
+        current_question = str(current_question_meta.get("question") or "").strip()
+        if not current_question:
+            logger.warning("Submit answer failed: blank question interview_id=%s index=%s", interview_id, current_index)
+            raise ValidationError(message="当前题目内容异常，请重新开始面试")
 
         candidate_msg = InterviewMessage(
             interview_id=interview_id,
@@ -2808,7 +3026,7 @@ class InterviewService:
         questions[current_index] = current_question_meta
 
         next_index = current_index + 1
-        is_finished = next_index >= interview.total_questions
+        is_finished = next_index >= effective_total_questions or next_index >= len(questions)
         response = {
             "score": score,
             "feedback": feedback,
@@ -2827,19 +3045,21 @@ class InterviewService:
         }
 
         if is_finished:
-            interview.questions_data = InterviewService._serialize_questions(questions)
+            completed_questions = questions[:effective_total_questions]
+            interview.questions_data = InterviewService._serialize_questions(completed_questions)
             interview.status = "completed"
             interview.current_question_index = next_index
             scored_values = [
                 float(item.get("score"))
-                for item in questions
+                for item in completed_questions
                 if item.get("score") is not None
             ]
             overall = round(sum(scored_values) / len(scored_values), 1) if scored_values else 0
             interview.overall_score = Decimal(str(overall))
 
-            qa_data = InterviewService._build_qa_data(questions)
-            report_signals = InterviewService._build_report_signals(questions)
+            qa_data = InterviewService._build_qa_data(completed_questions)
+            report_signals = InterviewService._build_report_signals(completed_questions)
+            report_diagnostics: List[Dict[str, Any]] = []
             try:
                 if interview.interview_mode == "panel":
                     report = await AIService.generate_panel_report(
@@ -2863,22 +3083,48 @@ class InterviewService:
                     )
             except Exception as exc:
                 logger.warning("Primary report generation failed, fallback to single report: %s", exc)
-                report = await AIService.generate_report(
-                    parsed_resume=parsed_resume,
-                    target_position=interview.target_position,
-                    questions_and_scores=qa_data,
-                    knowledge_base=knowledge_base_context,
-                    panel_snapshot=interview.panel_snapshot,
-                    report_signals=report_signals,
-                    ai_config=ai_config,
+                report_diagnostics.append(
+                    {
+                        "reason": "primary_report_generation_failed",
+                        "detail": str(exc),
+                    }
                 )
-                report["fallback_mode"] = "single_report_fallback"
+                try:
+                    report = await AIService.generate_report(
+                        parsed_resume=parsed_resume,
+                        target_position=interview.target_position,
+                        questions_and_scores=qa_data,
+                        knowledge_base=knowledge_base_context,
+                        panel_snapshot=interview.panel_snapshot,
+                        report_signals=report_signals,
+                        ai_config=ai_config,
+                    )
+                    if isinstance(report, dict):
+                        report["fallback_mode"] = "single_report_fallback"
+                except Exception as fallback_exc:
+                    logger.warning("Fallback report generation failed, using diagnostic report: %s", fallback_exc)
+                    report_diagnostics.append(
+                        {
+                            "reason": "fallback_report_generation_failed",
+                            "detail": str(fallback_exc),
+                        }
+                    )
+                    report = InterviewService._fallback_report_from_signals(
+                        report_signals=report_signals,
+                        reason="report_generation_unavailable",
+                        detail="主报告和备用报告生成均失败，已使用面试记录生成基础报告。",
+                    )
 
             report = InterviewService._merge_report_defaults(
                 report=report,
                 report_signals=report_signals,
                 interview_mode=interview.interview_mode,
             )
+            if report_diagnostics:
+                report["report_diagnostics"] = [
+                    *(report.get("report_diagnostics") or []),
+                    *report_diagnostics,
+                ]
             resume_analysis = ensure_resume_evaluation_snapshot(
                 InterviewService._load_resume_analysis_payload(resume) if resume else {},
                 target_position=interview.target_position,
@@ -2891,7 +3137,7 @@ class InterviewService:
                 report["ability_gap_profile"] = resume_analysis["ability_gap_profile"]
             if resume_analysis.get("learning_plan") and not report.get("learning_plan"):
                 report["learning_plan"] = resume_analysis["learning_plan"]
-            report["question_scores"] = InterviewService._build_question_scores(questions)
+            report["question_scores"] = InterviewService._build_question_scores(completed_questions)
             report["mode_label"] = (
                 "内部多面试官协同 + 单主持人输出"
                 if interview.interview_mode == "panel"
@@ -2939,6 +3185,7 @@ class InterviewService:
         user_id: int,
         interview_id: int,
         answer: str,
+        question_index: Optional[int] = None,
         ai_config: Optional[Dict] = None,
     ):
         try:
@@ -2947,6 +3194,7 @@ class InterviewService:
                 user_id=user_id,
                 interview_id=interview_id,
                 answer=answer,
+                question_index=question_index,
                 ai_config=ai_config,
             )
         except Exception as exc:
@@ -2975,12 +3223,24 @@ class InterviewService:
         if interview.status != "completed":
             raise ValidationError(message="面试尚未完成")
 
-        report = {}
+        questions = InterviewService._serialize_questions(interview.questions_data or [])
+        report_signals = InterviewService._build_report_signals(questions)
+        report: Dict[str, Any] = {}
         if interview.report:
             try:
                 report = json.loads(interview.report)
-            except json.JSONDecodeError:
-                report = {}
+            except json.JSONDecodeError as exc:
+                logger.warning("Stored interview report JSON is invalid: interview_id=%s error=%s", interview_id, exc)
+                report = InterviewService._fallback_report_from_signals(
+                    report_signals=report_signals,
+                    reason="stored_report_invalid_json",
+                    detail="历史报告 JSON 损坏，已基于面试记录返回基础报告。",
+                )
+        report = InterviewService._merge_report_defaults(
+            report=report,
+            report_signals=report_signals,
+            interview_mode=interview.interview_mode,
+        )
         if interview.resume_id and not report.get("resume_evaluation_snapshot"):
             resume = await db.get(Resume, interview.resume_id)
             if resume:
@@ -3071,6 +3331,7 @@ class InterviewService:
         items = [
             {
                 "interview_id": item.id,
+                "resume_id": item.resume_id,
                 "target_position": item.target_position,
                 "difficulty": item.difficulty,
                 "interview_mode": item.interview_mode or "single",
