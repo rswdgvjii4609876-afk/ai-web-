@@ -75,7 +75,13 @@
       <section class="two-column">
         <article class="panel">
           <h2>Eval Preview</h2>
-          <p class="muted">七维规则评分，仅用于沙盘展示。</p>
+          <p class="muted">七维规则评分，仅用于沙盘展示；baseline_prompt_preview 不是实际模型调用。</p>
+          <div v-if="evalRows.length" class="eval-table">
+            <div v-for="row in evalRows" :key="row.model_variant" class="eval-row">
+              <span>{{ row.model_variant }}</span>
+              <strong>{{ row.total_score }}/35</strong>
+            </div>
+          </div>
           <div class="score-grid">
             <span>能力聚焦 {{ trace.eval_score?.focus_score || '-' }}</span>
             <span>证据约束 {{ trace.eval_score?.evidence_score || '-' }}</span>
@@ -85,6 +91,7 @@
             <span>格式稳定 {{ trace.eval_score?.format_score || '-' }}</span>
             <span>报告可用 {{ trace.eval_score?.report_score || '-' }}</span>
           </div>
+          <p v-if="evalBoundary" class="eval-boundary">{{ evalBoundary }}</p>
         </article>
         <article class="panel">
           <h2>SFT Preview</h2>
@@ -103,18 +110,33 @@ import { computed, onMounted, ref } from 'vue'
 import {
   getCompetitionAgentTrace,
   getCompetitionDemoCases,
+  getCompetitionEvalPreview,
   getCompetitionSftPreview
 } from '../api/competition'
+
+const CASE_ORDER = ['python_backend', 'product_assistant', 'hr_specialist']
 
 const cases = ref([])
 const claimBoundary = ref('演示样本为 demo_constructed，for_training=false。')
 const selectedCaseId = ref('')
 const trace = ref({})
+const evalPreview = ref({})
 const sftPreview = ref({})
 const loading = ref(false)
 const error = ref('')
 
 const sftSummary = computed(() => sftPreview.value?.summary || {})
+const evalRows = computed(() => evalPreview.value?.score_rows || [])
+const evalBoundary = computed(() => {
+  const summary = evalPreview.value?.summary || ''
+  const line = summary.split('\n').find(item => item.includes('说明'))
+  return line ? line.replace(/^-\s*/, '') : ''
+})
+
+function sortCases(items) {
+  const order = Object.fromEntries(CASE_ORDER.map((caseId, index) => [caseId, index]))
+  return [...items].sort((a, b) => (order[a.case_id] ?? 99) - (order[b.case_id] ?? 99))
+}
 
 function formatOutput(value) {
   return JSON.stringify(value || {}, null, 2)
@@ -126,6 +148,7 @@ async function selectCase(caseId) {
   error.value = ''
   try {
     trace.value = await getCompetitionAgentTrace(caseId)
+    evalPreview.value = await getCompetitionEvalPreview(caseId)
   } catch (err) {
     error.value = err.message || '加载失败'
   } finally {
@@ -136,7 +159,7 @@ async function selectCase(caseId) {
 onMounted(async () => {
   try {
     const caseResult = await getCompetitionDemoCases()
-    cases.value = caseResult.items || []
+    cases.value = sortCases(caseResult.items || [])
     claimBoundary.value = caseResult.claim_boundary || claimBoundary.value
     sftPreview.value = await getCompetitionSftPreview()
     if (cases.value.length) {
@@ -319,6 +342,30 @@ pre {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+.eval-table {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.eval-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #374151;
+  font-size: 13px;
+}
+.eval-row strong {
+  color: #111827;
+}
+.eval-boundary {
+  margin: 12px 0 0;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .score-grid span,
 .compact-list li {

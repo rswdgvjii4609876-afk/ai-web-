@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
 from app.services.agent_orchestrator.demo_cases import generate_demo_cases
 from app.services.agent_orchestrator.asset_guardrails import resolve_asset_path

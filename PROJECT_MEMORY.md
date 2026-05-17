@@ -20,7 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
-5. 阶段 150 前审查修复：当前最高优先级是修复 Eval Preview 基线口径、Competition API Preview 资产校验和脚本路径可复现性，再进入部署验收。
+5. 阶段 150.1 深度代码审查修复：当前最高优先级是完成 Career-AgentOS 比赛展示链路的代码级审查、子 agent 二次复查、测试、提交和推送，再进入服务器部署验收。
 
 当前策略：
 
@@ -323,6 +323,18 @@ docker compose up -d --build app admin frontend
 - 新增 `Agent Trace -> Eval Preview -> SFT Preview` 脚本链和后端只读展示接口 `/api/v1/competition/...`。
 - 用户端新增 `/competition/agent-trace`，旧 `/competition-demo` 改为跳转新展示页；后台评测样本页增加比赛 Preview 说明。
 - 当前仍不能说真实 OpenAI SFT 已完成；所有 demo/preview 资产只用于比赛展示和链路验证。
+
+### 3.14 阶段 150.1：Career-AgentOS 深度代码审查与修复闭环
+
+阶段 150.1 针对用户指出的“审查不够深入”进行代码级收口，范围覆盖后端数据流、Competition API、安全边界、脚本复现、前端消费、后台 Preview 错误处理和测试覆盖。
+
+- 子 agent 只读深审发现的 must-fix 已纳入修复范围：脚本任意 cwd/直接文件执行、Eval Preview summary 二次校验、Competition API case_id allowlist、SFT Preview bundle 校验。
+- 后端统一使用 `asset_guardrails` 校验 demo/trace/eval/SFT preview 资产，要求 `sample_origin=demo_constructed`、`for_training=false`、`for_competition_demo=true`，并扫描邮箱、手机号、身份证号、学号等直接身份标识。
+- Competition API 在读取 trace 和 eval 前先校验 `case_id`，只允许 C1/C2/C3 固定案例；不合规磁盘资产不返回给前端。
+- 脚本链默认输出到仓库根目录 `demo_cases/` 和 `artifacts/`，并补根层 `app` shim，使 `python -m app.scripts.generate_competition_assets` 可从仓库根目录运行；直接执行脚本文件时也能自动定位后端包。
+- 用户端 `/competition/agent-trace` 会消费 `eval-preview/{case_id}`，展示 `baseline_prompt_preview` 与 `agent_optimized` 的 Preview 对照，并在前端二次保证 C1/C2/C3 顺序。
+- 后台 `EvaluationDatasets.vue` 对 competition Preview 加载失败给出可见错误，不再只吞掉异常。
+- 本阶段结论只能写“比赛 Preview 链路代码级审查通过/可进入服务器部署验收”，不能写真实 C1/C2/C3 已通过、真实 OpenAI SFT 已完成或已有 `fine_tuned_model`。
 
 ## 4. 涉及的文件和核心逻辑
 

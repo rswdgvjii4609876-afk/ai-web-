@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
 from app.services.agent_orchestrator.asset_guardrails import resolve_asset_path
 from app.services.agent_orchestrator.demo_cases import generate_demo_cases
@@ -33,14 +39,17 @@ def main() -> None:
 
     from app.scripts.run_interview_eval_preview import main as eval_main
     from app.scripts.build_sft_preview import main as sft_main
-    import sys
 
     eval_out = resolve_asset_path(args.eval_out, "artifacts/eval")
     sft_out = resolve_asset_path(args.sft_out, "artifacts/sft_preview")
-    sys.argv = ["run_interview_eval_preview", "--input", str(trace_out), "--out", str(eval_out)]
-    eval_main()
-    sys.argv = ["build_sft_preview", "--input", str(demo_out), "--out", str(sft_out)]
-    sft_main()
+    original_argv = sys.argv[:]
+    try:
+        sys.argv = ["run_interview_eval_preview", "--input", str(trace_out), "--out", str(eval_out)]
+        eval_main()
+        sys.argv = ["build_sft_preview", "--input", str(demo_out), "--out", str(sft_out)]
+        sft_main()
+    finally:
+        sys.argv = original_argv
 
     print("competition_assets=ready")
     print(f"demo_cases={len(cases)}")

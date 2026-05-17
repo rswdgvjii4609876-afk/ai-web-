@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
 from app.services.agent_orchestrator.asset_guardrails import (
     resolve_asset_path,
-    sort_demo_cases,
+    validate_demo_case_set,
     validate_demo_preview_asset,
 )
 from app.services.agent_orchestrator.demo_cases import generate_demo_cases
@@ -22,7 +27,7 @@ def _load_cases(input_dir: Path) -> list[dict]:
         if cases:
             for case in cases:
                 validate_demo_preview_asset(case, label=f"demo case {case.get('case_id')}")
-            return sort_demo_cases(cases)
+            return validate_demo_case_set(cases)
     return generate_demo_cases()
 
 

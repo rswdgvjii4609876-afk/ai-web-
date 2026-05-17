@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Any, Dict, List
@@ -9,14 +10,16 @@ from fastapi import APIRouter, HTTPException
 from app.schemas.response import ApiResponse
 from app.services.agent_orchestrator.asset_guardrails import (
     resolve_asset_path,
-    sort_demo_cases,
-    validate_demo_preview_asset,
-    validate_sft_preview_record,
-    validate_sft_preview_summary,
+    validate_case_id,
+    validate_demo_case_set,
+    validate_eval_preview_summary,
+    validate_eval_score_rows,
+    validate_sft_preview_bundle,
     validate_trace_preview_asset,
 )
 from app.services.agent_orchestrator.demo_cases import build_demo_case_index, generate_demo_cases
 from app.services.agent_orchestrator.demo_pipeline import run_demo_pipeline
+from app.services.agent_orchestrator.evaluator import BASELINE_PROMPT_PREVIEW
 from app.services.agent_orchestrator.sft_preview import build_sft_preview_bundle
 from app.services.agent_orchestrator.trace_logger import load_trace
 
@@ -33,6 +36,13 @@ def _asset_error(error: Exception) -> HTTPException:
         status_code=500,
         detail=f"Invalid competition preview asset: {error}",
     )
+
+
+def _require_case_id(case_id: str) -> str:
+    try:
+        return validate_case_id(case_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def _asset_dir(default_relative: str) -> Path | None:
@@ -65,33 +75,86 @@ def _load_demo_cases() -> List[Dict[str, Any]]:
     if case_dir:
         try:
             cases = [_read_json(path) for path in sorted(case_dir.glob("*.json"))]
-            for case in cases:
-                validate_demo_preview_asset(case, label=f"demo case {case.get('case_id')}")
             if cases:
-                return sort_demo_cases(cases)
-        except ValueError as exc:
+                return validate_demo_case_set(cases)
+        except Exception as exc:
             raise _asset_error(exc) from exc
     return generate_demo_cases()
 
 
 def _load_agent_trace_data(case_id: str) -> Dict[str, Any]:
+    case_id = _require_case_id(case_id)
     trace_dir = _trace_dir()
     if trace_dir:
         trace_path = trace_dir / f"{case_id}.trace.json"
         if trace_path.exists():
-            payload = load_trace(trace_path).model_dump()
             try:
+                payload = load_trace(trace_path).model_dump()
+                if payload.get("case_id") != case_id:
+                    raise ValueError(f"{trace_path} case_id does not match requested case_id={case_id}")
                 validate_trace_preview_asset(payload, label=str(trace_path))
-            except ValueError as exc:
+            except Exception as exc:
                 raise _asset_error(exc) from exc
             return payload
 
     cases = build_demo_case_index()
-    if case_id not in cases:
-        raise HTTPException(status_code=404, detail=f"Unknown demo case: {case_id}")
     payload = run_demo_pipeline(cases[case_id]).model_dump()
+    if payload.get("case_id") != case_id:
+        raise _asset_error(ValueError(f"generated trace case_id does not match requested case_id={case_id}"))
     validate_trace_preview_asset(payload, label=f"generated trace {case_id}")
     return payload
+
+
+def _load_eval_summary() -> str:
+    eval_dir = _eval_dir()
+    if eval_dir and (eval_dir / "eval_summary.md").exists():
+        summary = (eval_dir / "eval_summary.md").read_text(encoding="utf-8-sig")
+    else:
+        summary = (
+            "# Eval Preview Summary\n\n"
+            "- 样本类型：`demo_constructed`\n"
+            "- 评估类型：`preview/demo`\n"
+            "- 说明：本结果仅用于比赛沙盘展示；`baseline_prompt_preview` 是规则基线，"
+            "不是真实模型实测；不代表真实 holdout eval 或 fine-tuned model 结果。\n"
+        )
+    try:
+        validate_eval_preview_summary(summary)
+    except ValueError as exc:
+        raise _asset_error(exc) from exc
+    return summary
+
+
+def _fallback_eval_score_rows(case_id: str, trace: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return validate_eval_score_rows(
+        case_id,
+        [
+            {
+                "case_id": case_id,
+                "target_role": trace.get("target_role"),
+                "model_variant": "baseline_prompt_preview",
+                **BASELINE_PROMPT_PREVIEW.model_dump(),
+            },
+            {
+                "case_id": case_id,
+                "target_role": trace.get("target_role"),
+                "model_variant": "agent_optimized",
+                **(trace.get("eval_score") or {}),
+            },
+        ],
+        label=f"generated eval score rows for {case_id}",
+    )
+
+
+def _load_eval_score_rows(case_id: str, trace: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
+    eval_dir = _eval_dir()
+    if not eval_dir or not (eval_dir / "eval_score_table.csv").exists():
+        return _fallback_eval_score_rows(case_id, trace or _load_agent_trace_data(case_id))
+    try:
+        with (eval_dir / "eval_score_table.csv").open("r", encoding="utf-8-sig", newline="") as file:
+            rows = [row for row in csv.DictReader(file) if row.get("case_id") == case_id]
+        return validate_eval_score_rows(case_id, rows, label=str(eval_dir / "eval_score_table.csv"))
+    except Exception as exc:
+        raise _asset_error(exc) from exc
 
 
 def _load_sft_preview() -> Dict[str, Any]:
@@ -99,24 +162,21 @@ def _load_sft_preview() -> Dict[str, Any]:
     if sft_dir and (sft_dir / "summary.preview.json").exists():
         try:
             summary = _read_json(sft_dir / "summary.preview.json")
-            validate_sft_preview_summary(summary, label=str(sft_dir / "summary.preview.json"))
             train_path = sft_dir / "train.preview.jsonl"
+            if not train_path.exists():
+                raise ValueError(f"{train_path} is required when summary.preview.json exists")
             preview_records = []
-            if train_path.exists():
-                for line in train_path.read_text(encoding="utf-8-sig").splitlines():
-                    if not line.strip():
-                        continue
-                    record = json.loads(line)
-                    validate_sft_preview_record(record, label=f"{train_path.name}:{len(preview_records) + 1}")
-                    preview_records.append(record)
+            for line in train_path.read_text(encoding="utf-8-sig").splitlines():
+                if not line.strip():
+                    continue
+                preview_records.append(json.loads(line))
+            validate_sft_preview_bundle(summary, preview_records, label=str(sft_dir))
             return {"summary": summary, "preview_records": preview_records[:6]}
-        except ValueError as exc:
+        except Exception as exc:
             raise _asset_error(exc) from exc
 
     bundle = build_sft_preview_bundle(_load_demo_cases())
-    validate_sft_preview_summary(bundle["summary"], label="generated sft summary")
-    for record in bundle["train"]:
-        validate_sft_preview_record(record, label=f"generated record {record.get('record_id')}")
+    validate_sft_preview_bundle(bundle["summary"], bundle["train"], label="generated sft preview")
     return {"summary": bundle["summary"], "preview_records": bundle["train"][:6]}
 
 
@@ -142,20 +202,14 @@ async def get_agent_trace(case_id: str):
 
 @router.get("/eval-preview/{case_id}")
 async def get_eval_preview(case_id: str):
-    eval_dir = _eval_dir()
+    case_id = _require_case_id(case_id)
     trace = _load_agent_trace_data(case_id)
-    if eval_dir and (eval_dir / "eval_summary.md").exists():
-        summary = (eval_dir / "eval_summary.md").read_text(encoding="utf-8-sig")
-    else:
-        summary = (
-            "Eval Preview：规则评分，仅用于比赛演示沙盘；"
-            "baseline_prompt_preview 不是实际模型调用结果。"
-        )
     return ApiResponse.success(
         data={
             "case_id": case_id,
             "eval_score": trace.get("eval_score"),
-            "summary": summary,
+            "score_rows": _load_eval_score_rows(case_id, trace),
+            "summary": _load_eval_summary(),
             "preview": True,
             "claim_boundary": CLAIM_BOUNDARY,
         }

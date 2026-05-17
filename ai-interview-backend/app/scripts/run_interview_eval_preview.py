@@ -2,9 +2,21 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 
-from app.services.agent_orchestrator.asset_guardrails import CASE_ORDER, resolve_asset_path
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
+
+from app.services.agent_orchestrator.asset_guardrails import (
+    CASE_ORDER,
+    resolve_asset_path,
+    validate_case_id,
+    validate_eval_preview_summary,
+    validate_eval_score_rows,
+    validate_trace_preview_asset,
+)
 from app.services.agent_orchestrator.evaluator import build_eval_rows, evaluate_trace
 from app.services.agent_orchestrator.trace_logger import load_trace
 
@@ -27,12 +39,17 @@ FIELDNAMES = [
 
 def _trace_paths(input_path: Path) -> list[Path]:
     if input_path.is_file():
+        validate_case_id(input_path.name.replace(".trace.json", ""))
         return [input_path]
     order = {case_id: index for index, case_id in enumerate(CASE_ORDER)}
-    return sorted(
-        input_path.glob("*.trace.json"),
-        key=lambda path: order.get(path.name.replace(".trace.json", ""), len(order)),
-    )
+    paths = list(input_path.glob("*.trace.json"))
+    case_ids = [path.name.replace(".trace.json", "") for path in paths]
+    for case_id in case_ids:
+        validate_case_id(case_id)
+    missing = [case_id for case_id in CASE_ORDER if case_id not in case_ids]
+    if missing or len(paths) != len(CASE_ORDER):
+        raise SystemExit(f"Trace directory must contain exactly {', '.join(CASE_ORDER)}; missing={missing}")
+    return sorted(paths, key=lambda path: order[path.name.replace(".trace.json", "")])
 
 
 def main() -> None:
@@ -47,9 +64,13 @@ def main() -> None:
     if not traces:
         raise SystemExit(f"No trace files found: {input_path}")
     for trace in traces:
+        validate_trace_preview_asset(trace.model_dump(), label=f"trace {trace.case_id}")
         trace.eval_score = trace.eval_score or evaluate_trace(trace)
 
     rows = build_eval_rows(traces)
+    for trace in traces:
+        case_rows = [row for row in rows if row.get("case_id") == trace.case_id]
+        validate_eval_score_rows(trace.case_id, case_rows, label=f"eval rows {trace.case_id}")
     out_dir = resolve_asset_path(args.out, "artifacts/eval")
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / "eval_score_table.csv"
@@ -75,7 +96,9 @@ def main() -> None:
             f"| {row['case_id']} | {row['target_role']} | {row['model_variant']} | "
             f"{row['total_score']}/35 | {row['judge_note']} |"
         )
-    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    summary = "\n".join(lines) + "\n"
+    validate_eval_preview_summary(summary, label=str(md_path))
+    md_path.write_text(summary, encoding="utf-8")
 
     print(f"eval_score_table={csv_path}")
     print(f"eval_summary={md_path}")

@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
 from app.services.agent_orchestrator.asset_guardrails import (
     resolve_asset_path,
+    validate_case_id,
     validate_demo_preview_asset,
 )
 from app.services.agent_orchestrator.demo_cases import build_demo_case_index
@@ -20,6 +26,7 @@ def _load_case(case_arg: str) -> dict:
         validate_demo_preview_asset(case, label=str(candidate))
         return case
     case_id = case_arg.replace(".json", "")
+    validate_case_id(case_id)
     case_path = resolve_asset_path("", "demo_cases") / f"{case_id}.json"
     if case_path.exists():
         case = json.loads(case_path.read_text(encoding="utf-8"))

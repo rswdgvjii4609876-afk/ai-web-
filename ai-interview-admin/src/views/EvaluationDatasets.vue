@@ -134,6 +134,9 @@
             <p class="helper-text">
               这里展示 Career-AgentOS 沙盘样本和 SFT Preview。它只用于答辩演示与链路验证，不混入真实训练样本导出，也不代表已完成 OpenAI SFT。
             </p>
+            <p v-if="competitionErrorMessage" class="error-text" style="margin-top:8px">
+              比赛 Preview 加载失败：{{ competitionErrorMessage }}
+            </p>
           </div>
           <span class="fine-tuning-badge">preview only</span>
         </div>
@@ -220,6 +223,7 @@ const reportExportLoading = ref(false)
 const preview = ref(null)
 const competitionCases = ref([])
 const competitionSftPreview = ref({})
+const competitionErrorMessage = ref('')
 const errorMessage = ref('')
 const noticeMessage = ref('')
 const noticeType = ref('success')
@@ -275,12 +279,15 @@ const downloadBundle = async () => {
 }
 
 const loadCompetitionPreview = async () => {
+  competitionErrorMessage.value = ''
   try {
     const caseResult = await competitionApi.demoCases()
     competitionCases.value = caseResult.items || []
     competitionSftPreview.value = await competitionApi.sftPreview()
   } catch (error) {
-    console.warn('加载比赛 Preview 失败', error)
+    competitionCases.value = []
+    competitionSftPreview.value = {}
+    competitionErrorMessage.value = error.message || '后端 Competition Preview 接口不可用'
   }
 }
 
