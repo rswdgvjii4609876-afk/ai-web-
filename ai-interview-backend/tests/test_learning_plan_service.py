@@ -55,3 +55,76 @@ def test_learning_plan_builds_editable_tasks_from_route_records():
     assert task["route_stage"] == "fastapi_framework"
     assert task["estimated_minutes"] == 90
     assert task["task_metadata"]["plan_group"] == "python-backend-30d"
+
+
+@pytest.mark.unit
+def test_learning_plan_ai_refinement_preserves_route_metadata():
+    deterministic_tasks = [
+        {
+            "title": "API practice",
+            "learning_material": "Read local route notes",
+            "practice_task": "Build one endpoint",
+            "acceptance_criteria": ["endpoint works"],
+            "estimated_minutes": 90,
+            "route_stage": "fastapi_framework",
+            "route_source": "template_route",
+            "task_metadata": {"route_stage_title": "FastAPI"},
+        }
+    ]
+    ai_tasks = [
+        {
+            "title": "Refined API practice",
+            "learning_material": "Read official FastAPI docs",
+            "practice_task": "Build and document one endpoint",
+            "acceptance_criteria": ["endpoint works", "docs included"],
+            "estimated_minutes": 10,
+            "route_stage": "overwritten_stage",
+            "route_source": "web_search",
+            "task_metadata": {"lost": True},
+        }
+    ]
+
+    merged = LearningPlanService._merge_ai_task_overrides(deterministic_tasks, ai_tasks)
+
+    assert merged[0]["title"] == "Refined API practice"
+    assert merged[0]["learning_material"] == "Read official FastAPI docs"
+    assert merged[0]["estimated_minutes"] == 90
+    assert merged[0]["route_stage"] == "fastapi_framework"
+    assert merged[0]["route_source"] == "template_route"
+    assert merged[0]["task_metadata"] == {"route_stage_title": "FastAPI"}
+
+
+@pytest.mark.unit
+def test_learning_plan_ai_refinement_keeps_base_tasks_when_ai_returns_partial_list():
+    deterministic_tasks = [
+        {
+            "title": "API practice",
+            "learning_material": "Read local route notes",
+            "practice_task": "Build one endpoint",
+            "acceptance_criteria": ["endpoint works"],
+            "estimated_minutes": 90,
+            "route_stage": "fastapi_framework",
+            "route_source": "template_route",
+            "task_metadata": {"route_stage_title": "FastAPI"},
+        },
+        {
+            "title": "Redis practice",
+            "learning_material": "Read Redis notes",
+            "practice_task": "Explain cache invalidation",
+            "acceptance_criteria": ["explanation is concrete"],
+            "estimated_minutes": 60,
+            "route_stage": "redis_cache",
+            "route_source": "template_route",
+            "task_metadata": {"route_stage_title": "Redis"},
+        },
+    ]
+
+    merged = LearningPlanService._merge_ai_task_overrides(
+        deterministic_tasks,
+        [{"title": "Refined API practice"}],
+    )
+
+    assert len(merged) == 2
+    assert merged[0]["title"] == "Refined API practice"
+    assert merged[1]["title"] == "Redis practice"
+    assert merged[1]["route_stage"] == "redis_cache"

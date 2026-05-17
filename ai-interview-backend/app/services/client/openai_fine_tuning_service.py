@@ -33,8 +33,10 @@ SYSTEM_PROMPT = (
 
 DIRECT_IDENTIFIER_PATTERNS = (
     re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+    re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}(?!\d)"),
     re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"),
     re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)"),
+    re.compile(r"[\w\u4e00-\u9fff-]{2,}\.(?:pdf|doc|docx)", re.IGNORECASE),
     re.compile(r"\b(?:qq|wechat|weixin|github|linkedin)\s*[:：=]\s*[\w@./-]{2,}", re.IGNORECASE),
     re.compile(r"https?://(?:www\.)?(?:github|linkedin|gitee)\.com/[^\s\"'，,；;]+", re.IGNORECASE),
     re.compile(
@@ -134,6 +136,10 @@ def _validate_source_metadata(metadata: Dict[str, Any], *, origin: str) -> None:
         raise OpenAIFineTuningDataError("real sample is missing review_status=reviewed")
     if not metadata.get("reviewed_at"):
         raise OpenAIFineTuningDataError("real sample is missing reviewed_at")
+    if not metadata.get("reviewer_present"):
+        raise OpenAIFineTuningDataError("real sample is missing reviewer_present=true")
+    if not metadata.get("reviewer_hash"):
+        raise OpenAIFineTuningDataError("real sample is missing reviewer_hash")
     if not _has_real_quality_signal(metadata):
         raise OpenAIFineTuningDataError("real sample is missing a human quality signal")
 
@@ -155,8 +161,9 @@ def load_jsonl_records(content: str) -> List[Dict[str, Any]]:
             parsed = json.loads(line)
         except json.JSONDecodeError as exc:
             raise OpenAIFineTuningDataError(f"Invalid JSONL at line {index}: {exc}") from exc
-        if isinstance(parsed, dict):
-            records.append(parsed)
+        if not isinstance(parsed, dict):
+            raise OpenAIFineTuningDataError(f"Invalid JSONL at line {index}: expected object")
+        records.append(parsed)
     return records
 
 
@@ -170,9 +177,15 @@ def load_json_records(path: Path) -> List[Dict[str, Any]]:
         return load_jsonl_records(content)
     parsed = json.loads(content)
     if isinstance(parsed, list):
-        return [item for item in parsed if isinstance(item, dict)]
+        for index, item in enumerate(parsed, start=1):
+            if not isinstance(item, dict):
+                raise OpenAIFineTuningDataError(f"Invalid JSON sample at index {index}: expected object")
+        return parsed
     if isinstance(parsed, dict) and isinstance(parsed.get("items"), list):
-        return [item for item in parsed["items"] if isinstance(item, dict)]
+        for index, item in enumerate(parsed["items"], start=1):
+            if not isinstance(item, dict):
+                raise OpenAIFineTuningDataError(f"Invalid JSON sample at items[{index}]: expected object")
+        return parsed["items"]
     raise OpenAIFineTuningDataError(f"Unsupported sample file shape: {path}")
 
 
@@ -273,6 +286,8 @@ def convert_internal_record_to_openai_chat(
         "data_contribution_consent": bool(metadata.get("data_contribution_consent")),
         "review_status": metadata.get("review_status") if not is_constructed else "",
         "reviewed_at": metadata.get("reviewed_at") if not is_constructed else "",
+        "reviewer_present": bool(metadata.get("reviewer_present")) if not is_constructed else False,
+        "reviewer_hash": metadata.get("reviewer_hash") if not is_constructed else "",
         "quality_signals": [key for key in REAL_SAMPLE_QUALITY_KEYS if metadata.get(key)],
         "is_high_quality": bool(metadata.get("is_high_quality")),
         "followup_worthy": bool(metadata.get("followup_worthy")),
@@ -514,6 +529,10 @@ def _validate_manifest_record(
         raise OpenAIFineTuningDataError(f"{label} real sample is missing review_status=reviewed")
     if not manifest.get("reviewed_at"):
         raise OpenAIFineTuningDataError(f"{label} real sample is missing reviewed_at")
+    if manifest.get("reviewer_present") is not True:
+        raise OpenAIFineTuningDataError(f"{label} real sample is missing reviewer_present=true")
+    if not manifest.get("reviewer_hash"):
+        raise OpenAIFineTuningDataError(f"{label} real sample is missing reviewer_hash")
     if not _has_real_quality_signal(manifest):
         raise OpenAIFineTuningDataError(f"{label} real sample is missing a human quality signal")
     if manifest.get("has_hallucination"):

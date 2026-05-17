@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
@@ -30,6 +31,23 @@ def _sdk_dump(obj: Any) -> Dict[str, Any]:
         return obj.to_dict()
     return json.loads(json.dumps(obj, default=str))
 
+
+def _existing_job_id(record: Dict[str, Any]) -> str:
+    job = record.get("fine_tuning_job") or {}
+    return str(record.get("job_id") or job.get("id") or "")
+
+
+def _archive_existing_job_record(job_record_path: Path) -> Dict[str, str]:
+    if not job_record_path.exists():
+        return {"previous_job_id": "", "previous_job_record_path": ""}
+    old_record = json.loads(job_record_path.read_text(encoding="utf-8"))
+    old_job_id = _existing_job_id(old_record) or "unknown"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive_path = job_record_path.with_name(f"job_record.{old_job_id}.{timestamp}.json")
+    job_record_path.replace(archive_path)
+    return {"previous_job_id": old_job_id, "previous_job_record_path": str(archive_path)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Upload prepared JSONL files and create an OpenAI SFT job.")
     parser.add_argument("--dataset-dir", default=str(DEFAULT_OUTPUT_ROOT / "latest"))
@@ -48,6 +66,10 @@ def main() -> int:
     job_record_path = dataset_dir / "job_record.json"
     if job_record_path.exists() and not args.force_new_job:
         raise SystemExit(f"Refusing to create another OpenAI fine-tuning job because job_record.json already exists: {job_record_path}")
+    existing_job_info = {"previous_job_id": "", "previous_job_record_path": ""}
+    if job_record_path.exists() and args.force_new_job:
+        old_record = json.loads(job_record_path.read_text(encoding="utf-8"))
+        existing_job_info = {"previous_job_id": _existing_job_id(old_record), "previous_job_record_path": str(job_record_path)}
 
     try:
         base_url = validate_official_openai_base_url(os.getenv("OPENAI_BASE_URL", settings.OPENAI_BASE_URL))
@@ -66,6 +88,7 @@ def main() -> int:
         **provenance,
         "dry_run": bool(args.dry_run),
         "force_new_job": bool(args.force_new_job),
+        **existing_job_info,
     }
     if args.dry_run:
         _write_json(dataset_dir / "job_preflight.json", preflight_record)
@@ -92,10 +115,16 @@ def main() -> int:
     if validation_file_id:
         job_kwargs["validation_file"] = validation_file_id
     job = client.fine_tuning.jobs.create(**job_kwargs)
+    archived_job_info = (
+        _archive_existing_job_record(job_record_path)
+        if job_record_path.exists() and args.force_new_job
+        else existing_job_info
+    )
     record = {
         **provenance,
         "dry_run": False,
         "force_new_job": bool(args.force_new_job),
+        **archived_job_info,
         "job_id": getattr(job, "id", ""),
         "job_kwargs": {**job_kwargs, "training_file": training_file.id, "validation_file": validation_file_id},
         "training_file_id": training_file.id,

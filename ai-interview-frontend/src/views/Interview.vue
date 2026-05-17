@@ -338,6 +338,25 @@ function loadInterviewMeta() {
   }
 }
 
+function hydrateMessages(data) {
+  const msgList = Array.isArray(data) ? data : (data?.items || data || [])
+  const safeList = Array.isArray(msgList) ? msgList : []
+  messages.value = safeList.map(item => ({
+    role: item.role,
+    content: item.content,
+    score: item.score,
+    feedback: item.feedback
+  }))
+  const indices = safeList.map(item => item.question_index).filter(index => index != null)
+  if (indices.length) {
+    currentIndex.value = Math.max(...indices)
+  }
+  if (currentIndex.value >= totalQuestions.value) {
+    finished.value = true
+  }
+  return safeList
+}
+
 function normalizeRoundSummary(data) {
   if (!data) return null
 
@@ -441,17 +460,7 @@ onMounted(async () => {
 
   try {
     const data = await getMessages(interviewId)
-    const msgList = Array.isArray(data) ? data : (data.items || data)
-    messages.value = msgList.map(item => ({
-      role: item.role,
-      content: item.content,
-      score: item.score,
-      feedback: item.feedback
-    }))
-    const indices = msgList.map(item => item.question_index).filter(index => index != null)
-    if (indices.length) {
-      currentIndex.value = Math.max(...indices)
-    }
+    hydrateMessages(data)
   } catch (e) {
     console.error('加载消息失败:', e)
   }
@@ -470,7 +479,8 @@ async function handleSubmit() {
 
   const myAnswer = answer.value.trim()
   answer.value = ''
-  messages.value.push({ role: 'candidate', content: myAnswer })
+  const optimisticMessage = { role: 'candidate', content: myAnswer, pending: true }
+  messages.value.push(optimisticMessage)
   scrollToBottom()
   thinking.value = true
   streamingText.value = ''
@@ -525,6 +535,16 @@ async function handleSubmit() {
     )
   } catch (e) {
     streamingText.value = ''
+    const optimisticIndex = messages.value.indexOf(optimisticMessage)
+    if (optimisticIndex >= 0) {
+      messages.value.splice(optimisticIndex, 1)
+    }
+    try {
+      const data = await getMessages(interviewId)
+      hydrateMessages(data)
+    } catch (refreshError) {
+      console.error('Refresh interview messages after stream failure failed:', refreshError)
+    }
     messages.value.push({ role: 'interviewer', content: `出错了：${e.message}` })
     scrollToBottom()
   } finally {

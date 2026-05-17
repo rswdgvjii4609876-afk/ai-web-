@@ -54,8 +54,10 @@ TRACE_AGENT_ORDER = (
 
 DIRECT_IDENTIFIER_PATTERNS = (
     re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+    re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}(?!\d)"),
     re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"),
     re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)"),
+    re.compile(r"[\w\u4e00-\u9fff-]{2,}\.(?:pdf|doc|docx)", re.IGNORECASE),
     re.compile(r"(?:学号|student[_ -]?id|school[_ -]?id)\s*[:：]?\s*[A-Za-z0-9-]{6,}", re.IGNORECASE),
     re.compile(r"(?:身份证|身份证号|证件号)\s*[:：]?\s*\d{15,17}[\dXx]?", re.IGNORECASE),
     re.compile(r"(?:student[_ -]?id|school[_ -]?id)\s*[:：]?\s*\d{6,}", re.IGNORECASE),
@@ -263,10 +265,19 @@ def validate_sft_preview_summary(summary: Dict[str, Any], *, label: str = "sft s
 
 
 def validate_sft_preview_record(record: Dict[str, Any], *, label: str = "sft preview record") -> None:
+    metadata = record.get("metadata") or {}
+    metadata_case_id = validate_case_id(str(metadata.get("case_id") or ""), label=f"{label}.metadata.case_id")
     validate_demo_preview_asset(record, label=label)
     if "preview" not in str(record.get("task_type", "")):
         raise ValueError(f"{label} task_type must be marked as preview")
-    metadata = record.get("metadata") or {}
+    top_level_case_id = record.get("case_id")
+    if top_level_case_id is not None and str(top_level_case_id) != metadata_case_id:
+        raise ValueError(f"{label} case_id must match metadata.case_id")
+    record_id = str(record.get("record_id") or "")
+    if not record_id:
+        raise ValueError(f"{label} record_id is required")
+    if not record_id.startswith(f"{metadata_case_id}_"):
+        raise ValueError(f"{label} record_id must start with {metadata_case_id}_")
     if metadata.get("sample_origin") not in (None, "demo_constructed"):
         raise ValueError(f"{label} metadata must not claim real sample origin")
     if metadata.get("for_training") is True or metadata.get("real_authorized") is True:

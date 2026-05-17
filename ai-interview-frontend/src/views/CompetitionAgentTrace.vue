@@ -78,18 +78,20 @@
           <p class="muted">七维规则评分，仅用于沙盘展示；baseline_prompt_preview 不是实际模型调用。</p>
           <div v-if="evalRows.length" class="eval-table">
             <div v-for="row in evalRows" :key="row.model_variant" class="eval-row">
-              <span>{{ row.model_variant }}</span>
-              <strong>{{ row.total_score }}/35</strong>
+              <div class="eval-row-main">
+                <span>{{ row.model_variant }}</span>
+                <strong>{{ row.total_score }}/35</strong>
+              </div>
+              <div class="eval-row-dims">
+                <span>聚焦 {{ row.focus_score }}</span>
+                <span>证据 {{ row.evidence_score }}</span>
+                <span>深度 {{ row.depth_score }}</span>
+                <span>润色 {{ row.polish_score }}</span>
+                <span>岗位 {{ row.role_fit_score }}</span>
+                <span>格式 {{ row.format_score }}</span>
+                <span>报告 {{ row.report_score }}</span>
+              </div>
             </div>
-          </div>
-          <div class="score-grid">
-            <span>能力聚焦 {{ trace.eval_score?.focus_score || '-' }}</span>
-            <span>证据约束 {{ trace.eval_score?.evidence_score || '-' }}</span>
-            <span>追问深度 {{ trace.eval_score?.depth_score || '-' }}</span>
-            <span>润色可执行 {{ trace.eval_score?.polish_score || '-' }}</span>
-            <span>岗位贴合 {{ trace.eval_score?.role_fit_score || '-' }}</span>
-            <span>格式稳定 {{ trace.eval_score?.format_score || '-' }}</span>
-            <span>报告可用 {{ trace.eval_score?.report_score || '-' }}</span>
           </div>
           <p v-if="evalBoundary" class="eval-boundary">{{ evalBoundary }}</p>
         </article>
@@ -112,6 +114,7 @@
               <pre class="sft-preview-code">{{ formatAssistantPreview(record) }}</pre>
             </article>
           </div>
+          <p v-else class="muted">当前案例暂无已校验的 SFT Preview 记录。</p>
         </article>
       </section>
     </template>
@@ -141,16 +144,20 @@ const error = ref('')
 const sftSummary = computed(() => sftPreview.value?.summary || {})
 const sftRecords = computed(() => sftPreview.value?.preview_records || [])
 const visibleSftRecords = computed(() => {
-  const selectedRecords = sftRecords.value.filter(record => {
+  return sftRecords.value.filter(record => {
     const metadata = record.metadata || {}
-    return metadata.case_id === selectedCaseId.value || String(record.record_id || '').startsWith(`${selectedCaseId.value}_`)
+    return (metadata.case_id || record.case_id) === selectedCaseId.value
   })
-  return selectedRecords.length ? selectedRecords : sftRecords.value
 })
 const evalRows = computed(() => evalPreview.value?.score_rows || [])
 const evalBoundary = computed(() => {
+  if (evalPreview.value?.claim_boundary) {
+    return evalPreview.value.claim_boundary
+  }
   const summary = evalPreview.value?.summary || ''
-  const line = summary.split('\n').find(item => item.includes('说明'))
+  const line = summary
+    .split('\n')
+    .find(item => item.includes('说明') || item.toLowerCase().includes('not a real'))
   return line ? line.replace(/^-\s*/, '') : ''
 })
 
@@ -368,29 +375,38 @@ pre {
   font-size: 12px;
   line-height: 1.55;
 }
-.score-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
 .eval-table {
   display: grid;
   gap: 8px;
   margin-top: 12px;
 }
 .eval-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
   padding: 8px 10px;
   border-radius: 8px;
   background: #f8fafc;
   color: #374151;
   font-size: 13px;
 }
+.eval-row-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
 .eval-row strong {
   color: #111827;
+}
+.eval-row-dims {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.eval-row-dims span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 12px;
 }
 .eval-boundary {
   margin: 12px 0 0;
@@ -442,7 +458,6 @@ pre {
   margin-top: 10px;
   background: #0f172a;
 }
-.score-grid span,
 .compact-list li {
   padding: 6px 10px;
   border-radius: 999px;

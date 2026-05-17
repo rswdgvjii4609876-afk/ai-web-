@@ -1,5 +1,18 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-17 最新主线：阶段 159-164 六子 Agent 复审后的功能完善
+当前最高优先级从“阶段 152-158 全链条代码级收口”推进到“阶段 159-164 复审修复闭环”。依据六个子 agent 对 `main@924fbf7` 的二次只读审查，本轮结论是：先修唯一 must-fix，再补隐私、导出、后台权限、用户流、SFT 审计、Competition Preview 和部署验收的 should-fix。
+
+已执行口径：
+- 阶段 159：`high_risk_claims` 只保留候选人简历、回答或候选人证据来源；岗位画像、知识库切片和 RAG 召回只进入岗位校准/追问依据，不能写成候选人真实经历。
+- 阶段 160：数据贡献默认授权必须匹配当前版本；Profile 返回 `data_contribution_consent_valid`；头像上传拒绝 SVG 和伪造 MIME；训练/评测导出产物增加最终 PII 扫描。
+- 阶段 161：后台无权限/未授权/未完成案例的评分表单整体禁用；初始管理员脚本避免非 root 创建混乱 superadmin；学习计划 AI/web-search 增强不再覆盖路线元数据；流式答题失败时回滚或刷新乐观消息。
+- 阶段 162：OpenAI SFT 样本必须包含 reviewer presence/hash；JSONL 非 object 行直接失败；eval 默认使用 `job_record.json` 中的 base model；`--force-new-job` 不静默覆盖旧 job 记录。
+- 阶段 163：Competition Preview SFT API 返回全部已校验 preview records；前端 Eval 面板展示 baseline/agent 两行七维明细；Swagger 和答辩模板加 future-only 标记。
+- 阶段 164：`stage138_server_closed_loop_verify.sh --deploy` 改为重建完整根目录 Docker Compose 栈；Celery beat healthcheck 增加 broker 连接探测；旧后端 deploy 脚本标记为 legacy。
+
+仍不得宣称：C1/C2/C3 真实闭环已通过、真实 OpenAI SFT 已完成、已有 `fine_tuned_model`、构造样本是真实用户数据、微调效果有固定百分比提升。
+
 ## 2026-05-17 最新主线：阶段 152-158 全链条代码审查修复
 
 当前最高优先级已从单点 Career-AgentOS Preview 修复，升级为全链条代码级收口。依据 6 个子 agent 的审查结果，本轮按“数据安全优先、用户闭环第二、比赛展示第三、SFT 真实训练门禁第四、部署收口最后”执行阶段 152-158。

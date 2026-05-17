@@ -182,7 +182,7 @@ services:
       app:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'celery -A app.core.celery_app beat'"]
+      test: ["CMD-SHELL", "tr '\\0' ' ' < /proc/1/cmdline | grep -q 'celery -A app.core.celery_app beat' && python -c \"from app.core.celery_app import celery_app; celery_app.connection().ensure_connection(max_retries=1); print('broker ok')\""]
       interval: 60s
       timeout: 15s
       retries: 3

@@ -49,8 +49,8 @@ Environment overrides:
   REPORT_PATH=docs/competition/server_validation_reports/stage138_server_closed_loop_latest.md
 
 Safety:
-  --deploy fetches origin/main but refuses git reset --hard unless --allow-reset
-  or ALLOW_DESTRUCTIVE_RESET=1 is provided.
+  --deploy fetches origin/main and rebuilds the complete root Docker Compose stack.
+  It refuses git reset --hard unless --allow-reset or ALLOW_DESTRUCTIVE_RESET=1 is provided.
 EOF
 }
 
@@ -137,6 +137,26 @@ python_cmd() {
   else
     return 127
   fi
+}
+
+wait_container_health() {
+  local container="$1"
+  local timeout="${2:-120}"
+  local elapsed=0
+  local status=""
+  while [ "$elapsed" -le "$timeout" ]; do
+    status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing-healthcheck{{end}}' "$container" 2>/dev/null || true)"
+    if [ "$status" = "healthy" ]; then
+      return 0
+    fi
+    if [ "$elapsed" -eq 0 ]; then
+      echo "Waiting for $container health; current status=${status:-missing}"
+    fi
+    sleep 5
+    elapsed=$((elapsed + 5))
+  done
+  echo "$container health did not become healthy within ${timeout}s; last status=${status:-missing}" >&2
+  return 1
 }
 
 write_report() {
@@ -286,12 +306,14 @@ if [ "$DO_DEPLOY" -eq 1 ]; then
   PROJECT_COMMIT_AFTER="$(git log --oneline -1)"
   echo "after reset: $PROJECT_COMMIT_AFTER"
 
-  section "Build stage 138 services"
-  run docker compose up -d --build app admin frontend
+  section "Build complete production stack"
+  run docker compose up -d --build
 fi
 
 section "Docker status"
 run docker compose ps
+soft_check "celery worker health" wait_container_health ai-interview-celery-worker 120
+soft_check "celery beat health" wait_container_health ai-interview-celery-beat 120
 
 section "Database migration"
 soft_check "alembic upgrade head" docker compose exec -T app alembic upgrade head

@@ -29,6 +29,17 @@ MAX_SUPPLEMENTAL_CHARS = 6000
 
 
 class LearningPlanService:
+    AI_TASK_OVERRIDE_FIELDS = {
+        "title",
+        "learning_material",
+        "practice_task",
+        "acceptance_criteria",
+        "resources",
+        "sources",
+        "description",
+        "notes",
+    }
+
     @staticmethod
     def _text(value: Any, fallback: str = "") -> str:
         if value is None:
@@ -248,6 +259,28 @@ class LearningPlanService:
         }
 
     @classmethod
+    def _merge_ai_task_overrides(
+        cls,
+        deterministic_tasks: List[Dict[str, Any]],
+        ai_tasks: List[Any],
+    ) -> List[Dict[str, Any]]:
+        if not deterministic_tasks:
+            return []
+
+        refined_tasks: List[Dict[str, Any]] = []
+        for index, base_task in enumerate(deterministic_tasks):
+            task = ai_tasks[index] if index < len(ai_tasks) else {}
+            if not isinstance(task, dict):
+                task = {}
+            base = dict(base_task)
+            merged = dict(base)
+            for key in cls.AI_TASK_OVERRIDE_FIELDS:
+                if key in task and task[key] not in (None, "", []):
+                    merged[key] = task[key]
+            refined_tasks.append(merged)
+        return refined_tasks
+
+    @classmethod
     async def options(
         cls,
         db: AsyncSession,
@@ -318,7 +351,14 @@ class LearningPlanService:
                     raw = getattr(response, "output_text", "") or str(response)
                     payload = AIService._extract_json(raw)
                     if isinstance(payload, dict) and isinstance(payload.get("tasks"), list):
-                        refined = {**deterministic_plan, "tasks": payload["tasks"][:8]}
+                        refined_tasks = cls._merge_ai_task_overrides(
+                            deterministic_plan.get("tasks") or [],
+                            payload["tasks"],
+                        )
+                        if not refined_tasks:
+                            web_search_status = "failed_fallback"
+                            raise ValueError("web search returned no mergeable learning tasks")
+                        refined = {**deterministic_plan, "tasks": refined_tasks}
                         sources = payload.get("sources") if isinstance(payload.get("sources"), list) else []
                         refined["web_search_status"] = "used"
                         refined["sources"] = sources[:8]
@@ -355,12 +395,10 @@ class LearningPlanService:
             )
             payload = AIService._extract_json(raw)
             if isinstance(payload, dict) and isinstance(payload.get("tasks"), list):
-                refined_tasks = []
-                for index, task in enumerate(payload["tasks"][:8], start=1):
-                    if not isinstance(task, dict):
-                        continue
-                    base = deterministic_plan["tasks"][min(index - 1, len(deterministic_plan["tasks"]) - 1)]
-                    refined_tasks.append({**base, **task})
+                refined_tasks = cls._merge_ai_task_overrides(
+                    deterministic_plan.get("tasks") or [],
+                    payload["tasks"],
+                )
                 if refined_tasks:
                     return {
                         **deterministic_plan,

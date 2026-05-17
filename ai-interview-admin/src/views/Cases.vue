@@ -187,6 +187,7 @@
 
           <section class="drawer-section">
             <h3>人工评分</h3>
+            <fieldset class="review-fieldset" :disabled="!selectedCaseReviewable">
             <div class="form-grid">
               <label>案例编号<input v-model="reviewForm.case_id" placeholder="R1" /></label>
               <label>简历来源<input v-model="reviewForm.resume_source" placeholder="例如 2590603008詹已誉简历.pdf" /></label>
@@ -228,6 +229,7 @@
             <label class="full-field">复核备注
               <textarea v-model="reviewForm.notes" rows="4" placeholder="记录是否适合进入验证集、是否有可复用追问、是否存在无依据判断。"></textarea>
             </label>
+            </fieldset>
           </section>
 
           <section class="drawer-section">
@@ -586,6 +588,15 @@ onMounted(loadCases)
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
+}
+.review-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.review-fieldset:disabled {
+  opacity: .72;
 }
 .summary-grid div {
   padding: 10px;

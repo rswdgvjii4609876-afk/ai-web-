@@ -35,7 +35,7 @@ RUN python -m pip install --upgrade pip && python -m pip install -r requirements
 
 COPY . .
 
-RUN mkdir -p logs uploads/avatars uploads/resumes \
+RUN mkdir -p logs uploads/avatars uploads/resumes celerybeat-schedule \
     && useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
 

@@ -147,7 +147,7 @@ def test_normalize_panel_evaluation_payload_keeps_single_moderator_output():
     assert normalized["feedback"] == "Good depth, but quantify the trade-offs more clearly."
     assert normalized["moderator"]["selected_followups"] == ["How did you estimate capacity?"]
     assert normalized["moderator"]["next_best_followup"]["target_gap"] == "Trade-off quantification"
-    assert normalized["moderator"]["next_best_followup"]["evidence_source_ids"] == [21]
+    assert normalized["moderator"]["next_best_followup"]["evidence_source_ids"] == []
     assert normalized["moderator"]["shared_evidence_ids"] == [21]
     assert normalized["metadata"]["retrieved_slice_ids"] == [21]
     assert normalized["next_best_followup"]["question"] == "How did you estimate capacity?"
@@ -451,6 +451,148 @@ def test_normalize_interview_blueprint_treats_implicit_slice_evidence_as_role_re
 
 
 @pytest.mark.unit
+def test_normalize_interview_blueprint_keeps_kb_high_risk_claims_out_of_candidate_claims():
+    payload = {
+        "high_risk_claims": [
+            {
+                "claim": "Knowledge base requires Redis incident handling",
+                "risk_reason": "Knowledge base slice says this role needs Redis failure recovery",
+                "source": "knowledge_base",
+                "evidence_ids": [95],
+            },
+            {
+                "claim": "Candidate says they led a payment migration",
+                "risk_reason": "Resume wording is broad and needs ownership verification",
+                "source": "resume",
+                "evidence_ids": [12],
+            },
+        ],
+    }
+
+    normalized = AIService._normalize_interview_blueprint(payload)
+
+    assert [item["claim"] for item in normalized["high_risk_claims"]] == [
+        "Candidate says they led a payment migration"
+    ]
+    assert normalized["high_risk_claims"][0]["evidence_ids"] == [12]
+    assert [item["claim"] for item in normalized["role_calibration_claims"]] == [
+        "Knowledge base requires Redis incident handling"
+    ]
+    assert normalized["role_calibration_claims"][0]["evidence_ids"] == []
+    assert normalized["role_calibration_claims"][0]["role_requirement_source_ids"] == [95]
+
+
+@pytest.mark.unit
+def test_role_source_only_high_risk_claim_is_not_candidate_claim_or_prompt_context():
+    payload = {
+        "high_risk_claims": [
+            {
+                "claim": "Redis incident handling needs verification",
+                "risk_reason": "Role profile requires production Redis failure handling",
+                "role_requirement_source_ids": [95],
+            }
+        ],
+    }
+
+    normalized = AIService._normalize_interview_blueprint(payload)
+    context = AIService._build_interview_blueprint_context(normalized)
+
+    assert normalized["high_risk_claims"] == []
+    assert normalized["role_calibration_claims"][0]["claim"] == "Redis incident handling needs verification"
+    assert "High-risk claims" not in context
+
+
+@pytest.mark.unit
+def test_rag_slice_ids_do_not_default_to_candidate_evidence_strength_sources():
+    question_meta = {
+        "question_target_gap": "Redis failure handling",
+        "selected_slices": [{"slice_id": 101, "summary": "Role profile asks for Redis failover"}],
+        "used_slice_ids": [101],
+        "evidence_summary": ["Role profile asks for Redis failover"],
+    }
+
+    delta = AIService._normalize_evidence_strength_delta(
+        [],
+        question_meta,
+        strengths=[],
+        gaps=["缺少候选人真实故障处理证据"],
+    )
+
+    assert delta[0]["source_ids"] == []
+    assert delta[0]["source_summary"] == []
+
+
+@pytest.mark.unit
+def test_evidence_strength_delta_filters_explicit_rag_source_ids():
+    delta = AIService._normalize_evidence_strength_delta(
+        [
+            {
+                "evidence": "Redis failure handling",
+                "delta": "insufficient",
+                "source_ids": [101, 12],
+                "source_summary": ["Role profile slice", "Resume project evidence"],
+            }
+        ],
+        {
+            "question_target_evidence_ids": [12],
+            "used_slice_ids": [101],
+            "selected_slices": [{"slice_id": 101}],
+            "question_target_evidence": ["Resume project evidence"],
+        },
+        strengths=[],
+        gaps=[],
+    )
+
+    assert delta[0]["source_ids"] == [12]
+    assert delta[0]["source_summary"] == ["Resume project evidence"]
+
+
+@pytest.mark.unit
+def test_next_best_followup_filters_rag_slice_ids_from_candidate_sources():
+    followup = AIService._normalize_next_best_followup(
+        {
+            "question": "请说明 Redis 故障处理真实经历。",
+            "target_gap": "Redis failure handling",
+            "evidence_source_ids": [101, 12],
+            "source_summary": ["Role profile slice", "Resume project evidence"],
+        },
+        {
+            "question_target_evidence_ids": [12],
+            "used_slice_ids": [101],
+            "selected_slices": [{"slice_id": 101}],
+        },
+        selected_followups=[],
+        unresolved_gaps=[],
+    )
+
+    assert followup["evidence_source_ids"] == [12]
+
+
+@pytest.mark.unit
+def test_claim_confidence_change_filters_role_reference_claims():
+    changes = AIService._normalize_claim_confidence_change(
+        [
+            {
+                "claim": "Redis incident handling needs verification",
+                "reason": "Knowledge base slice requires this role capability",
+                "source": "knowledge_base",
+                "role_requirement_source_ids": [101],
+            },
+            {
+                "claim": "Candidate led API integration",
+                "reason": "Resume says they owned API integration",
+                "source": "resume",
+            },
+        ],
+        question_meta={},
+        strengths=[],
+        unresolved_gaps=[],
+    )
+
+    assert [item["claim"] for item in changes] == ["Candidate led API integration"]
+
+
+@pytest.mark.unit
 def test_build_interview_blueprint_fallback_returns_grounded_structure():
     parsed_resume = {
         "summary": "Built backend services for an e-commerce order system and improved latency by 35%",
@@ -487,6 +629,7 @@ def test_build_interview_blueprint_fallback_returns_grounded_structure():
         "weakly_supported_requirements",
         "unsupported_requirements",
         "high_risk_claims",
+        "role_calibration_claims",
         "priority_question_tracks",
         "training_focus",
         "blueprint_evidence",

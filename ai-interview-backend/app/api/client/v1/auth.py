@@ -159,7 +159,8 @@ def _serialize_user_profile(current_user: User) -> dict:
         if current_user.privacy_agreed_at
         else None,
         "privacy_base_consent_valid": privacy_consent_service.has_base_consent(current_user),
-        "data_contribution_consent": bool(current_user.data_contribution_consent),
+        "data_contribution_consent": privacy_consent_service.has_data_contribution_consent(current_user),
+        "data_contribution_consent_valid": privacy_consent_service.has_data_contribution_consent(current_user),
         "data_contribution_consent_at": current_user.data_contribution_consent_at.isoformat()
         if current_user.data_contribution_consent_at
         else None,
@@ -221,11 +222,17 @@ async def update_profile(
     clear_openai_api_key = update_data.pop("clear_openai_api_key", False)
     openai_api_key = update_data.pop("openai_api_key", None)
     profile_message = "资料更新成功"
+    base_consent_was_valid = privacy_consent_service.has_base_consent(current_user)
 
     if privacy_agreed is not None:
         if not privacy_agreed:
             raise ValidationError(message="基础隐私协议为使用平台必要授权，暂不支持在账号内撤回")
         privacy_consent_service.apply_base_consent(current_user, agreed=True)
+        if data_contribution_consent is None and not base_consent_was_valid:
+            privacy_consent_service.set_data_contribution_consent(
+                current_user,
+                consent=False,
+            )
         profile_message = "资料更新成功，已记录隐私协议同意"
 
     if data_contribution_consent is not None:
@@ -339,6 +346,24 @@ async def test_ai_connection(
 
 AVATAR_DIR = "uploads/avatars"
 os.makedirs(AVATAR_DIR, exist_ok=True)
+SAFE_AVATAR_TYPES = {
+    "image/jpeg": ("jpg", (b"\xff\xd8\xff",)),
+    "image/png": ("png", (b"\x89PNG\r\n\x1a\n",)),
+    "image/webp": ("webp", (b"RIFF",)),
+    "image/gif": ("gif", (b"GIF87a", b"GIF89a")),
+}
+
+
+def _safe_avatar_extension(content_type: str, content: bytes) -> Optional[str]:
+    normalized_type = (content_type or "").split(";")[0].strip().lower()
+    if normalized_type not in SAFE_AVATAR_TYPES:
+        return None
+    extension, signatures = SAFE_AVATAR_TYPES[normalized_type]
+    if extension == "webp":
+        return extension if content.startswith(b"RIFF") and content[8:12] == b"WEBP" else None
+    if any(content.startswith(signature) for signature in signatures):
+        return extension
+    return None
 
 
 @router.post("/me/avatar")
@@ -351,11 +376,13 @@ async def upload_avatar(
         return ApiResponse.error(message="仅支持图片文件")
 
     content = await file.read()
+    safe_ext = _safe_avatar_extension(file.content_type or "", content)
+    if not safe_ext:
+        return ApiResponse.error(message="Unsupported avatar image type")
     if len(content) > 5 * 1024 * 1024:
         return ApiResponse.error(message="文件大小不能超过 5MB")
 
-    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-    filename = f"{current_user.id}.{ext}"
+    filename = f"{current_user.id}.{safe_ext}"
     filepath = os.path.join(AVATAR_DIR, filename)
 
     with open(filepath, "wb") as file_obj:

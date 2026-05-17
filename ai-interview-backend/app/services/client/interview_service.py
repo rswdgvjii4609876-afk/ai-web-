@@ -1,5 +1,6 @@
 from collections import Counter
 from datetime import datetime, timezone
+from hashlib import sha256
 import io
 import json
 import logging
@@ -39,11 +40,13 @@ FINE_TUNING_SAMPLE_SCHEMA_VERSION = "ai-interview.fine-tuning-sample.v1"
 FINE_TUNING_READINESS_REPORT_VERSION = "ai-interview.fine-tuning-readiness-report.v1"
 DIRECT_IDENTIFIER_REPLACEMENTS = (
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[REDACTED_EMAIL]"),
+    (re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}(?!\d)"), "[REDACTED_PHONE]"),
     (re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"), "[REDACTED_PHONE]"),
     (re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)"), "[REDACTED_ID]"),
     (
         re.compile(
-            r"(姓名|手机号|手机|电话|邮箱|电子邮箱|学号|证件号|身份证|详细住址|家庭住址|住址|文件名)\s*[:：]\s*[^,，;；\n]{2,}"
+            r"(姓名|手机号|手机|电话|邮箱|电子邮箱|学号|证件号|身份证|详细住址|家庭住址|住址|文件名|name|phone|email|id|student_id|student id)\s*[:：=]\s*[^,，;；\n]{2,}",
+            re.IGNORECASE,
         ),
         r"\1：[REDACTED]",
     ),
@@ -390,8 +393,24 @@ class InterviewService:
             text = ""
             if isinstance(item, dict):
                 text = str(item.get("claim") or "").strip()
+                role_only = (
+                    AIService._is_role_reference_text(
+                        item.get("source"),
+                        item.get("claim"),
+                        item.get("risk_reason"),
+                        item.get("evidence"),
+                    )
+                    or (
+                        bool(item.get("role_requirement_source_ids"))
+                        and not bool(item.get("evidence_ids"))
+                    )
+                )
+                if role_only:
+                    continue
             else:
                 text = str(item).strip()
+                if AIService._is_role_reference_text(text):
+                    continue
             if text and text not in claims:
                 claims.append(text)
             if len(claims) >= limit:
@@ -404,8 +423,6 @@ class InterviewService:
         for source in (
             (question_meta or {}).get("question_target_evidence_ids") or [],
             (question_meta or {}).get("blueprint_evidence_ids") or [],
-            (question_meta or {}).get("used_slice_ids") or [],
-            InterviewService._question_slice_ids(question_meta),
         ):
             for value in source:
                 try:
@@ -1286,6 +1303,18 @@ class InterviewService:
             limit=4,
         )
         if isinstance(next_best_followup, dict):
+            allowed_evidence_ids = set(
+                InterviewService._question_target_evidence_ids(current_question_meta)
+                + InterviewService._question_target_evidence_ids(next_meta)
+            )
+            raw_followup_evidence_ids = []
+            for value in next_best_followup.get("evidence_source_ids") or []:
+                try:
+                    evidence_id = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if evidence_id in allowed_evidence_ids:
+                    raw_followup_evidence_ids.append(evidence_id)
             next_meta["question_target_gap"] = (
                 str(next_best_followup.get("target_gap") or "").strip()
                 or current_question_meta.get("question_target_gap")
@@ -1302,7 +1331,7 @@ class InterviewService:
                 {
                     **next_meta,
                     "question_target_evidence_ids": [
-                        *(next_best_followup.get("evidence_source_ids") or []),
+                        *raw_followup_evidence_ids,
                         *(current_question_meta.get("question_target_evidence_ids") or []),
                     ],
                 }
@@ -1504,6 +1533,18 @@ class InterviewService:
                     continue
                 claim = str(item.get("claim") or "").strip()
                 if not claim:
+                    continue
+                if (
+                    AIService._is_role_reference_text(
+                        item.get("source"),
+                        claim,
+                        item.get("reason"),
+                    )
+                    or (
+                        bool(item.get("role_requirement_source_ids"))
+                        and not bool(item.get("evidence_ids"))
+                    )
+                ):
                     continue
                 before_level = str(item.get("from_level") or "").strip()
                 after_level = str(item.get("to_level") or "").strip()
@@ -1747,6 +1788,50 @@ class InterviewService:
         if isinstance(value, str):
             return InterviewService._redact_direct_identifiers(value)
         return value, 0
+
+    @staticmethod
+    def _assert_no_direct_identifier(
+        value: Any,
+        *,
+        preserve_user_email: bool = False,
+        path: tuple[str, ...] = (),
+    ) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                InterviewService._assert_no_direct_identifier(
+                    item,
+                    preserve_user_email=preserve_user_email,
+                    path=(*path, str(key)),
+                )
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                InterviewService._assert_no_direct_identifier(
+                    item,
+                    preserve_user_email=preserve_user_email,
+                    path=(*path, str(index)),
+                )
+            return
+        if not isinstance(value, str):
+            return
+        if preserve_user_email and path == ("interview", "user_email"):
+            return
+        scan_value = re.sub(r"\[REDACTED(?:_[A-Z]+)?\]", "", value)
+        _, redaction_count = InterviewService._redact_direct_identifiers(scan_value)
+        if redaction_count:
+            location = ".".join(path) or "<root>"
+            raise ValueError(f"Export payload contains direct personal identifier at {location}")
+
+    @staticmethod
+    def _sanitize_export_files(files: Dict[str, str]) -> Dict[str, str]:
+        sanitized_files: Dict[str, str] = {}
+        for filename, content in (files or {}).items():
+            clean_content, _ = InterviewService._redact_direct_identifiers(content or "")
+            _, remaining = InterviewService._redact_direct_identifiers(clean_content)
+            if remaining:
+                raise ValueError(f"Export file still contains direct personal identifier: {filename}")
+            sanitized_files[filename] = clean_content
+        return sanitized_files
 
     @staticmethod
     def _is_reviewed_training_sample(sample: Dict[str, Any]) -> bool:
@@ -2011,6 +2096,10 @@ class InterviewService:
             "redacted": redaction_count > 0,
             "redaction_count": redaction_count,
         }
+        InterviewService._assert_no_direct_identifier(
+            safe_sample,
+            preserve_user_email=bool(include_user_email and user_email),
+        )
         return safe_sample
 
     @staticmethod
@@ -2216,6 +2305,8 @@ class InterviewService:
             input_payload["candidate_answer"] = round_item.get("answer")
             input_payload["feedback"] = round_item.get("feedback")
 
+        reviewer_email = str(review.get("reviewer_email") or "").strip()
+        reviewer_hash = sha256(reviewer_email.lower().encode("utf-8")).hexdigest() if reviewer_email else ""
         record = {
             "schema_version": FINE_TUNING_SAMPLE_SCHEMA_VERSION,
             "task_type": task_type,
@@ -2241,6 +2332,7 @@ class InterviewService:
                 "review_status": review.get("review_status"),
                 "reviewed_at": review.get("reviewed_at"),
                 "reviewer_present": bool(review.get("reviewer_email")),
+                "reviewer_hash": reviewer_hash,
                 "is_high_quality": bool(review.get("is_high_quality")),
                 "has_hallucination": bool(review.get("has_hallucination")),
                 "followup_worthy": bool(review.get("followup_worthy")),
@@ -2290,6 +2382,7 @@ class InterviewService:
                 json.dumps(item, ensure_ascii=False) for item in counterexamples
             ),
         }
+        files = InterviewService._sanitize_export_files(files)
         preview = {
             "schema_version": FINE_TUNING_SAMPLE_SCHEMA_VERSION,
             "stats": {
@@ -2444,9 +2537,16 @@ class InterviewService:
                 "下一步",
             ],
         }
+        preview, _ = InterviewService._sanitize_export_payload(preview)
+        clean_markdown, _ = InterviewService._redact_direct_identifiers(markdown)
+        _, remaining = InterviewService._redact_direct_identifiers(clean_markdown)
+        if remaining:
+            raise ValueError("Fine-tuning readiness report still contains direct personal identifiers")
+        InterviewService._assert_no_direct_identifier(preview)
+        InterviewService._assert_no_direct_identifier(clean_markdown)
         return {
             "preview": preview,
-            "markdown": markdown,
+            "markdown": clean_markdown,
         }
 
     @staticmethod
@@ -2545,6 +2645,7 @@ class InterviewService:
             "pii_included": include_user_email,
         }
         files.update(fine_tuning_bundle["files"])
+        files = InterviewService._sanitize_export_files(files)
         return {
             "preview": preview,
             "manifest": manifest,
@@ -2553,13 +2654,16 @@ class InterviewService:
 
     @staticmethod
     def build_evaluation_dataset_zip(bundle: Dict[str, Any]) -> bytes:
+        manifest, _ = InterviewService._sanitize_export_payload(bundle.get("manifest") or {})
+        InterviewService._assert_no_direct_identifier(manifest)
+        files = InterviewService._sanitize_export_files(bundle.get("files") or {})
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr(
                 "manifest.json",
-                json.dumps(bundle.get("manifest") or {}, ensure_ascii=False, indent=2),
+                json.dumps(manifest, ensure_ascii=False, indent=2),
             )
-            for filename, content in (bundle.get("files") or {}).items():
+            for filename, content in files.items():
                 archive.writestr(filename, content or "")
         return buffer.getvalue()
 

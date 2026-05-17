@@ -448,6 +448,101 @@ def test_apply_blueprint_keeps_role_calibration_out_of_candidate_evidence_summar
     assert "Knowledge base slice requires Redis failure handling" in enriched[0]["blueprint_role_calibration_summary"]
 
 
+@pytest.mark.unit
+def test_apply_blueprint_does_not_add_role_reference_high_risk_to_candidate_followups():
+    question_plan = [{"index": 0, "question": "Describe Redis failure handling.", "selected_followups": []}]
+    blueprint = {
+        "high_risk_claims": [
+            {
+                "claim": "Knowledge base requires Redis incident handling",
+                "risk_reason": "Knowledge base slice requires Redis incident handling",
+                "source": "knowledge_base",
+                "role_requirement_source_ids": [94],
+            }
+        ],
+        "priority_question_tracks": [
+            {
+                "track": "Redis failure handling",
+                "reason": "Knowledge base slice requires Redis failure handling",
+                "role_requirement_source_ids": [94],
+            }
+        ],
+    }
+
+    enriched = InterviewService._apply_blueprint_to_question_plan(question_plan, blueprint)
+
+    assert "Knowledge base requires Redis incident handling" not in enriched[0].get("selected_followups", [])
+    assert enriched[0]["blueprint_evidence_ids"] == []
+    assert enriched[0]["blueprint_role_calibration_ids"] == [94]
+
+
+@pytest.mark.unit
+def test_rag_slice_ids_do_not_become_candidate_question_target_evidence_ids():
+    fields = InterviewService._derive_question_target_fields(
+        {
+            "question_target_gap": "Redis failure handling",
+            "selected_slices": [{"slice_id": 94, "summary": "Role profile asks for Redis failover"}],
+            "used_slice_ids": [94],
+            "evidence_summary": ["Role profile asks for Redis failover"],
+        }
+    )
+
+    assert fields["question_target_evidence_ids"] == []
+    assert fields["question_target_evidence"] == []
+
+
+@pytest.mark.unit
+def test_followup_evidence_source_ids_are_limited_to_candidate_evidence_ids():
+    next_meta = InterviewService._apply_followup_to_next_question(
+        current_question_meta={
+            "question_target_gap": "Redis failure handling",
+            "question_target_evidence_ids": [12],
+            "used_slice_ids": [101],
+            "selected_slices": [{"slice_id": 101}],
+        },
+        next_question_meta={"question": "Next question"},
+        evaluation={
+            "selected_followups": ["请继续说明。"],
+            "next_best_followup": {
+                "question": "请说明真实 Redis 故障处理经历。",
+                "target_gap": "Redis failure handling",
+                "evidence_source_ids": [101, 12],
+            }
+        },
+    )
+
+    assert next_meta["question_target_evidence_ids"] == [12]
+
+
+@pytest.mark.unit
+def test_report_signals_exclude_role_reference_claim_confidence_items():
+    signals = InterviewService._build_report_signals(
+        [
+            {
+                "evaluation": {
+                    "claim_confidence_change": [
+                        {
+                            "claim": "Redis incident handling needs verification",
+                            "reason": "Knowledge base slice requires this role capability",
+                            "source": "knowledge_base",
+                            "role_requirement_source_ids": [101],
+                        },
+                        {
+                            "claim": "Candidate led API integration",
+                            "reason": "Resume says they owned API integration",
+                            "source": "resume",
+                        },
+                    ]
+                }
+            }
+        ]
+    )
+
+    assert len(signals["claim_confidence_summary"]) == 1
+    assert "Candidate led API integration" in signals["claim_confidence_summary"][0]
+    assert "Redis incident handling" not in "\n".join(signals["claim_confidence_summary"])
+
+
 @pytest.mark.asyncio
 async def test_evaluate_round_falls_back_to_single_when_panel_evaluation_fails(monkeypatch):
     async def _raise_panel(**kwargs):
@@ -1295,6 +1390,46 @@ def test_build_fine_tuning_readiness_report_summarizes_readiness_without_trainin
 
 
 @pytest.mark.unit
+def test_build_fine_tuning_readiness_report_redacts_direct_identifiers():
+    samples = [
+        {
+            "interview": {
+                "id": 401,
+                "status": "completed",
+                "overall_score": 8.6,
+                "target_position": "Python Backend Engineer candidate@example.com +86 138-1234-5678",
+                "data_contribution_consent": True,
+            },
+            "rounds": [
+                {
+                    "question": "How did you handle Redis failover?",
+                    "answer": "I described the retry queue.",
+                    "evaluation": {
+                        "next_best_followup": {"question": "Which metric proved it worked?"},
+                    },
+                }
+            ],
+            "training_sample_review": {
+                "review_status": "reviewed",
+                "quality_tier": "high",
+                "is_high_quality": True,
+                "has_hallucination": False,
+                "followup_worthy": True,
+                "report_actionable": True,
+            },
+        }
+    ]
+
+    report = InterviewService.build_fine_tuning_readiness_report(samples)
+
+    assert "candidate@example.com" not in report["markdown"]
+    assert "138-1234-5678" not in report["markdown"]
+    assert "[REDACTED_EMAIL]" in report["markdown"]
+    assert "[REDACTED_PHONE]" in report["markdown"]
+    assert report["preview"]["top_positions"][0]["target_position"].count("[REDACTED") >= 2
+
+
+@pytest.mark.unit
 def test_build_evaluation_dataset_zip_includes_manifest_and_empty_files():
     bundle = InterviewService.build_evaluation_dataset_bundle([])
     zip_bytes = InterviewService.build_evaluation_dataset_zip(bundle)
@@ -1315,3 +1450,58 @@ def test_build_evaluation_dataset_zip_includes_manifest_and_empty_files():
         assert manifest["fine_tuning"]["schema_version"] == "ai-interview.fine-tuning-sample.v1"
         assert archive.read("golden_cases.jsonl").decode("utf-8") == ""
         assert archive.read("fine_tuning_sft.jsonl").decode("utf-8") == ""
+
+
+@pytest.mark.unit
+def test_evaluation_dataset_zip_redacts_direct_identifiers_from_files_and_manifest():
+    sample = {
+        "interview": {
+            "id": 401,
+            "status": "completed",
+            "overall_score": 8.4,
+            "target_position": "Python Backend Engineer",
+            "data_contribution_consent": True,
+            "user_email": "candidate@example.com",
+        },
+        "rounds": [
+            {
+                "question": "How did you debug Redis?",
+                "answer": "My phone is 13812345678 and source file was zhangsan_resume.pdf",
+                "evaluation": {
+                    "next_best_followup": {"question": "Which metric changed?"},
+                },
+            }
+        ],
+        "training_sample_review": {
+            "review_status": "reviewed",
+            "quality_tier": "high",
+            "is_high_quality": True,
+            "has_hallucination": False,
+            "followup_worthy": True,
+            "report_actionable": True,
+            "human_overall_score": 8.4,
+            "reviewer_email": "reviewer@example.com",
+            "notes": "候选人邮箱 candidate@example.com，身份证 110101199003077777",
+        },
+        "report_summary": {
+            "common_gaps": ["Redis reliability"],
+            "training_priorities": ["failure diagnosis"],
+        },
+        "export_notes": {
+            "data_contribution_consent": True,
+            "privacy_consent_snapshot": {"source_file": "zhangsan_resume.pdf"},
+        },
+    }
+
+    bundle = InterviewService.build_evaluation_dataset_bundle([sample])
+    zip_bytes = InterviewService.build_evaluation_dataset_zip(bundle)
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
+        combined = "\n".join(archive.read(name).decode("utf-8") for name in archive.namelist())
+
+    assert "candidate@example.com" not in combined
+    assert "reviewer@example.com" not in combined
+    assert "13812345678" not in combined
+    assert "110101199003077777" not in combined
+    assert "zhangsan_resume.pdf" not in combined
+    assert "[REDACTED_EMAIL]" in combined

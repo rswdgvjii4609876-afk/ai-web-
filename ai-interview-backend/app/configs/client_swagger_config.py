@@ -33,9 +33,9 @@ This is the public API interface documentation for client applications.
 - Password reset operations
 - User profile retrieval
 
-### Demo Functions (Demo)
-- Basic demonstration interfaces
-- Function testing interfaces
+### Competition Preview
+- Career-AgentOS demo cases, Agent Trace, Eval Preview and SFT Preview
+- Read-only preview data only; not real OpenAI fine-tuning results
 
 ### Configuration Management (Config)
 - Client configuration retrieval
@@ -61,6 +61,7 @@ This is the public API interface documentation for client applications.
 - Token refresh
 - Password reset
 - Configuration queries
+- Competition Preview demo interfaces (`/competition/*`, read-only demo/preview assets)
 - Waiting list operations
 
 ### Protected Interfaces (Authentication required):
@@ -146,6 +147,10 @@ CLIENT_OPENAPI_TAGS = [
             "description": "AWS S3 documentation",
             "url": "https://docs.aws.amazon.com/s3/",
         },
+    },
+    {
+        "name": "client-competition",
+        "description": "Competition Preview read-only demo interfaces. Returns only demo_constructed preview assets, not real user training data or real OpenAI fine-tuning results.",
     },
     {
         "name": "client-waiting-list",

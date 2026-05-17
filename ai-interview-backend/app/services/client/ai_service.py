@@ -512,8 +512,7 @@ class AIService:
     def _question_target_evidence_summary(question_meta: Optional[Dict]) -> List[str]:
         return AIService._string_list(
             (question_meta or {}).get("question_target_evidence")
-            or (question_meta or {}).get("blueprint_evidence_summary")
-            or (question_meta or {}).get("evidence_summary"),
+            or (question_meta or {}).get("blueprint_evidence_summary"),
             limit=4,
         )
 
@@ -521,13 +520,7 @@ class AIService:
     def _question_target_evidence_ids(question_meta: Optional[Dict]) -> List[int]:
         return AIService._normalize_id_list(
             (question_meta or {}).get("question_target_evidence_ids")
-            or (question_meta or {}).get("blueprint_evidence_ids")
-            or (question_meta or {}).get("used_slice_ids")
-            or [
-                item.get("slice_id")
-                for item in ((question_meta or {}).get("selected_slices") or [])
-                if item.get("slice_id")
-            ],
+            or (question_meta or {}).get("blueprint_evidence_ids"),
             limit=8,
         )
 
@@ -563,14 +556,24 @@ class AIService:
                 )
                 delta = AIService._string_or_empty(item.get("delta") or item.get("change")) or "unchanged"
                 reason = AIService._string_or_empty(item.get("reason") or item.get("summary"))
-                source_ids = AIService._normalize_id_list(
-                    item.get("source_ids") or item.get("evidence_source_ids") or item.get("slice_ids"),
+                raw_source_ids = AIService._normalize_id_list(
+                    item.get("source_ids") or item.get("evidence_source_ids"),
                     limit=8,
-                ) or default_ids
-                source_summary = AIService._string_list(
+                )
+                if raw_source_ids:
+                    allowed_source_ids = set(default_ids)
+                    source_ids = [source_id for source_id in raw_source_ids if source_id in allowed_source_ids]
+                else:
+                    source_ids = default_ids
+                raw_source_summary = AIService._string_list(
                     item.get("source_summary") or item.get("evidence_source_summary"),
                     limit=4,
-                ) or default_summary
+                )
+                source_summary = (
+                    raw_source_summary
+                    if raw_source_ids and len(source_ids) == len(raw_source_ids)
+                    else default_summary
+                )
             else:
                 evidence = AIService._string_or_empty(item)
                 delta = "unchanged"
@@ -640,13 +643,24 @@ class AIService:
                 to_level = AIService._string_or_empty(item.get("to_level") or item.get("after"))
                 change = AIService._string_or_empty(item.get("change") or item.get("delta"))
                 reason = AIService._string_or_empty(item.get("reason") or item.get("summary"))
+                source = AIService._string_or_empty(item.get("source"))
+                role_only = (
+                    AIService._is_role_reference_text(source, claim, reason)
+                    or (
+                        bool(item.get("role_requirement_source_ids"))
+                        and not bool(item.get("evidence_ids"))
+                    )
+                )
             else:
                 claim = AIService._string_or_empty(item)
                 from_level = ""
                 to_level = ""
                 change = ""
                 reason = ""
+                role_only = AIService._is_role_reference_text(claim)
             if not claim:
+                continue
+            if role_only:
                 continue
             normalized.append(
                 {
@@ -724,12 +738,16 @@ class AIService:
             else AIService._string_or_empty((question_meta or {}).get("question_target_gap"))
         )
         target_evidence = AIService._string_list(raw.get("target_evidence"), limit=4) or AIService._question_target_evidence_summary(question_meta)
-        evidence_source_ids = AIService._normalize_id_list(
+        allowed_candidate_ids = set(AIService._question_target_evidence_ids(question_meta))
+        raw_evidence_source_ids = AIService._normalize_id_list(
             raw.get("evidence_source_ids")
             or raw.get("source_ids")
             or raw.get("slice_ids"),
             limit=8,
-        ) or AIService._question_target_evidence_ids(question_meta)
+        )
+        evidence_source_ids = [
+            item for item in raw_evidence_source_ids if item in allowed_candidate_ids
+        ] or AIService._question_target_evidence_ids(question_meta)
         evidence_source_summary = AIService._string_list(
             raw.get("evidence_source_summary") or raw.get("source_summary"),
             limit=4,
@@ -1336,8 +1354,9 @@ class AIService:
                 break
         return normalized
     @staticmethod
-    def _normalize_high_risk_claims(items: Any, limit: int = 8) -> List[Dict[str, Any]]:
-        normalized: List[Dict[str, Any]] = []
+    def _normalize_high_risk_claim_groups(items: Any, limit: int = 8) -> Dict[str, List[Dict[str, Any]]]:
+        candidate_claims: List[Dict[str, Any]] = []
+        role_calibration_claims: List[Dict[str, Any]] = []
         raw_items = items or []
         if isinstance(raw_items, (str, dict)):
             raw_items = [raw_items]
@@ -1368,10 +1387,13 @@ class AIService:
                     or item.get("slice_ids")
                     or item.get("used_slice_ids")
                 )
+                role_reference = AIService._is_role_reference_text(raw_source, claim, evidence, risk_reason) or (
+                    bool(role_requirement_source_ids) and not bool(evidence_ids)
+                )
                 evidence_ids, role_requirement_source_ids = AIService._split_candidate_and_role_ids(
                     evidence_ids=evidence_ids,
                     role_requirement_source_ids=role_requirement_source_ids,
-                    role_reference=AIService._is_role_reference_text(raw_source, evidence, risk_reason),
+                    role_reference=role_reference,
                 )
             else:
                 claim = AIService._string_or_empty(item)
@@ -1379,20 +1401,30 @@ class AIService:
                 evidence = ""
                 evidence_ids = []
                 role_requirement_source_ids = []
+                role_reference = AIService._is_role_reference_text(claim)
             if not claim:
                 continue
-            normalized.append(
-                {
-                    "claim": claim,
-                    "risk_reason": risk_reason,
-                    "evidence": evidence,
-                    "evidence_ids": evidence_ids,
-                    "role_requirement_source_ids": role_requirement_source_ids,
-                }
-            )
-            if len(normalized) >= limit:
+            normalized_item = {
+                "claim": claim,
+                "risk_reason": risk_reason,
+                "evidence": evidence,
+                "evidence_ids": evidence_ids,
+                "role_requirement_source_ids": role_requirement_source_ids,
+            }
+            if role_reference and not evidence_ids:
+                role_calibration_claims.append(normalized_item)
+            else:
+                candidate_claims.append(normalized_item)
+            if len(candidate_claims) >= limit:
                 break
-        return normalized
+        return {
+            "candidate_claims": candidate_claims[:limit],
+            "role_calibration_claims": role_calibration_claims[:limit],
+        }
+
+    @staticmethod
+    def _normalize_high_risk_claims(items: Any, limit: int = 8) -> List[Dict[str, Any]]:
+        return AIService._normalize_high_risk_claim_groups(items, limit=limit)["candidate_claims"]
     @staticmethod
     def _normalize_blueprint_track_list(items: Any, limit: int = 6) -> List[Dict[str, Any]]:
         normalized: List[Dict[str, Any]] = []
@@ -1489,6 +1521,10 @@ class AIService:
         blueprint_evidence = payload.get("blueprint_evidence") or {}
         if not isinstance(blueprint_evidence, dict):
             blueprint_evidence = {}
+        high_risk_claim_groups = AIService._normalize_high_risk_claim_groups(
+            payload.get("high_risk_claims"),
+            limit=8,
+        )
         normalized = {
             "matched_requirements": AIService._normalize_blueprint_requirement_list(
                 payload.get("matched_requirements"),
@@ -1505,7 +1541,8 @@ class AIService:
                 support_level="unsupported",
                 limit=8,
             ),
-            "high_risk_claims": AIService._normalize_high_risk_claims(payload.get("high_risk_claims"), limit=8),
+            "high_risk_claims": high_risk_claim_groups["candidate_claims"],
+            "role_calibration_claims": high_risk_claim_groups["role_calibration_claims"],
             "priority_question_tracks": AIService._normalize_blueprint_track_list(
                 payload.get("priority_question_tracks"),
                 limit=6,
@@ -1801,6 +1838,7 @@ class AIService:
                     '"weakly_supported_requirements":[{"requirement":"","evidence":"","support_level":"weak","source":"resume_evidence","candidate_evidence_source":"resume_evidence","evidence_ids":[1],"role_requirement_source_ids":[101]}],'
                     '"unsupported_requirements":[{"requirement":"","evidence":"","support_level":"unsupported","source":"resume_gap","candidate_evidence_source":"resume_gap","evidence_ids":[],"role_requirement_source_ids":[101]}],'
                     '"high_risk_claims":[{"claim":"","risk_reason":"","evidence":"","evidence_ids":[1]}],'
+                    '"role_calibration_claims":[{"claim":"","risk_reason":"","evidence":"","role_requirement_source_ids":[101]}],'
                     '"priority_question_tracks":[{"track":"","reason":"","requirement_status":"weak","evidence_ids":[1],"role_requirement_source_ids":[101]}],'
                     '"training_focus":[""],'
                     '"blueprint_evidence":{"resume_evidence_summary":[""],"resume_followup_candidates":[""],"slice_ids":[1],"slice_summaries":[""],"knowledge_base_title":"","target_position":""},'
@@ -1822,7 +1860,7 @@ class AIService:
         result = await AIService._chat(messages, temperature=0.25, ai_config=ai_config)
         payload = await AIService._extract_or_repair_json(
             result,
-            "JSON object with matched_requirements, weakly_supported_requirements, unsupported_requirements, high_risk_claims, priority_question_tracks, training_focus, blueprint_evidence, evidence_summary",
+            "JSON object with matched_requirements, weakly_supported_requirements, unsupported_requirements, high_risk_claims, role_calibration_claims, priority_question_tracks, training_focus, blueprint_evidence, evidence_summary",
             ai_config=ai_config,
         )
         return AIService._normalize_interview_blueprint(payload)
@@ -1991,9 +2029,20 @@ class AIService:
         high_risk_claims = []
         for item in (interview_blueprint or {}).get("high_risk_claims") or []:
             if isinstance(item, dict):
+                if item.get("role_requirement_source_ids") and not item.get("evidence_ids"):
+                    continue
+                if AIService._is_role_reference_text(
+                    item.get("source"),
+                    item.get("claim"),
+                    item.get("risk_reason"),
+                    item.get("evidence"),
+                ):
+                    continue
                 text = AIService._string_or_empty(item.get("claim"))
             else:
                 text = AIService._string_or_empty(item)
+                if AIService._is_role_reference_text(text):
+                    continue
             if text:
                 high_risk_claims.append(text)
         if high_risk_claims:

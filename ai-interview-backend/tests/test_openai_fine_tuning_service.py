@@ -9,6 +9,8 @@ from app.services.client.openai_fine_tuning_service import (
     assert_job_record_matches,
     build_openai_fine_tuning_dataset,
     convert_internal_record_to_openai_chat,
+    load_json_records,
+    load_jsonl_records,
     load_constructed_seed_records,
     resolve_fine_tuned_model_for_eval,
     validate_official_openai_base_url,
@@ -38,6 +40,8 @@ def make_record(
         "report_actionable": quality,
         "review_status": "reviewed" if reviewed else "pending",
         "reviewed_at": "2026-05-17T00:00:00+00:00" if reviewed else None,
+        "reviewer_present": bool(reviewed),
+        "reviewer_hash": f"reviewer-hash-{index}" if reviewed else "",
         "data_contribution_consent": consent,
         "interview_id": index,
     }
@@ -82,6 +86,8 @@ def test_convert_authorized_real_record_to_openai_chat_jsonl_shape():
     assert assistant_payload["question"].startswith("请说明一个实际接口")
     assert manifest["sample_origin"] == "real_authorized"
     assert manifest["data_contribution_consent"] is True
+    assert manifest["reviewer_present"] is True
+    assert manifest["reviewer_hash"]
 
 
 @pytest.mark.unit
@@ -92,6 +98,19 @@ def test_convert_rejects_unauthorized_pii_and_hallucination_samples():
         convert_internal_record_to_openai_chat(make_record(pii=True))
     with pytest.raises(OpenAIFineTuningDataError, match="hallucination"):
         convert_internal_record_to_openai_chat(make_record(hallucination=True))
+
+
+@pytest.mark.unit
+def test_convert_rejects_formatted_phone_and_resume_filename_pii():
+    formatted_phone = make_record()
+    formatted_phone["input"]["candidate_answer"] = "我的联系方式是 +86 138-1234-5678。"
+    with pytest.raises(OpenAIFineTuningDataError, match="direct personal identifier"):
+        convert_internal_record_to_openai_chat(formatted_phone)
+
+    resume_filename = make_record()
+    resume_filename["input"]["evidence_summary"] = ["附件来自 zhangsan_resume.pdf"]
+    with pytest.raises(OpenAIFineTuningDataError, match="direct personal identifier"):
+        convert_internal_record_to_openai_chat(resume_filename)
 
 
 @pytest.mark.unit
@@ -152,6 +171,10 @@ def test_real_records_require_manual_review_quality_and_true_origin():
         convert_internal_record_to_openai_chat(make_record(reviewed=False))
     with pytest.raises(OpenAIFineTuningDataError, match="quality signal"):
         convert_internal_record_to_openai_chat(make_record(quality=False))
+    missing_reviewer = make_record()
+    missing_reviewer["metadata"]["reviewer_hash"] = ""
+    with pytest.raises(OpenAIFineTuningDataError, match="reviewer_hash"):
+        convert_internal_record_to_openai_chat(missing_reviewer)
 
     masquerading = make_record()
     masquerading["metadata"]["sample_origin"] = "constructed"
@@ -211,6 +234,26 @@ def test_preflight_rejects_pii_in_upload_jsonl(tmp_path):
 
     with pytest.raises(OpenAIFineTuningDataError, match="personal identifier"):
         validate_openai_fine_tuning_dataset_dir(tmp_path, require_ready=True)
+
+
+@pytest.mark.unit
+def test_jsonl_loader_rejects_non_object_lines():
+    with pytest.raises(OpenAIFineTuningDataError, match="expected object"):
+        load_jsonl_records("[1, 2, 3]\n")
+
+
+@pytest.mark.unit
+def test_json_loader_rejects_non_object_items(tmp_path):
+    path = tmp_path / "samples.json"
+    path.write_text(json.dumps([make_record(), "bad-item"], ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(OpenAIFineTuningDataError, match="expected object"):
+        load_json_records(path)
+
+    wrapped = tmp_path / "wrapped.json"
+    wrapped.write_text(json.dumps({"items": [make_record(), 3]}, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(OpenAIFineTuningDataError, match="expected object"):
+        load_json_records(wrapped)
 
 
 @pytest.mark.unit
@@ -346,7 +389,39 @@ def test_create_job_dry_run_is_idempotent_unless_forced(tmp_path, monkeypatch):
         ["create", "--dry-run", "--force-new-job", "--dataset-dir", str(tmp_path), "--model", "gpt-test"],
     )
     assert create_script.main() == 0
-    assert (tmp_path / "job_preflight.json").exists()
+    preflight = json.loads((tmp_path / "job_preflight.json").read_text(encoding="utf-8"))
+    assert preflight["previous_job_id"] == "ftjob_existing"
+    assert preflight["previous_job_record_path"].endswith("job_record.json")
+
+
+@pytest.mark.unit
+def test_eval_rejects_base_model_mismatch_without_explicit_override(tmp_path, monkeypatch):
+    from app.scripts import run_fine_tuning_eval as eval_script
+
+    real_records = [make_record(index=index) for index in range(1, 4)]
+    constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 16)]
+    bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
+    write_openai_fine_tuning_bundle(bundle, tmp_path)
+    preflight = validate_openai_fine_tuning_dataset_dir(tmp_path, require_ready=True, require_validation=True)
+    (tmp_path / "job_record.json").write_text(
+        json.dumps(
+            {
+                "job_id": "ftjob_123",
+                "base_model": "gpt-recorded",
+                "dataset_fingerprint": preflight["dataset_fingerprint"],
+                "fine_tuning_job": {"id": "ftjob_123"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["eval", "--dry-run", "--dataset-dir", str(tmp_path), "--base-model", "gpt-other"],
+    )
+    with pytest.raises(SystemExit, match="base-model does not match"):
+        eval_script.main()
 
 
 @pytest.mark.unit

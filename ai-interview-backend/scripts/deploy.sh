@@ -1,9 +1,26 @@
 #!/bin/bash
 
-# Prepwise Production Environment Deployment Script
-# This script handles the deployment process on the production server
+# Legacy Prepwise deployment script.
+# Production deployment for this repository should use the repo-root `docker compose`
+# flow or `scripts/stage138_server_closed_loop_verify.sh --deploy`.
 
 set -e  # Exit on any error
+
+cat >&2 <<'EOF'
+This legacy backend deploy script is intentionally disabled.
+
+Use the repository-root deployment flow instead:
+  cd /opt/apps/ai-interview
+  docker compose up -d --build
+  docker compose exec -T app alembic upgrade head
+
+For stage validation and optional controlled deploy:
+  bash scripts/stage138_server_closed_loop_verify.sh --readiness-only
+  bash scripts/stage138_server_closed_loop_verify.sh --deploy --allow-reset --readiness-only
+
+Do not use ai-interview-backend/scripts/deploy.sh for production.
+EOF
+exit 2
 
 # Configuration
 COMPOSE_FILES="${COMPOSE_FILES:-"-f docker-compose.yml -f docker-compose.prod.yml"}"

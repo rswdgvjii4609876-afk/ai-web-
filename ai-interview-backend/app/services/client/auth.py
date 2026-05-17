@@ -95,7 +95,8 @@ class ClientAuthService(AuthBase):
                 if user.privacy_agreed_at
                 else None,
                 "privacy_base_consent_valid": privacy_consent_service.has_base_consent(user),
-                "data_contribution_consent": bool(user.data_contribution_consent),
+                "data_contribution_consent": privacy_consent_service.has_data_contribution_consent(user),
+                "data_contribution_consent_valid": privacy_consent_service.has_data_contribution_consent(user),
                 "data_contribution_consent_at": user.data_contribution_consent_at.isoformat()
                 if user.data_contribution_consent_at
                 else None,

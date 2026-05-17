@@ -73,16 +73,17 @@ async def create_first_admin() -> None:
             print(f"Admin already exists: {email} (id={existing_admin.id})")
             return
 
+        is_root_admin = email.lower() == ROOT_ADMIN_EMAIL
         admin = Admin(
             email=email,
             first_name=first_name,
             last_name=last_name,
             password=Admin.get_password_hash(password),
-            role="superadmin",
-            can_manage_admins=email.lower() == ROOT_ADMIN_EMAIL,
-            can_review_cases=email.lower() == ROOT_ADMIN_EMAIL,
-            can_export_datasets=email.lower() == ROOT_ADMIN_EMAIL,
-            can_delete_records=email.lower() == ROOT_ADMIN_EMAIL,
+            role="superadmin" if is_root_admin else "admin",
+            can_manage_admins=is_root_admin,
+            can_review_cases=is_root_admin,
+            can_export_datasets=is_root_admin,
+            can_delete_records=is_root_admin,
             is_active=True,
         )
 
@@ -90,10 +91,12 @@ async def create_first_admin() -> None:
         await session.commit()
         await session.refresh(admin)
 
-        print("Initial superadmin created successfully.")
+        print("Initial admin created successfully.")
         print(f"Email: {email}")
         print(f"Name: {first_name} {last_name}")
-        print("Role: superadmin")
+        print(f"Role: {admin.role}")
+        if not is_root_admin:
+            print("Warning: INIT_ADMIN_EMAIL is not ROOT_ADMIN_EMAIL; sensitive permissions were not granted.")
         print(f"ID: {admin.id}")
         print("Next step: sign in to the admin panel and change the password immediately.")
 

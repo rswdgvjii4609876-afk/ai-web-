@@ -116,10 +116,11 @@ def _build_markdown(result: Dict[str, Any]) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Compare base and fine-tuned models on the prepared holdout set.")
     parser.add_argument("--dataset-dir", default=str(DEFAULT_OUTPUT_ROOT / "latest"))
-    parser.add_argument("--base-model", default=settings.OPENAI_FINE_TUNE_BASE_MODEL or settings.OPENAI_MODEL)
+    parser.add_argument("--base-model", default="")
     parser.add_argument("--job-id", default="")
     parser.add_argument("--fine-tuned-model", default="")
     parser.add_argument("--max-items", type=int, default=DEFAULT_MIN_EVAL_SAMPLES)
+    parser.add_argument("--allow-different-base", action="store_true")
     parser.add_argument("--confirm-cost", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -150,13 +151,26 @@ def main() -> int:
     if len(records) < DEFAULT_MIN_EVAL_SAMPLES:
         raise SystemExit(f"Need at least {DEFAULT_MIN_EVAL_SAMPLES} validation samples for eval; current={len(records)}.")
 
+    recorded_base_model = str((model_info.get("job_record") or {}).get("base_model") or "")
+    requested_base_model = args.base_model or recorded_base_model or settings.OPENAI_FINE_TUNE_BASE_MODEL or settings.OPENAI_MODEL
+    if (
+        args.base_model
+        and recorded_base_model
+        and args.base_model != recorded_base_model
+        and not args.allow_different_base
+    ):
+        raise SystemExit(
+            f"--base-model does not match job_record.json: requested={args.base_model}, recorded={recorded_base_model}. "
+            "Use --allow-different-base only for explicit diagnostic comparisons."
+        )
+
     fine_tuned_model = model_info.get("fine_tuned_model") or args.fine_tuned_model
     if not fine_tuned_model and not args.dry_run:
         raise SystemExit("Fine-tuned model id is required via --fine-tuned-model or job_status.json.")
     provenance = build_openai_sft_provenance(
         dataset_dir,
         preflight=preflight,
-        base_model=args.base_model,
+        base_model=requested_base_model,
         base_url=base_url,
     )
     if args.dry_run:
@@ -164,7 +178,7 @@ def main() -> int:
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
             "dataset_dir": str(dataset_dir),
             "job_id": model_info.get("job_id"),
-            "base_model": args.base_model,
+            "base_model": requested_base_model,
             "fine_tuned_model": fine_tuned_model,
             "evaluated_items": min(args.max_items, len(records)),
             "dry_run": True,
@@ -186,7 +200,7 @@ def main() -> int:
     for index, record in enumerate(records[: args.max_items], start=1):
         messages = _prompt_messages(record)
         expected = _extract_expected(record)
-        base_content = _chat_completion(client, args.base_model, messages)
+        base_content = _chat_completion(client, requested_base_model, messages)
         fine_tuned_content = _chat_completion(client, fine_tuned_model, messages)
         items.append(
             {
@@ -204,7 +218,7 @@ def main() -> int:
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "dataset_dir": str(dataset_dir),
         "job_id": model_info.get("job_id"),
-        "base_model": args.base_model,
+        "base_model": requested_base_model,
         "fine_tuned_model": fine_tuned_model,
         "evaluated_items": len(items),
         "base_average_score": round(base_average, 3),

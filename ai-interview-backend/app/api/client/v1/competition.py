@@ -180,13 +180,13 @@ def _load_sft_preview() -> Dict[str, Any]:
                     continue
                 preview_records.append(json.loads(line))
             validate_sft_preview_bundle(summary, preview_records, label=str(sft_dir))
-            return {"summary": summary, "preview_records": preview_records[:6]}
+            return {"summary": summary, "preview_records": preview_records}
         except Exception as exc:
             raise _asset_error(exc) from exc
 
     bundle = build_sft_preview_bundle(_load_demo_cases())
     validate_sft_preview_bundle(bundle["summary"], bundle["train"], label="generated sft preview")
-    return {"summary": bundle["summary"], "preview_records": bundle["train"][:6]}
+    return {"summary": bundle["summary"], "preview_records": bundle["train"]}
 
 
 @router.get("/demo-cases")

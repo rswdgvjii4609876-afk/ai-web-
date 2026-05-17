@@ -44,6 +44,7 @@
           该面试未获得本次案例去标识化数据贡献授权。可以查看详情和报告，但不能保存人工标注，也不能进入评测样本导出。
         </p>
 
+        <fieldset class="review-fieldset" :disabled="!canSaveReview">
         <div class="review-grid">
           <label class="review-field">
             <span>质量等级</span>
@@ -79,6 +80,8 @@
             placeholder="记录为什么判为高质量、哪里出现幻觉、哪些追问值得进入黄金样本。"
           />
         </label>
+
+        </fieldset>
 
         <div class="review-meta" v-if="detail.training_sample_review?.reviewed_at">
           最近标注：{{ detail.training_sample_review.reviewer_email || '未知管理员' }} · {{ formatReviewTime(detail.training_sample_review.reviewed_at) }}
@@ -301,6 +304,8 @@ onMounted(loadDetail)
 .report-cols ul { list-style: none; padding: 0; }
 .report-cols li { font-size: 13px; line-height: 1.8; padding-left: 14px; position: relative; }
 .report-cols li::before { content: '•'; position: absolute; left: 0; color: #9ca3af; }
+.review-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.review-fieldset:disabled { opacity: .72; }
 .review-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; align-items: start; }
 .review-field { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: #374151; }
 .review-field select,

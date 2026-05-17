@@ -18,6 +18,7 @@ from app.services.agent_orchestrator.asset_guardrails import (
     validate_trace_preview_asset,
 )
 from app.api.client.v1 import competition as competition_api
+from app.configs.client_swagger_config import CLIENT_OPENAPI_TAGS
 from app.services.agent_orchestrator.demo_cases import (
     DEMO_CASES,
     generate_demo_cases,
@@ -435,6 +436,43 @@ def test_competition_demo_cases_api_includes_top_level_demo_flags():
     ]
 
 
+def test_competition_sft_preview_api_returns_all_validated_records():
+    response = asyncio.run(competition_api.get_sft_preview())
+    payload = json.loads(response.body)["data"]
+
+    assert payload["preview"] is True
+    expected = payload["summary"]["counts"]["train_preview_records"]
+    assert len(payload["preview_records"]) == expected
+    assert all(record["sample_origin"] == "demo_constructed" for record in payload["preview_records"])
+    assert all(record["for_training"] is False for record in payload["preview_records"])
+
+
+def test_sft_preview_record_guardrails_require_case_ownership():
+    bundle = build_sft_preview_bundle(generate_demo_cases())
+    valid = bundle["train"][0]
+    validate_sft_preview_record(valid)
+
+    missing_case = json.loads(json.dumps(valid, ensure_ascii=False))
+    missing_case["metadata"].pop("case_id", None)
+    with pytest.raises(ValueError, match="metadata.case_id"):
+        validate_sft_preview_record(missing_case)
+
+    mismatched_case = json.loads(json.dumps(valid, ensure_ascii=False))
+    mismatched_case["case_id"] = "hr_specialist"
+    with pytest.raises(ValueError, match="case_id must match"):
+        validate_sft_preview_record(mismatched_case)
+
+    missing_record_id = json.loads(json.dumps(valid, ensure_ascii=False))
+    missing_record_id.pop("record_id", None)
+    with pytest.raises(ValueError, match="record_id is required"):
+        validate_sft_preview_record(missing_record_id)
+
+    wrong_prefix = json.loads(json.dumps(valid, ensure_ascii=False))
+    wrong_prefix["record_id"] = "hr_specialist_followup_preview"
+    with pytest.raises(ValueError, match="record_id must start"):
+        validate_sft_preview_record(wrong_prefix)
+
+
 def test_sft_preview_summary_guardrails_require_competition_demo_counts():
     bundle = build_sft_preview_bundle(generate_demo_cases())
     validate_sft_preview_bundle(bundle["summary"], bundle["train"])
@@ -447,6 +485,11 @@ def test_sft_preview_summary_guardrails_require_competition_demo_counts():
     wrong_count["counts"]["demo_constructed"] = 2
     with pytest.raises(ValueError, match="three demo_constructed cases"):
         validate_sft_preview_bundle(wrong_count, bundle["train"])
+
+
+def test_client_openapi_tags_include_competition_preview():
+    tag_names = {item["name"] for item in CLIENT_OPENAPI_TAGS}
+    assert "client-competition" in tag_names
 
 
 def test_legacy_demo_api_route_is_not_registered():

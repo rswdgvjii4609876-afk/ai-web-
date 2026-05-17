@@ -39,6 +39,16 @@ class PrivacyConsentService:
             user.data_contribution_withdrawn_at = PrivacyConsentService.now()
 
     @staticmethod
+    def has_data_contribution_consent(user: User) -> bool:
+        return (
+            PrivacyConsentService.has_base_consent(user)
+            and
+            bool(getattr(user, "data_contribution_consent", False))
+            and getattr(user, "data_contribution_consent_version", None)
+            == DATA_CONTRIBUTION_CONSENT_VERSION
+        )
+
+    @staticmethod
     def effective_data_contribution_consent(
         user: User,
         explicit_consent: Optional[bool] = None,
@@ -47,7 +57,7 @@ class PrivacyConsentService:
             return False
         if explicit_consent is not None:
             return bool(explicit_consent)
-        return bool(getattr(user, "data_contribution_consent", False))
+        return PrivacyConsentService.has_data_contribution_consent(user)
 
     @staticmethod
     def build_snapshot(
