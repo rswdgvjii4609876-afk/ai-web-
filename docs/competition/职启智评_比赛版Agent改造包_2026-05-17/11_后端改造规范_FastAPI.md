@@ -59,6 +59,13 @@ class GapItem(BaseModel):
     diagnosis: str
     next_question_focus: str
 
+class ResumePolishSuggestion(BaseModel):
+    section: str
+    original_issue: str
+    polish_suggestion: str
+    evidence_constraint: str
+    missing_evidence_to_prepare: List[str] = Field(default_factory=list)
+
 class InterviewQuestion(BaseModel):
     question: str
     target_ability: str
@@ -70,6 +77,7 @@ class EvalScore(BaseModel):
     focus_score: int
     evidence_score: int
     depth_score: int
+    polish_score: int
     role_fit_score: int
     format_score: int
     report_score: int
@@ -104,13 +112,14 @@ def run_demo_pipeline(case: dict) -> AgentTrace:
     evidence = build_resume_evidence(case)
     role_profile = build_role_profile(case)
     gaps = build_gap_matrix(evidence, role_profile)
+    polish = build_resume_polish(case, evidence, role_profile, gaps)
     question = build_interview_question(case, gaps)
     report = build_report_summary(case, gaps, question)
-    eval_score = score_question(question, gaps)
-    return build_trace(case, evidence, role_profile, gaps, question, report, eval_score)
+    eval_score = score_question_and_polish(question, polish, gaps)
+    return build_trace(case, evidence, role_profile, gaps, polish, question, report, eval_score)
 ```
 
-后续再把 `build_interview_question` 替换为真实 LLM 调用。
+后续再把 `build_resume_polish` 和 `build_interview_question` 替换为真实 LLM 调用。润色输出必须继承现有 `/resume-polish` 的证据约束：不编造项目、公司、时间、指标或技术经历。
 
 ---
 

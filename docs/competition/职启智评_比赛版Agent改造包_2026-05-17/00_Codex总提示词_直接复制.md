@@ -29,10 +29,11 @@
 1. 把项目从单一 AI 面试官包装升级为多 Agent 就业诊断系统。
 2. 新增文档型 Agent 角色体系。
 3. 新增演示沙盘样本和 Agent Trace 导出。
-4. 新增 Eval 评分表和展示材料。
-5. 新增 SFT Preview，体现微调数据准备能力。
-6. 新增 PPT 答辩材料和评委 Q&A。
-7. 为三个月内补实真实 SFT / DPO / QLoRA 留好工程入口。
+4. 将现有简历润色能力纳入独立 Resume Polish Agent，展示“可改但不造假”的证据约束润色。
+5. 新增 Eval 评分表和展示材料。
+6. 新增 SFT Preview，体现微调数据准备能力。
+7. 新增 PPT 答辩材料和评委 Q&A。
+8. 为三个月内补实真实 SFT / DPO / QLoRA 留好工程入口。
 ```
 
 ## 3. 必须新增的目录
@@ -94,6 +95,7 @@ P3：真实 OpenAI SFT job、DPO、QLoRA、本地模型服务。
 已完成就业诊断场景的后训练技术路线设计。
 已完成面试追问生成任务的 SFT-ready 数据结构与 Preview 链路。
 已完成三岗位沙盘案例和 Agent Trace 演示闭环。
+已完成证据约束简历润色 Agent 设计，可展示岗位化表达优化但不编造经历。
 已完成 Eval Judge 评分维度设计，可用于 base / optimized 对比。
 ```
 
@@ -112,11 +114,11 @@ P3：真实 OpenAI SFT job、DPO、QLoRA、本地模型服务。
 
 ```text
 1. docs/competition/PPT页面大纲.md
-2. docs/agents/ 下至少 10 个 Agent 角色文件
+2. docs/agents/ 下至少 11 个 Agent 角色文件，必须包含简历润色 Agent
 3. demo_cases/ 下至少 3 个 demo case
-4. artifacts/agent_trace/ 下可读的 trace markdown
-5. artifacts/eval/ 下 eval_score_table.csv 和 eval_summary.md
-6. artifacts/sft_preview/ 下 train.preview.jsonl、validation.preview.jsonl、summary.preview.json
+4. artifacts/agent_trace/ 下可读的 trace markdown，包含简历润色步骤
+5. artifacts/eval/ 下 eval_score_table.csv 和 eval_summary.md，包含润色证据约束或润色可执行性维度
+6. artifacts/sft_preview/ 下 train.preview.jsonl、validation.preview.jsonl、summary.preview.json，包含润色 preview 任务
 7. docs/competition/评委问答库.md
 8. docs/competition/通俗手册_原项目改了什么创新点在哪.md
 ```

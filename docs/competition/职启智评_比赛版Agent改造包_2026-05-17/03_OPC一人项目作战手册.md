@@ -118,7 +118,7 @@ PPT 页面
 ## 5. OPC 赛前优先级
 
 ```text
-P0：答辩主线、PPT、演示样本、Agent Trace、Eval 表、SFT Preview。
+P0：答辩主线、PPT、演示样本、简历润色 Agent、Agent Trace、Eval 表、SFT Preview。
 P1：后端最小 Agent Orchestrator、导出脚本、前端展示页。
 P2：真实数据补充、OpenAI SFT job、自动化评估。
 P3：DPO、QLoRA、本地开源模型部署。
@@ -143,6 +143,7 @@ docs/opc/答辩状态表.md
 | 模块 | 当前状态 | PPT 表达 | 三个月补实 |
 |---|---|---|---|
 | 多 Agent 架构 | 设计完成/演示级 | 已完成 Career-AgentOS 设计 | 后端服务化 |
+| 简历润色 Agent | 设计补齐/演示级 | 已完成证据约束润色链路 | 接入真实润色样本评估 |
 | SFT 数据链路 | Preview 完成 | 已完成 SFT-ready 链路 | 跑真实 job |
 | Eval | 评分表完成 | 已建立评估体系 | 扩充 holdout |
 | DPO | 路线设计 | 已规划偏好对齐 | 收集好坏样本 |
@@ -169,6 +170,6 @@ docs/opc/答辩状态表.md
 目标：基于 demo_cases/python_backend.json 输出一次完整 Career-AgentOS 工作流 trace
 要新增文件：app/scripts/export_agent_trace.py、artifacts/agent_trace/python_backend.md
 不要动的文件：现有面试主流程 API
-验收标准：命令可运行，输出包含简历证据、岗位画像、能力缺口、追问、报告摘要、Eval 评分
-可用于 PPT：trace 截图、能力缺口表、追问对比
+验收标准：命令可运行，输出包含简历证据、岗位画像、能力缺口、简历润色建议、追问、报告摘要、Eval 评分
+可用于 PPT：trace 截图、能力缺口表、润色边界示例、追问对比
 ```

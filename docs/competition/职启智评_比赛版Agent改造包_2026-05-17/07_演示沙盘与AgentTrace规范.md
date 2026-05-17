@@ -54,6 +54,10 @@ SFT Preview 文件
   "role_profile": {
     "core_abilities": ["REST API", "MySQL", "Redis", "并发基础", "部署排障"]
   },
+  "resume_polish": {
+    "enabled": true,
+    "rule": "基于证据状态给润色建议，缺失能力不得编造成真实经历"
+  },
   "interview_context": []
 }
 ```
@@ -90,18 +94,24 @@ Trace JSON：
     },
     {
       "step": 4,
+      "agent": "ResumePolishAgent",
+      "title": "证据约束简历润色",
+      "output": {}
+    },
+    {
+      "step": 5,
       "agent": "InterviewerAgent",
       "title": "证据追问生成",
       "output": {}
     },
     {
-      "step": 5,
+      "step": 6,
       "agent": "ReportAgent",
       "title": "报告摘要生成",
       "output": {}
     },
     {
-      "step": 6,
+      "step": 7,
       "agent": "EvalJudgeAgent",
       "title": "追问质量评分",
       "output": {}
@@ -124,13 +134,16 @@ Trace Markdown：
 ## Step 3 能力差距 Agent
 ...
 
-## Step 4 AI 面试官 Agent
+## Step 4 简历润色 Agent
 ...
 
-## Step 5 报告 Agent
+## Step 5 AI 面试官 Agent
 ...
 
-## Step 6 Eval Judge Agent
+## Step 6 报告 Agent
+...
+
+## Step 7 Eval Judge Agent
 ...
 ```
 
@@ -144,7 +157,7 @@ Trace Markdown：
 左侧：输入简历摘要 + 目标岗位
 中间：Agent 步骤流
 右侧：当前 Agent 输出
-底部：Eval 分数 + SFT Preview 样本
+底部：简历润色建议 + Eval 分数 + SFT Preview 样本
 ```
 
 如果来不及做页面，至少导出 Markdown 和截图。
@@ -240,10 +253,11 @@ artifacts/sft_preview/summary.preview.json
 4. 展示简历证据链。
 5. 展示岗位画像能力要求。
 6. 展示能力缺口矩阵。
-7. 点击生成 AI 面试追问。
-8. 展示证据追问问题。
-9. 展示报告摘要和学习任务。
-10. 切到后台或技术展示页，展示 Eval 和 SFT Preview。
+7. 展示证据约束简历润色建议。
+8. 点击生成 AI 面试追问。
+9. 展示证据追问问题。
+10. 展示报告摘要和学习任务。
+11. 切到后台或技术展示页，展示 Eval 和 SFT Preview。
 ```
 
 ---
@@ -260,7 +274,7 @@ sample_origin=demo_constructed
 PPT 上可以说：
 
 ```text
-下面通过一个 Python 后端岗位的演示案例，展示系统如何完成从简历证据到能力缺口，再到证据追问和训练样本沉淀的完整流程。
+下面通过一个 Python 后端岗位的演示案例，展示系统如何完成从简历证据到能力缺口、证据约束简历润色，再到证据追问和训练样本沉淀的完整流程。
 ```
 
 这样既能展示效果，也方便后续替换为真实授权案例。

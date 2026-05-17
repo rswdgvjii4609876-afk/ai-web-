@@ -20,7 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
-5. 阶段 145：Career-AgentOS 比赛版改造主线接管；当前最高优先级是比赛展示层、Agent Trace、Eval Preview、SFT Preview 和三岗位演示沙盘。
+5. 阶段 145：Career-AgentOS 比赛版改造主线接管；当前最高优先级是比赛展示层、简历润色 Agent、Agent Trace、Eval Preview、SFT Preview 和三岗位演示沙盘。
 
 当前策略：
 
@@ -33,6 +33,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 阶段 145 起临时切换到比赛版 `Career-AgentOS` 改造主线：先做可展示、可答辩、可追溯的多 Agent 架构、演示沙盘、Agent Trace、Eval Preview 和 SFT Preview；真实 OpenAI SFT、C1/C2/C3 闭环和服务器真实样本继续后移但不作废。
 - `docs/competition/职启智评_比赛版Agent改造包_2026-05-17/` 是当前比赛版改造的源材料包，后续阶段以其中 README、Codex 总提示词、适应性改造任务清单和各规范文档为依据。
 - 答辩口径必须分层：可以说“已完成 SFT-ready 数据闭环设计、Agent Trace 方案、微调任务设计”，不能说“已完成真实微调”“已有 fine_tuned_model”“构造样本是真实用户数据”。
+- 阶段 145.1 已确认比赛版 Agent 包遗漏“简历润色”功能，后续 Career-AgentOS 固定包含 `简历润色 Agent / Resume Polish Agent`：位置在能力差距诊断之后、面试追问之前；职责是基于证据状态和岗位画像输出“可改但不造假”的岗位化表达建议。
 
 ## 2. 用户提出过的关键需求细节
 
@@ -301,6 +302,16 @@ docker compose up -d --build app admin frontend
 - 将阶段 144 真实 OpenAI SFT、阶段 138/140 C1/C2/C3 真实闭环后移，但不删除、不作废。
 - 将未执行阶段写入升级流程手册并置顶：阶段 146 P0 答辩资产与 Agent 角色文档，阶段 147 三岗位演示沙盘与 Trace/Eval/SFT Preview，阶段 148 后端 Agent Orchestrator，阶段 149 前端/后台展示页，阶段 150 赛前部署验收，阶段 151 三个月补实路线。
 - 允许强势表达“多智能体就业诊断架构设计”“SFT-ready 数据闭环设计”“三岗位演示沙盘与 Agent Trace 方案”，但禁止伪造真实 fine-tuning job、模型 ID、真实样本规模或固定提升百分比。
+
+### 3.12 阶段 145.1：简历润色 Agent 缺口收口
+
+阶段 145.1 是对比赛版 Agent 改造包的补漏：旧项目已经有阶段 122/131 的简历润色功能，但阶段 145 首次纳入 Career-AgentOS 时没有把润色写成独立 Agent。
+
+收口口径：
+
+- 新增 `Resume Polish Agent / 简历润色 Agent` 到比赛版架构、角色卡、Trace、Eval、SFT Preview 和答辩问答。
+- 固定链路为：简历证据 -> 岗位画像 -> 能力差距 -> 简历润色 -> 面试追问 -> 报告 -> 学习任务 -> 数据治理 -> Eval -> SFT Preview。
+- 简历润色 Agent 只能强化已有真实证据、提示待补证据和风险，不能编造项目、公司、时间、指标或技术经历。
 
 ## 4. 涉及的文件和核心逻辑
 

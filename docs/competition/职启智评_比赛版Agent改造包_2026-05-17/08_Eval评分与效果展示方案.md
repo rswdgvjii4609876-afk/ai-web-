@@ -49,6 +49,7 @@ Agent + Fine-tuned Model
 | 能力缺口聚焦 | 问题直接围绕能力缺口，不跑题 |
 | 证据约束 | 不把岗位要求写成候选人经历，不编造经历 |
 | 追问深度 | 要求候选人说明场景、任务、行动、结果、指标 |
+| 润色可执行性 | 简历润色建议能落到真实经历、待补证据和风险提示 |
 | 岗位贴合 | 符合目标岗位真实工作内容 |
 | 格式稳定 | 输出结构清晰，可被后续系统解析 |
 | 可用于报告 | 能帮助后续生成诊断报告和学习建议 |
@@ -56,10 +57,10 @@ Agent + Fine-tuned Model
 总分：
 
 ```text
-30 分满分
-24 分以上：可展示为高质量追问
-18-23 分：可用但需优化
-18 分以下：不建议进入样本池
+35 分满分
+28 分以上：可展示为高质量 Agent 输出
+21-27 分：可用但需优化
+21 分以下：不建议进入样本池
 ```
 
 ---
@@ -67,14 +68,14 @@ Agent + Fine-tuned Model
 ## 4. Eval Score CSV 字段
 
 ```csv
-case_id,target_role,model_variant,focus_score,evidence_score,depth_score,role_fit_score,format_score,report_score,total_score,judge_note
+case_id,target_role,model_variant,focus_score,evidence_score,depth_score,polish_score,role_fit_score,format_score,report_score,total_score,judge_note
 ```
 
 示例：
 
 ```csv
-demo_python_backend_001,Python后端,base_prompt,3,2,3,3,3,3,17,"问题较泛，缺少证据约束"
-demo_python_backend_001,Python后端,agent_optimized,5,5,5,4,5,5,29,"围绕 Redis 缺失证据追问，适合进入报告闭环"
+demo_python_backend_001,Python后端,base_prompt,3,2,3,2,3,3,3,19,"问题较泛，缺少证据约束，润色容易泛化"
+demo_python_backend_001,Python后端,agent_optimized,5,5,5,5,4,5,5,34,"围绕 Redis 缺失证据追问，润色边界清楚，适合进入报告闭环"
 ```
 
 注意：如果是演示评分，文件名和 summary 中写清楚：
@@ -108,7 +109,8 @@ Agent 优化版在以下维度表现更稳定：
 1. 能力缺口聚焦
 2. 证据约束
 3. 追问深度
-4. 格式稳定
+4. 润色可执行性
+5. 格式稳定
 
 ## 下一步
 
@@ -121,21 +123,21 @@ Agent 优化版在以下维度表现更稳定：
 
 可以用表格：
 
-| 版本 | 能力聚焦 | 证据约束 | 追问深度 | 格式稳定 | 总分 |
-|---|---:|---:|---:|---:|---:|
-| 通用 Prompt | 3 | 2 | 3 | 3 | 17/30 |
-| Career-AgentOS | 5 | 5 | 5 | 5 | 29/30 |
+| 版本 | 能力聚焦 | 证据约束 | 追问深度 | 润色可执行性 | 格式稳定 | 总分 |
+|---|---:|---:|---:|---:|---:|---:|
+| 通用 Prompt | 3 | 2 | 3 | 2 | 3 | 19/35 |
+| Career-AgentOS | 5 | 5 | 5 | 5 | 5 | 34/35 |
 
 标题：
 
 ```text
-沙盘评估：多 Agent 编排提升追问聚焦度和证据约束稳定性
+沙盘评估：多 Agent 编排提升追问聚焦度、证据约束和润色可执行性
 ```
 
 更稳妥的表述：
 
 ```text
-在三岗位演示样例中，Career-AgentOS 相比普通 Prompt 展现出更强的能力缺口聚焦和证据约束能力。
+在三岗位演示样例中，Career-AgentOS 相比普通 Prompt 展现出更强的能力缺口聚焦、证据约束和简历润色边界控制能力。
 ```
 
 ---

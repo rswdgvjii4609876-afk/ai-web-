@@ -40,13 +40,14 @@ docs/agents/01_比赛叙事Agent.md
 docs/agents/02_简历证据Agent.md
 docs/agents/03_岗位画像Agent.md
 docs/agents/04_能力差距Agent.md
-docs/agents/05_面试追问Agent.md
-docs/agents/06_报告生成Agent.md
-docs/agents/07_学习任务Agent.md
-docs/agents/08_数据治理Agent.md
-docs/agents/09_Eval评估Agent.md
-docs/agents/10_后训练路线Agent.md
-docs/agents/11_评委拷问Agent.md
+docs/agents/05_简历润色Agent.md
+docs/agents/06_面试追问Agent.md
+docs/agents/07_报告生成Agent.md
+docs/agents/08_学习任务Agent.md
+docs/agents/09_数据治理Agent.md
+docs/agents/10_Eval评估Agent.md
+docs/agents/11_后训练路线Agent.md
+docs/agents/12_评委拷问Agent.md
 ```
 
 验收：
@@ -125,6 +126,7 @@ Trace 必须包含：
 简历证据
 岗位画像
 能力差距
+简历润色建议
 面试追问
 报告摘要
 Eval 评分
@@ -154,6 +156,7 @@ artifacts/eval/eval_summary.md
 能力缺口聚焦
 证据约束
 追问深度
+润色可执行性
 岗位贴合
 格式稳定
 可用于报告
@@ -195,6 +198,7 @@ python -m app.scripts.build_sft_preview --input demo_cases --out artifacts/sft_p
 文件名必须含 preview。
 summary 中区分 demo_constructed、real_authorized、constructed。
 演示样本不得标记为真实训练样本。
+可以包含 evidence_bound_resume_polish 任务，但必须标记为 preview/demo。
 ```
 
 ---
@@ -295,9 +299,10 @@ Eval 分数
 
 ```text
 [ ] docs/competition 文档齐全
-[ ] docs/agents 角色文档齐全
+[ ] docs/agents 角色文档齐全，包含简历润色 Agent
 [ ] demo_cases 三岗位案例存在
 [ ] Agent Trace 可导出
+[ ] Agent Trace 包含简历润色建议
 [ ] Eval Preview 可导出
 [ ] SFT Preview 可导出
 [ ] 前端或后台能展示至少一个 trace

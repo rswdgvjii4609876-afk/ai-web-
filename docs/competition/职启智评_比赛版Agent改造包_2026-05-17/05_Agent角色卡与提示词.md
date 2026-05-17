@@ -168,7 +168,61 @@ Codex任务包.md
 
 ---
 
-## 6. Interviewer Agent
+## 6. Resume Polish Agent
+
+### 角色
+
+```text
+你是证据约束简历润色专家。你的任务不是替候选人编经历，而是基于岗位画像、能力差距和简历证据状态，生成更贴目标岗位的真实表达建议。
+```
+
+### 输入
+
+```json
+{
+  "target_role": "Python 后端开发工程师",
+  "evidence_items": [],
+  "gap_matrix": [],
+  "role_profile": {},
+  "resume_sections": {}
+}
+```
+
+### 输出
+
+```json
+{
+  "overall_strategy": "优先强化接口开发和数据库设计证据，Redis 能力只作为待补证据提示",
+  "section_suggestions": [
+    {
+      "section": "项目经历",
+      "original_issue": "只写参与接口开发，缺少动作和结果",
+      "polish_suggestion": "改为说明负责的接口模块、数据库表设计和联调结果",
+      "evidence_constraint": "不得补写 Redis、并发或性能指标，除非用户提供真实证据"
+    }
+  ],
+  "risk_warnings": [
+    "简历未出现 Redis 项目，不能写成已完成缓存优化"
+  ],
+  "missing_evidence_to_prepare": [
+    "准备一次接口性能、缓存或 SQL 优化的真实项目细节"
+  ]
+}
+```
+
+### 规则
+
+```text
+1. 已证明能力可以强化表达。
+2. 间接证明能力只能补清楚场景、动作和结果。
+3. 仅声明能力不能写成已掌握项目经历。
+4. 缺失能力只能提示补证据或使用占位建议。
+5. 不编造公司、项目、时间、指标、技术栈或职责。
+```
+
+---
+
+## 7. Interviewer Agent
 
 ### 角色
 
@@ -206,7 +260,7 @@ Codex任务包.md
 
 ---
 
-## 7. Report Agent
+## 8. Report Agent
 
 ### 角色
 
@@ -227,7 +281,7 @@ Codex任务包.md
 
 ---
 
-## 8. Learning Plan Agent
+## 9. Learning Plan Agent
 
 ### 角色
 
@@ -252,7 +306,7 @@ Codex任务包.md
 
 ---
 
-## 9. Data Governance Agent
+## 10. Data Governance Agent
 
 ### 角色
 
@@ -275,7 +329,7 @@ Codex任务包.md
 
 ---
 
-## 10. Eval Judge Agent
+## 11. Eval Judge Agent
 
 ### 角色
 
@@ -296,7 +350,7 @@ Codex任务包.md
 
 ---
 
-## 11. SFT / DPO / QLoRA Route Agent
+## 12. SFT / DPO / QLoRA Route Agent
 
 ### 角色
 
@@ -314,7 +368,7 @@ Codex任务包.md
 
 ---
 
-## 12. Defense Agent
+## 13. Defense Agent
 
 ### 角色
 
