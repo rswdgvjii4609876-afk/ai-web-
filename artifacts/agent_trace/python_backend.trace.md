@@ -1,0 +1,245 @@
+# Career-AgentOS Agent Trace：Python 后端开发工程师
+
+- case_id：`python_backend`
+- sample_origin：`demo_constructed`
+- for_training：`false`
+- for_competition_demo：`true`
+
+> 本 Trace 为比赛演示沙盘和 Preview，不代表真实用户样本或真实 OpenAI 微调结果。
+
+## Step 1：简历证据链
+
+- Agent：`ResumeEvidenceAgent`
+
+```json
+{
+  "evidence_items": [
+    {
+      "ability": "REST API",
+      "resume_evidence": "项目描述出现 Flask 接口、商品/订单/用户模块和联调",
+      "evidence_status": "direct",
+      "risk": "需要验证个人负责边界",
+      "interview_focus": "接口职责、异常返回、参数校验、权限处理"
+    },
+    {
+      "ability": "SQL 与索引",
+      "resume_evidence": "出现 PostgreSQL 和表结构设计，但没有慢查询或索引优化案例",
+      "evidence_status": "indirect",
+      "risk": "数据库能力可能停留在建表和简单查询",
+      "interview_focus": "索引设计、事务、慢查询定位"
+    },
+    {
+      "ability": "Redis 缓存",
+      "resume_evidence": "简历未出现 Redis、缓存或性能优化相关经历",
+      "evidence_status": "missing",
+      "risk": "目标岗位高频考察缓存能力",
+      "interview_focus": "缓存穿透、击穿、一致性、性能指标"
+    }
+  ]
+}
+```
+
+## Step 2：岗位画像
+
+- Agent：`RoleProfileAgent`
+
+```json
+{
+  "core_abilities": [
+    "REST API",
+    "SQL 与索引",
+    "Redis 缓存",
+    "并发基础",
+    "部署排障"
+  ],
+  "role_requirements": [
+    "能独立说明接口设计、异常处理和参数校验",
+    "能解释数据库表设计、索引、事务和慢查询定位",
+    "了解 Redis 缓存常见问题和一致性风险"
+  ]
+}
+```
+
+## Step 3：能力差距
+
+- Agent：`GapAnalysisAgent`
+
+```json
+{
+  "gaps": [
+    {
+      "ability": "REST API",
+      "required_level": "目标岗位核心能力",
+      "evidence_status": "direct",
+      "gap_level": "低",
+      "diagnosis": "需要验证个人负责边界",
+      "next_question_focus": "接口职责、异常返回、参数校验、权限处理"
+    },
+    {
+      "ability": "SQL 与索引",
+      "required_level": "目标岗位核心能力",
+      "evidence_status": "indirect",
+      "gap_level": "低",
+      "diagnosis": "数据库能力可能停留在建表和简单查询",
+      "next_question_focus": "索引设计、事务、慢查询定位"
+    },
+    {
+      "ability": "Redis 缓存",
+      "required_level": "目标岗位核心能力",
+      "evidence_status": "missing",
+      "gap_level": "高",
+      "diagnosis": "目标岗位高频考察缓存能力",
+      "next_question_focus": "缓存穿透、击穿、一致性、性能指标"
+    }
+  ]
+}
+```
+
+## Step 4：证据约束简历润色
+
+- Agent：`ResumePolishAgent`
+
+**风险提示**
+
+- Redis 缓存 证据不足，不能写成已经独立完成相关项目。
+
+```json
+{
+  "overall_strategy": "围绕目标岗位强化已证明经历；对仅声明或缺失能力，只给补证据建议，不写成已完成经历。",
+  "section_suggestions": [
+    {
+      "section": "项目经历",
+      "original_issue": "项目描述有技术或任务关键词，但缺少职责、动作和结果。",
+      "polish_suggestion": "将真实经历改写为“负责模块 + 采取动作 + 协作对象 + 可验证结果”的表达。",
+      "evidence_constraint": "只能使用简历已有项目和用户可证明事实，不新增公司、时间、技术栈或指标。",
+      "missing_evidence_to_prepare": [
+        "Redis 缓存"
+      ]
+    }
+  ],
+  "risk_warnings": [
+    "Redis 缓存 证据不足，不能写成已经独立完成相关项目。"
+  ]
+}
+```
+
+## Step 5：证据追问
+
+- Agent：`InterviewFollowupAgent`
+
+```json
+{
+  "question": "你目标岗位需要Redis 缓存能力，但简历证据状态是“missing”。请结合一个真实项目说明：当时的场景是什么，你负责哪一部分，采取了什么行动，结果如何验证？如果没有实际经历，也请说明你准备如何补齐这个证据。",
+  "target_ability": "Redis 缓存",
+  "evidence_focus": "missing",
+  "reason": "目标岗位高频考察缓存能力",
+  "expected_answer_elements": [
+    "具体场景",
+    "个人职责",
+    "行动方案",
+    "结果或指标",
+    "证据补齐计划"
+  ]
+}
+```
+
+## Step 6：报告摘要
+
+- Agent：`ReportAgent`
+
+```json
+{
+  "summary": "Python 后端开发工程师演示样本已形成证据链、能力缺口、润色建议和追问目标。",
+  "top_gaps": [
+    "Redis 缓存"
+  ],
+  "next_actions": [
+    "补齐证据材料",
+    "完成三轮模拟面试",
+    "将授权样本交由后台人工评分"
+  ]
+}
+```
+
+## Step 7：学习任务
+
+- Agent：`LearningTaskAgent`
+
+```json
+{
+  "tasks": [
+    {
+      "title": "补齐REST API证据",
+      "practice": "接口职责、异常返回、参数校验、权限处理",
+      "acceptance": "能用 STAR 结构讲清一次真实经历或明确补证据计划"
+    },
+    {
+      "title": "补齐SQL 与索引证据",
+      "practice": "索引设计、事务、慢查询定位",
+      "acceptance": "能用 STAR 结构讲清一次真实经历或明确补证据计划"
+    }
+  ]
+}
+```
+
+## Step 8：数据治理
+
+- Agent：`DataGovernanceAgent`
+
+```json
+{
+  "sample_origin": "demo_constructed",
+  "for_training": false,
+  "for_competition_demo": true,
+  "claim": "演示样本只用于比赛展示和链路验证，不作为真实训练样本。"
+}
+```
+
+## Step 9：Eval Preview
+
+- Agent：`EvalAgent`
+
+```json
+{
+  "focus_score": 5,
+  "evidence_score": 5,
+  "depth_score": 5,
+  "polish_score": 5,
+  "role_fit_score": 4,
+  "format_score": 5,
+  "report_score": 5,
+  "total_score": 34,
+  "judge_note": "Preview rule score for competition demo only; it is not a real holdout eval."
+}
+```
+
+## Step 10：SFT Preview 摘要
+
+- Agent：`SFTPreviewAgent`
+
+```json
+{
+  "dataset_type": "sft_preview",
+  "ready_for_real_training": false,
+  "preview_tasks": [
+    "interview_followup",
+    "evidence_bound_resume_polish"
+  ]
+}
+```
+
+## Eval Preview
+
+```json
+{
+  "focus_score": 5,
+  "evidence_score": 5,
+  "depth_score": 5,
+  "polish_score": 5,
+  "role_fit_score": 4,
+  "format_score": 5,
+  "report_score": 5,
+  "total_score": 34,
+  "judge_note": "Preview rule score for competition demo only; it is not a real holdout eval."
+}
+```

@@ -1,0 +1,68 @@
+{
+  "case_id": "hr_specialist",
+  "title": "C3 人力资源专员沙盘",
+  "sample_origin": "demo_constructed",
+  "for_training": false,
+  "for_competition_demo": true,
+  "target_role": "人力资源专员",
+  "resume_summary": {
+    "education": "财经类本科院校，人力资源或管理相关专业，应届生",
+    "experience_level": "校园招聘协助 + 社团组织",
+    "projects": [
+      {
+        "name": "校园宣讲会志愿者协调",
+        "description": "协助签到、场地沟通、候选人通知和资料整理，负责现场流程跟进。",
+        "skills": [
+          "候选人沟通",
+          "Excel",
+          "流程协调",
+          "活动执行"
+        ],
+        "evidence_status": "direct"
+      }
+    ],
+    "skills": [
+      "沟通协调",
+      "Excel",
+      "招聘流程基础",
+      "活动组织"
+    ]
+  },
+  "role_profile": {
+    "core_abilities": [
+      "招聘流程",
+      "候选人沟通",
+      "Excel 台账",
+      "劳动法规基础",
+      "执行细致度"
+    ],
+    "role_requirements": [
+      "了解招聘漏斗和候选人沟通节点",
+      "能维护候选人台账并记录反馈",
+      "具备基础劳动法规和入离职流程意识"
+    ]
+  },
+  "evidence_items": [
+    {
+      "ability": "候选人沟通",
+      "resume_evidence": "宣讲会项目中出现候选人通知和现场沟通",
+      "evidence_status": "direct",
+      "risk": "需要验证沟通话术和异常处理",
+      "interview_focus": "候选人爽约、改期、反馈记录"
+    },
+    {
+      "ability": "招聘流程",
+      "resume_evidence": "出现招聘协助，但没有完整漏斗或流程指标",
+      "evidence_status": "indirect",
+      "risk": "可能只做执行事务，不熟悉完整流程",
+      "interview_focus": "简历筛选、邀约、面试、offer、入职"
+    },
+    {
+      "ability": "劳动法规基础",
+      "resume_evidence": "简历未出现劳动合同、试用期或入离职手续",
+      "evidence_status": "missing",
+      "risk": "HR 基础知识缺口",
+      "interview_focus": "试用期、合同、入离职材料、合规意识"
+    }
+  ]
+}

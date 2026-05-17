@@ -167,7 +167,7 @@ app/scripts/run_interview_eval_preview.py
 
 ```text
 1. 读取 artifacts/agent_trace/*.trace.json。
-2. 按 6 个维度生成评分。
+2. 按 7 个维度生成评分。
 3. 输出 eval_score_table.csv。
 4. 输出 eval_summary.md。
 5. 标记评估类型为 preview/demo。

@@ -1,0 +1,69 @@
+{
+  "case_id": "python_backend",
+  "title": "C1 Python 后端开发工程师沙盘",
+  "sample_origin": "demo_constructed",
+  "for_training": false,
+  "for_competition_demo": true,
+  "target_role": "Python 后端开发工程师",
+  "resume_summary": {
+    "education": "华南地区本科院校，计算机相关专业，应届生",
+    "experience_level": "课程项目 + 校内实习",
+    "projects": [
+      {
+        "name": "校园二手交易平台",
+        "description": "基于 Flask 和 PostgreSQL 完成商品、订单、用户接口，负责接口开发、表结构设计和联调。",
+        "skills": [
+          "Python",
+          "Flask",
+          "PostgreSQL",
+          "Linux 基础"
+        ],
+        "evidence_status": "direct"
+      }
+    ],
+    "skills": [
+      "Python",
+      "Flask",
+      "PostgreSQL",
+      "Linux 基础",
+      "Git"
+    ]
+  },
+  "role_profile": {
+    "core_abilities": [
+      "REST API",
+      "SQL 与索引",
+      "Redis 缓存",
+      "并发基础",
+      "部署排障"
+    ],
+    "role_requirements": [
+      "能独立说明接口设计、异常处理和参数校验",
+      "能解释数据库表设计、索引、事务和慢查询定位",
+      "了解 Redis 缓存常见问题和一致性风险"
+    ]
+  },
+  "evidence_items": [
+    {
+      "ability": "REST API",
+      "resume_evidence": "项目描述出现 Flask 接口、商品/订单/用户模块和联调",
+      "evidence_status": "direct",
+      "risk": "需要验证个人负责边界",
+      "interview_focus": "接口职责、异常返回、参数校验、权限处理"
+    },
+    {
+      "ability": "SQL 与索引",
+      "resume_evidence": "出现 PostgreSQL 和表结构设计，但没有慢查询或索引优化案例",
+      "evidence_status": "indirect",
+      "risk": "数据库能力可能停留在建表和简单查询",
+      "interview_focus": "索引设计、事务、慢查询定位"
+    },
+    {
+      "ability": "Redis 缓存",
+      "resume_evidence": "简历未出现 Redis、缓存或性能优化相关经历",
+      "evidence_status": "missing",
+      "risk": "目标岗位高频考察缓存能力",
+      "interview_focus": "缓存穿透、击穿、一致性、性能指标"
+    }
+  ]
+}

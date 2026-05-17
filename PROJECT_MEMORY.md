@@ -12,7 +12,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 
 当前项目主线不是单纯“AI 面试官”，而是“就业能力诊断与提升平台”：
 
-`简历解析 -> 目标岗位 -> 岗位画像/岗位知识库 -> 简历证据评分 -> 能力差距诊断 -> 学习任务 -> AI 模拟面试 -> 报告 -> 训练复盘 -> 人工评分沉淀`
+`简历解析 -> 目标岗位 -> 岗位画像/岗位知识库 -> 简历证据评分 -> 能力差距诊断 -> 简历润色 -> 学习任务 -> AI 模拟面试 -> 报告 -> 训练复盘 -> 人工评分沉淀`
 
 最近正在收口的重点：
 
@@ -20,7 +20,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 2. 简历 PDF 解析兼容性和开始面试稳定性。
 3. PostgreSQL 并发治理和数据库容量自检。
 4. 核心链路自动自检，为后续三岗位真实闭环验收做准备。
-5. 阶段 145：Career-AgentOS 比赛版改造主线接管；当前最高优先级是比赛展示层、简历润色 Agent、Agent Trace、Eval Preview、SFT Preview 和三岗位演示沙盘。
+5. 阶段 146-149：Career-AgentOS 比赛版深度落地；当前最高优先级是让三岗位演示沙盘、Agent Trace、Eval Preview、SFT Preview、用户端展示页和后台 Preview 入口可运行、可截图、可答辩。
 
 当前策略：
 
@@ -34,6 +34,7 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - `docs/competition/职启智评_比赛版Agent改造包_2026-05-17/` 是当前比赛版改造的源材料包，后续阶段以其中 README、Codex 总提示词、适应性改造任务清单和各规范文档为依据。
 - 答辩口径必须分层：可以说“已完成 SFT-ready 数据闭环设计、Agent Trace 方案、微调任务设计”，不能说“已完成真实微调”“已有 fine_tuned_model”“构造样本是真实用户数据”。
 - 阶段 145.1 已确认比赛版 Agent 包遗漏“简历润色”功能，后续 Career-AgentOS 固定包含 `简历润色 Agent / Resume Polish Agent`：位置在能力差距诊断之后、面试追问之前；职责是基于证据状态和岗位画像输出“可改但不造假”的岗位化表达建议。
+- 阶段 146-149 深度落地新增可执行资产链：`docs/agents/`、`demo_cases/`、`artifacts/agent_trace/`、`artifacts/eval/`、`artifacts/sft_preview/`、后端 `agent_orchestrator`、脚本入口和用户端 `/competition/agent-trace`；这些资产是比赛 Preview，不等同真实用户样本或真实 OpenAI 微调。
 
 ## 2. 用户提出过的关键需求细节
 
@@ -294,7 +295,7 @@ docker compose up -d --build app admin frontend
 
 ### 3.11 阶段 145：Career-AgentOS 比赛版改造主线接管
 
-用户新增 `docs/competition/职启智评_比赛版Agent改造包_2026-05-17/`，要求以比赛获奖和答辩展示为最高优先级，把项目从“AI 面试官/微调准备”进一步包装为 `Career-AgentOS` 多 Agent 就业能力诊断与训练平台。
+用户新增 `docs/competition/职启智评_比赛版Agent改造包_2026-05-17/`，要求以比赛获奖和答辩展示为最高优先级，把项目从“AI 面试官/微调准备”进一步升级为 `Career-AgentOS` 多 Agent 就业能力诊断与训练平台。
 
 阶段 145 的定位：
 
@@ -312,6 +313,16 @@ docker compose up -d --build app admin frontend
 - 新增 `Resume Polish Agent / 简历润色 Agent` 到比赛版架构、角色卡、Trace、Eval、SFT Preview 和答辩问答。
 - 固定链路为：简历证据 -> 岗位画像 -> 能力差距 -> 简历润色 -> 面试追问 -> 报告 -> 学习任务 -> 数据治理 -> Eval -> SFT Preview。
 - 简历润色 Agent 只能强化已有真实证据、提示待补证据和风险，不能编造项目、公司、时间、指标或技术经历。
+
+### 3.13 阶段 146-149：Career-AgentOS 比赛版深度落地
+
+阶段 146-149 将比赛版改造从文档叙事推进到可运行演示闭环：
+
+- `docs/agents/` 新增 13 个 Agent 角色文档，覆盖 OPC、比赛叙事、简历证据、岗位画像、能力差距、简历润色、面试追问、报告、学习任务、数据治理、Eval、后训练路线和评委拷问。
+- 新增三岗位 `demo_cases`，全部标记 `sample_origin=demo_constructed`、`for_training=false`、`for_competition_demo=true`。
+- 新增 `Agent Trace -> Eval Preview -> SFT Preview` 脚本链和后端只读展示接口 `/api/v1/competition/...`。
+- 用户端新增 `/competition/agent-trace`，旧 `/competition-demo` 改为跳转新展示页；后台评测样本页增加比赛 Preview 说明。
+- 当前仍不能说真实 OpenAI SFT 已完成；所有 demo/preview 资产只用于比赛展示和链路验证。
 
 ## 4. 涉及的文件和核心逻辑
 

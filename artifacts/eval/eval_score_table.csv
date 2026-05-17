@@ -1,0 +1,4 @@
+﻿case_id,target_role,model_variant,focus_score,evidence_score,depth_score,polish_score,role_fit_score,format_score,report_score,total_score,judge_note
+hr_specialist,人力资源专员,agent_optimized,5,5,5,5,4,5,5,34,Preview rule score for competition demo only; it is not a real holdout eval.
+product_assistant,产品助理/产品经理实习生,agent_optimized,5,5,5,5,4,5,5,34,Preview rule score for competition demo only; it is not a real holdout eval.
+python_backend,Python 后端开发工程师,agent_optimized,5,5,5,5,4,5,5,34,Preview rule score for competition demo only; it is not a real holdout eval.

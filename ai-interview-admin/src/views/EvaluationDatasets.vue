@@ -127,6 +127,45 @@
         </p>
       </div>
 
+      <div class="card competition-preview-card" style="margin-bottom:16px">
+        <div class="dataset-head" style="margin-bottom:12px">
+          <div>
+            <h3 style="margin-bottom:6px">比赛 Preview 展示层</h3>
+            <p class="helper-text">
+              这里展示 Career-AgentOS 沙盘样本和 SFT Preview。它只用于答辩演示与链路验证，不混入真实训练样本导出，也不代表已完成 OpenAI SFT。
+            </p>
+          </div>
+          <span class="fine-tuning-badge">preview only</span>
+        </div>
+        <div class="rule-summary">
+          <div>
+            <div class="info-label">三岗位沙盘</div>
+            <ul class="simple-list">
+              <li v-for="item in competitionCases" :key="item.case_id">
+                {{ item.target_role }}：{{ item.sample_origin }} / for_training=false
+              </li>
+              <li v-if="!competitionCases.length">暂无本地 demo_cases，后端将使用内置演示兜底。</li>
+            </ul>
+          </div>
+          <div>
+            <div class="info-label">SFT Preview</div>
+            <ul class="simple-list">
+              <li>演示样本：{{ competitionSftSummary.counts?.demo_constructed || 0 }}</li>
+              <li>真实授权样本：{{ competitionSftSummary.counts?.real_authorized || 0 }}</li>
+              <li>训练预览记录：{{ competitionSftSummary.counts?.train_preview_records || 0 }}</li>
+              <li>可真实训练：{{ competitionSftSummary.ready_for_real_training ? '是' : '否' }}</li>
+            </ul>
+          </div>
+          <div>
+            <div class="info-label">任务类型</div>
+            <div class="field-chips">
+              <span v-for="item in competitionSftSummary.tasks || []" :key="item" class="id-chip">{{ item }}</span>
+              <span v-if="!(competitionSftSummary.tasks || []).length" class="id-chip">preview/demo</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="!hasCompletedSamples" class="card state-card" style="margin-bottom:16px">
         <p style="font-weight:600;margin-bottom:8px">暂无可导出的测评样本</p>
         <p class="helper-text">
@@ -172,13 +211,15 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 
-import { interviewApi } from '../api'
+import { competitionApi, interviewApi } from '../api'
 
 const loading = ref(true)
 const exportLoading = ref(false)
 const fineTuningExportLoading = ref(false)
 const reportExportLoading = ref(false)
 const preview = ref(null)
+const competitionCases = ref([])
+const competitionSftPreview = ref({})
 const errorMessage = ref('')
 const noticeMessage = ref('')
 const noticeType = ref('success')
@@ -186,6 +227,7 @@ const noticeType = ref('success')
 const hasCompletedSamples = computed(() => Number(preview.value?.stats?.completed_samples || 0) > 0)
 const fineTuningStats = computed(() => preview.value?.fine_tuning?.stats || {})
 const hasFineTuningSamples = computed(() => Number(fineTuningStats.value.sft_ready_samples || 0) > 0)
+const competitionSftSummary = computed(() => competitionSftPreview.value?.summary || {})
 
 const formatTime = (value) => {
   if (!value) return '-'
@@ -229,6 +271,16 @@ const downloadBundle = async () => {
     noticeMessage.value = error.message || '导出评测集失败'
   } finally {
     exportLoading.value = false
+  }
+}
+
+const loadCompetitionPreview = async () => {
+  try {
+    const caseResult = await competitionApi.demoCases()
+    competitionCases.value = caseResult.items || []
+    competitionSftPreview.value = await competitionApi.sftPreview()
+  } catch (error) {
+    console.warn('加载比赛 Preview 失败', error)
   }
 }
 
@@ -280,7 +332,9 @@ const downloadFineTuningReport = async () => {
   }
 }
 
-onMounted(loadPreview)
+onMounted(async () => {
+  await Promise.all([loadPreview(), loadCompetitionPreview()])
+})
 </script>
 
 <style scoped>
@@ -431,6 +485,9 @@ onMounted(loadPreview)
   color: #374151;
   font-size: 13px;
   line-height: 1.7;
+}
+.competition-preview-card {
+  border-left: 4px solid #0f766e;
 }
 .btn-primary,
 .btn-secondary {

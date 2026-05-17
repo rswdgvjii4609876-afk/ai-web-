@@ -1,0 +1,20 @@
+{
+  "dataset_type": "sft_preview",
+  "created_for": "competition_demo",
+  "ready_for_real_training": false,
+  "counts": {
+    "demo_constructed": 3,
+    "real_authorized": 0,
+    "train_preview_records": 6,
+    "validation_preview_records": 0
+  },
+  "tasks": [
+    "evidence_bound_resume_polish_preview",
+    "interview_followup_preview"
+  ],
+  "notes": [
+    "当前为演示级 Preview，用于验证数据结构和链路。",
+    "演示样本不得标记为真实授权训练样本。",
+    "真实训练前需要替换或补充真实授权、人工复核样本。"
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "case_id": "product_assistant",
+  "title": "C2 产品助理/产品经理实习生沙盘",
+  "sample_origin": "demo_constructed",
+  "for_training": false,
+  "for_competition_demo": true,
+  "target_role": "产品助理/产品经理实习生",
+  "resume_summary": {
+    "education": "综合类本科院校，信息管理相关专业，应届生",
+    "experience_level": "校园项目 + 社团运营",
+    "projects": [
+      {
+        "name": "校园活动报名小程序需求整理",
+        "description": "参与问卷收集、用户访谈和功能清单整理，协助输出流程图和原型草稿。",
+        "skills": [
+          "问卷调研",
+          "Axure",
+          "流程图",
+          "竞品分析"
+        ],
+        "evidence_status": "indirect"
+      }
+    ],
+    "skills": [
+      "需求分析",
+      "用户访谈",
+      "Axure",
+      "Excel"
+    ]
+  },
+  "role_profile": {
+    "core_abilities": [
+      "需求分析",
+      "PRD 输出",
+      "竞品分析",
+      "跨部门沟通",
+      "数据意识"
+    ],
+    "role_requirements": [
+      "能把模糊需求拆成场景、用户故事和验收标准",
+      "能说明 PRD 的结构和优先级取舍",
+      "能用数据或反馈验证功能效果"
+    ]
+  },
+  "evidence_items": [
+    {
+      "ability": "需求分析",
+      "resume_evidence": "出现问卷、访谈、功能清单和流程图",
+      "evidence_status": "indirect",
+      "risk": "需要验证是否真正参与需求拆解",
+      "interview_focus": "需求来源、用户场景、优先级取舍"
+    },
+    {
+      "ability": "PRD 输出",
+      "resume_evidence": "只提到原型草稿，没有明确 PRD 文档或验收标准",
+      "evidence_status": "claimed_only",
+      "risk": "产品文档能力证据不足",
+      "interview_focus": "PRD 结构、验收标准、边界条件"
+    },
+    {
+      "ability": "数据意识",
+      "resume_evidence": "简历未说明上线指标、转化率或反馈数据",
+      "evidence_status": "missing",
+      "risk": "缺少功能效果复盘能力",
+      "interview_focus": "指标设计、数据复盘、功能迭代"
+    }
+  ]
+}

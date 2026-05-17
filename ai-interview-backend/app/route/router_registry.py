@@ -33,6 +33,11 @@ CLIENT_ROUTES = [
         tags=["client-config"]
     ),
     RouteConfig(
+        module_path="app.api.client.v1.competition",
+        prefix=f"{settings.API_V1_STR}/competition",
+        tags=["client-competition"]
+    ),
+    RouteConfig(
         module_path="app.api.client.v1.aws",
         prefix=f"{settings.API_V1_STR}/aws",
         tags=["client-aws"]
@@ -115,6 +120,11 @@ BACKOFFICE_ROUTES = [
         module_path="app.api.backoffice.v1.learning_route",
         prefix=f"{settings.API_V1_STR}/backoffice/learning-routes",
         tags=["backoffice-learning-route"]
+    ),
+    RouteConfig(
+        module_path="app.api.client.v1.competition",
+        prefix=f"{settings.API_V1_STR}/backoffice/competition",
+        tags=["backoffice-competition"]
     ),
 ]
 

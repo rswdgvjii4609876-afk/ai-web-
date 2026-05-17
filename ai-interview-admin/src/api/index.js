@@ -31,6 +31,11 @@ export const interviewApi = {
   delete: (id) => api.delete(`/interviews/${id}`)
 }
 
+export const competitionApi = {
+  demoCases: () => api.get('/competition/demo-cases'),
+  sftPreview: () => api.get('/competition/sft-preview')
+}
+
 export const knowledgeBaseApi = {
   list: () => api.get('/knowledge-bases'),
   create: (data) => api.post('/knowledge-bases', data),
