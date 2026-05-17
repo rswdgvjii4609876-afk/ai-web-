@@ -1,5 +1,28 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-17 最新主线：阶段 166.1 OPC 方案对比、优选与审查 Brief
+
+阶段 165 已完成 OPC 参赛叙事与 AI 协同工作流备赛包。当前进入阶段 166.1：先不直接生成 PPTX 或前端页面，而是把阶段 166 的执行路线锁定为可落地、可审查、可交给后续 agent 执行的决策型材料。
+
+阶段 166.1 结论：
+
+```text
+选择 B 方案：OPC AI 协同展示页 + 12 页 PPT Brief 双轨方案。
+```
+
+本阶段新增：
+
+- `docs/competition/opc/阶段166_OPC方案对比与推荐结论.md`：比较只做 PPT、展示页 + PPT Brief、只做审查包三种方案，明确选择 B。
+- `docs/competition/opc/阶段166_OPC_AI协同展示页与PPT制作Brief.md`：给出 12 页 OPC PPT 结构、`/competition/opc-ai-workflow` 页面草案、AI 协同流程图、人机边界表和证据素材清单。
+- `docs/competition/opc/阶段166_OPC边界与验收审查报告.md`：按 OPC 评委、PPT 叙事、AI 协同产品经理、合规边界四个视角做验收审查。
+
+阶段 166 后续拆分：
+
+- 阶段 166.2：基于 Brief 生成 OPC 版答辩 PPT。
+- 阶段 166.3：设计或实现 `/competition/opc-ai-workflow` 展示页。
+
+当前边界不变：不启动官方后训练任务，不补跑 C1/C2/C3，不把 demo/preview 或证据格式样例写成真实用户数据。
+
 ## 2026-05-17 最新主线：阶段 165 OPC 超级个体参赛叙事与 AI 工作流备赛包
 
 当前最高优先级从 Career-AgentOS 比赛版展示进一步扩展到 OPC 超级个体参赛主线。依据 `docs/competition/职启智评_OPC超级个体备赛包_2026-05-17/` 和联网核验的 OPC 赛事通知，本轮将职启智评重构为：
