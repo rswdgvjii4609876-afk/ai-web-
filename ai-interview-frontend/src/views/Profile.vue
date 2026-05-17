@@ -170,50 +170,16 @@
       </div>
 
       <div class="card" style="margin-top: 16px">
-        <div class="section-head">
-          <div>
-            <h3 class="section-title">隐私与数据授权</h3>
-            <p class="section-desc">
-              基础隐私协议用于提供简历解析、润色、模拟面试、报告和训练复盘；推荐开启数据贡献计划，
-              授权后我们可以基于真实使用数据发现解析、追问、评分、报告和学习任务中的问题，针对性升级项目，
-              让后续诊断和训练效果更贴近真实求职场景，默认可撤回后续使用。
-            </p>
-          </div>
-          <span :class="['status-chip', privacyForm.privacy_agreed ? 'status-on' : 'status-off']">
-            {{ privacyForm.privacy_agreed ? '已同意基础协议' : '待同意基础协议' }}
-          </span>
+        <div class="privacy-simple-block">
+          <strong>个人设置前请确认隐私与数据使用</strong>
+          <p>
+            平台会为提供简历解析、能力诊断、简历润色、角色、模拟面试、报告和训练复盘服务处理你的账号、简历、学校、专业、项目经历、技能、目标岗位、面试回答和安全日志，并可能调用你选择的大模型服务。
+            <router-link to="/privacy" target="_blank">查看隐私协议与个人信息处理说明</router-link>
+          </p>
+          <label class="privacy-simple-check" aria-label="我已确认隐私与数据使用">
+            <input v-model="privacyForm.privacy_agreed" type="checkbox" />
+          </label>
         </div>
-        <p class="field-tip">
-          当前协议版本：{{ profile.privacy_policy_version || '未记录' }}；
-          同意时间：{{ formatConsentTime(profile.privacy_agreed_at) }}
-        </p>
-        <label v-if="!profile.privacy_base_consent_valid" class="privacy-setting-check required">
-          <input v-model="privacyForm.privacy_agreed" type="checkbox" />
-          <span>
-            我已阅读并同意
-            <router-link to="/privacy" target="_blank">《隐私协议与个人信息处理说明》</router-link>
-          </span>
-        </label>
-        <label class="privacy-setting-check">
-          <input
-            v-model="privacyForm.data_contribution_consent"
-            type="checkbox"
-            :disabled="!profile.privacy_base_consent_valid && !privacyForm.privacy_agreed"
-          />
-          <span>
-            同意后续将去标识化后的简历、学校/专业/项目或实习经历、目标岗位、面试问答、报告和人工评分
-            用于系统评测、比赛材料、质量改进和数据集沉淀。
-          </span>
-        </label>
-        <p class="field-tip">
-          去标识化会删除或遮挡姓名、手机号、邮箱、证件号、学号、详细住址和文件名个人标识；为保证数据质量，
-          可能保留学校、专业、教育/实习/项目经历、技能、岗位、问答和评分。
-        </p>
-        <p class="field-tip">
-          数据贡献授权状态：{{ privacyForm.data_contribution_consent ? '已开启' : '未开启或已撤回' }}；
-          最近授权时间：{{ formatConsentTime(profile.data_contribution_consent_at) }}；
-          最近撤回时间：{{ formatConsentTime(profile.data_contribution_withdrawn_at) }}。
-        </p>
       </div>
 
       <p v-if="profileMsg" :class="profileMsg.startsWith('✅') ? 'success-msg page-msg' : 'error page-msg'">
@@ -295,7 +261,7 @@ const clearSavedKeyPending = ref({
   openai: false
 })
 const pwForm = ref({ old_password: '', new_password: '', confirm_password: '' })
-const privacyForm = ref({ privacy_agreed: false, data_contribution_consent: false })
+const privacyForm = ref({ privacy_agreed: true, data_contribution_consent: true })
 const saving = ref(false)
 const changingPw = ref(false)
 const profileMsg = ref('')
@@ -367,8 +333,8 @@ const activeBaseUrlValue = computed({
 function applyProfile(data) {
   profile.value = data || {}
   privacyForm.value = {
-    privacy_agreed: Boolean(data.privacy_base_consent_valid),
-    data_contribution_consent: Boolean(data.data_contribution_consent)
+    privacy_agreed: true,
+    data_contribution_consent: true
   }
   form.value = {
     first_name: data.first_name || '',
@@ -436,12 +402,8 @@ function handleClearSavedKey() {
 async function handleSaveProfile() {
   profileMsg.value = ''
   testAiMessage.value = ''
-  if (
-    privacyForm.value.data_contribution_consent
-    && !profile.value.privacy_base_consent_valid
-    && !privacyForm.value.privacy_agreed
-  ) {
-    profileMsg.value = '请先阅读并同意《隐私协议与个人信息处理说明》，再开启数据贡献授权'
+  if (!privacyForm.value.privacy_agreed) {
+    profileMsg.value = '请先阅读并同意《隐私协议与个人信息处理说明》'
     return
   }
   saving.value = true
@@ -476,8 +438,11 @@ async function handleSaveProfile() {
     if (!profile.value.privacy_base_consent_valid && privacyForm.value.privacy_agreed) {
       payload.privacy_agreed = true
     }
-    if (Boolean(profile.value.data_contribution_consent) !== Boolean(privacyForm.value.data_contribution_consent)) {
-      payload.data_contribution_consent = Boolean(privacyForm.value.data_contribution_consent)
+    if (
+      privacyForm.value.privacy_agreed
+      && (!profile.value.data_contribution_consent || !profile.value.data_contribution_consent_valid)
+    ) {
+      payload.data_contribution_consent = true
     }
 
     const result = await updateProfile(payload)
@@ -652,6 +617,52 @@ async function handleChangePassword() {
 
 .warning-tip {
   color: #b45309;
+}
+
+.privacy-simple-block {
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  background: #f8fbff;
+  color: #111827;
+}
+
+.privacy-simple-block strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.privacy-simple-block p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.8;
+}
+
+.privacy-simple-block a {
+  color: #2563eb;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.privacy-simple-block a:hover {
+  text-decoration: underline;
+}
+
+.privacy-simple-check {
+  display: flex;
+  justify-content: center;
+  margin-top: 8px;
+  padding: 2px 0;
+  border: 3px solid #e0e7ff;
+  background: #f8fafc;
+}
+
+.privacy-simple-check input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
 }
 
 .privacy-setting-check {

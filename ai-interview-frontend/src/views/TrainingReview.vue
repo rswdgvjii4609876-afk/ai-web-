@@ -43,14 +43,6 @@
       <p v-if="reportError" class="error-text">{{ reportError }}</p>
       <p v-if="saveMessage" class="save-message top-save-message">{{ saveMessage }}</p>
 
-      <CaseDataContributionCard
-        v-if="selectedInterviewId"
-        :consented="selectedCaseDataContributionConsent"
-        :saving="caseConsentSaving"
-        :message="caseConsentMessage"
-        @set-consent="setSelectedCaseDataContributionConsent"
-      />
-
       <div class="review-grid">
         <section class="card review-card">
           <p class="eyebrow">能力差距</p>
@@ -148,8 +140,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import CaseDataContributionCard from '../components/CaseDataContributionCard.vue'
-import { getInterviews, getReport, updateCaseDataContributionConsent } from '../api/interview'
+import { getInterviews, getReport } from '../api/interview'
 import { getTrainingReview, saveTrainingReview } from '../api/trainingReviews'
 import { loadLearningTasksFromServer } from '../utils/learningTasks'
 import { buildTrainingReviewSummary } from '../utils/trainingReview'
@@ -165,8 +156,6 @@ const tasks = ref([])
 const reviewForm = ref(createEmptyReview())
 const saveMessage = ref('')
 const saving = ref(false)
-const caseConsentSaving = ref(false)
-const caseConsentMessage = ref('')
 
 const completedInterviews = computed(() => {
   return interviews.value
@@ -177,10 +166,6 @@ const selectedInterview = computed(() => {
   return completedInterviews.value.find(item => String(item.interview_id) === String(selectedInterviewId.value)) || null
 })
 const report = computed(() => reportData.value?.report || {})
-const selectedCaseDataContributionConsent = computed(() => Boolean(
-  reportData.value?.data_contribution_consent
-  ?? selectedInterview.value?.data_contribution_consent
-))
 const summary = computed(() => buildTrainingReviewSummary({
   report: report.value,
   interview: selectedInterview.value || {},
@@ -196,7 +181,6 @@ onMounted(loadPage)
 watch(selectedInterviewId, async (value) => {
   if (!value) return
   saveMessage.value = ''
-  caseConsentMessage.value = ''
   await Promise.all([loadReport(), loadReview()])
 })
 
@@ -283,32 +267,6 @@ async function saveReview() {
   }
 }
 
-async function setSelectedCaseDataContributionConsent(consent) {
-  if (!selectedInterviewId.value) return
-  caseConsentSaving.value = true
-  caseConsentMessage.value = ''
-  try {
-    const result = await updateCaseDataContributionConsent(selectedInterviewId.value, consent)
-    const nextConsent = Boolean(result.data_contribution_consent)
-    reportData.value = {
-      ...(reportData.value || {}),
-      data_contribution_consent: nextConsent,
-      privacy_consent_snapshot: result.privacy_consent_snapshot
-    }
-    interviews.value = interviews.value.map(item => (
-      String(item.interview_id) === String(selectedInterviewId.value)
-        ? { ...item, data_contribution_consent: nextConsent }
-        : item
-    ))
-    caseConsentMessage.value = consent
-      ? '已记录本次案例授权，可进入后台人工评分和去标识化评测数据沉淀。'
-      : '已撤回本次案例的数据贡献授权，后续导出和人工评分沉淀会跳过该案例。'
-  } catch (e) {
-    caseConsentMessage.value = e.message || '更新本次案例授权失败，请稍后重试。'
-  } finally {
-    caseConsentSaving.value = false
-  }
-}
 </script>
 
 <style scoped>

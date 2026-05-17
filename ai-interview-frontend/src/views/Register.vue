@@ -85,8 +85,8 @@ const loading = ref(false)
 const verificationStep = ref(false)
 const verificationCode = ref('')
 const pendingEmail = ref('')
-const privacyAgreed = ref(false)
-const dataContributionConsent = ref(false)
+const privacyAgreed = ref(true)
+const dataContributionConsent = ref(true)
 
 async function handleRegister() {
   error.value = ''; success.value = ''; loading.value = true

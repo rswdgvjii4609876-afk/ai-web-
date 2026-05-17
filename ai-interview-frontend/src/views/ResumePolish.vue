@@ -43,12 +43,6 @@
           <span>{{ selectedFile?.name || '仅支持 10MB 内 PDF' }}</span>
         </label>
       </div>
-      <PrivacyConsentNotice
-        title="润色简历前请确认隐私与数据使用"
-        :show-base-consent="!privacyBaseAgreed"
-        v-model:base-agreed="privacyBaseAgreed"
-        v-model:data-contribution-consent="dataContributionConsent"
-      />
       <div class="actions">
         <button class="btn-primary" type="button" :disabled="isRunning" @click="runPolish">
           {{ isRunning ? currentStep : '开始评分并润色' }}
@@ -150,11 +144,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { getResume, polishResume, uploadResume } from '../api/resume'
-import { getProfile } from '../api/user'
 import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
-import PrivacyConsentNotice from '../components/PrivacyConsentNotice.vue'
 
 const selectedFile = ref(null)
 const targetPosition = ref('Python后端开发工程师')
@@ -167,8 +159,8 @@ const resumeId = ref(null)
 const isRunning = ref(false)
 const currentStep = ref('')
 const error = ref('')
-const privacyBaseAgreed = ref(false)
-const dataContributionConsent = ref(false)
+const privacyBaseAgreed = ref(true)
+const dataContributionConsent = ref(true)
 
 const analysis = computed(() => currentResume.value?.analysis || {})
 const resumeEvaluation = computed(() => normalizeResumeEvaluation(analysis.value || {}))
@@ -180,16 +172,6 @@ const knowledgeSources = computed(() => polishResult.value?.knowledge_sources ||
 
 watch(polishResult, value => {
   editableMarkdown.value = value?.polished_resume_markdown || ''
-})
-
-onMounted(async () => {
-  try {
-    const profile = await getProfile()
-    privacyBaseAgreed.value = Boolean(profile?.privacy_base_consent_valid)
-    dataContributionConsent.value = Boolean(profile?.data_contribution_consent)
-  } catch (err) {
-    console.error('加载隐私授权状态失败', err)
-  }
 })
 
 function handleFileChange(event) {
