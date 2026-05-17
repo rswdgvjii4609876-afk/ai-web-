@@ -1,5 +1,29 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-17 最新主线：阶段 165 OPC 超级个体参赛叙事与 AI 工作流备赛包
+
+当前最高优先级从 Career-AgentOS 比赛版展示进一步扩展到 OPC 超级个体参赛主线。依据 `docs/competition/职启智评_OPC超级个体备赛包_2026-05-17/` 和联网核验的 OPC 赛事通知，本轮将职启智评重构为：
+
+```text
+职启智评 OPC：一个人 + AI Agents 的高校就业能力诊断与训练服务单元
+```
+
+本轮已生成：
+
+- `docs/competition/opc/`：OPC 参赛总入口、赛事适配判断、OPC 主叙事、AI 工作流总图、人机协同分工图、PPT 结构、3 分钟/8 分钟讲稿、评委问答、日常运行手册、三个月补实路线和成果边界。
+- `docs/competition/opc/live_test_drills/`：30/45/60 分钟复赛限时实测训练题、评分表和标准作答模板。
+- `docs/competition/opc_ai_coordination/`：ChatGPT、Codex、业务大模型、Eval/后台评分之间的 AI 使用顺序、Prompt 模板、交接协议和答辩话术。
+- `artifacts/opc_ai_coordination/`：AI 协同 trace、prompt chain、Codex task bundle、handoff log 样例。
+- `docs/agents/`：新增 OPC 角色体系索引和 Competition Research、Codex Engineering、Architecture Review、SFT Dataset、Defense Coach 等角色文档。
+
+当前 OPC 答辩口径：
+
+- 可以说：我作为 OPC Commander，把 ChatGPT、Codex、业务大模型、Eval/后台评分组织成高校就业服务 AI 原生工作流。
+- 可以说：项目已有可运行原型、Career-AgentOS Preview、Agent Trace、Eval Preview、SFT-ready 门禁和后台人工评分链路。
+- 不得说：三岗位真实闭环已全部通过、真实 OpenAI 后训练已经落地、已有官方微调模型 ID、demo_constructed 是真实用户数据、Eval Preview 是真实模型实测。
+
+阶段 166 建议：生成 OPC 版答辩 PPT 或新增 `/competition/opc-ai-workflow` 展示页；真实 C1/C2/C3 和真实 OpenAI SFT 继续进入三个月补实路线，不删除、不作废。
+
 ## 2026-05-17 最新主线：阶段 159-164 六子 Agent 复审后的功能完善
 当前最高优先级从“阶段 152-158 全链条代码级收口”推进到“阶段 159-164 复审修复闭环”。依据六个子 agent 对 `main@924fbf7` 的二次只读审查，本轮结论是：先修唯一 must-fix，再补隐私、导出、后台权限、用户流、SFT 审计、Competition Preview 和部署验收的 should-fix。
 
@@ -31,10 +55,10 @@
 
 更新时间：2026-05-17
 
-项目目录：`D:\apps\ai-interview`  
-服务器目录：`/opt/apps/ai-interview`  
-GitHub 仓库：`YiyuZh/ai-interview`  
-主控文档：`docs/competition/职启智评项目升级流程手册.md`  
+项目目录：`D:\apps\ai-interview`
+服务器目录：`/opt/apps/ai-interview`
+GitHub 仓库：`YiyuZh/ai-interview`
+主控文档：`docs/competition/职启智评项目升级流程手册.md`
 详细历史：`任务记录文档.md`
 
 ## 1. 当前正在实现的功能目标

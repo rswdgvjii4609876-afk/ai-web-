@@ -1,0 +1,36 @@
+{
+  "trace_id": "opc-ai-workflow-sample-001",
+  "sample_type": "demo",
+  "steps": [
+    {
+      "step": 1,
+      "actor": "OPC Commander",
+      "action": "提出比赛目标与约束"
+    },
+    {
+      "step": 2,
+      "actor": "ChatGPT Strategy AI",
+      "action": "分析 OPC 赛道并生成叙事与 Codex 任务包"
+    },
+    {
+      "step": 3,
+      "actor": "Codex Engineering AI",
+      "action": "读取项目记忆并生成 docs/competition/opc_ai_coordination"
+    },
+    {
+      "step": 4,
+      "actor": "Business LLM",
+      "action": "在产品中处理简历、岗位、追问、报告"
+    },
+    {
+      "step": 5,
+      "actor": "Eval/Review",
+      "action": "评分、校验、生成 Preview"
+    },
+    {
+      "step": 6,
+      "actor": "OPC Commander",
+      "action": "最终验收并转成答辩材料"
+    }
+  ]
+}
