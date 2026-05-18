@@ -214,7 +214,8 @@
     </div>
 
     <div v-else class="card empty-card">
-      <p>报告加载失败</p>
+      <p>{{ reportError || '报告加载失败' }}</p>
+      <AiConfigErrorNotice :error="reportError" />
       <router-link to="/dashboard" class="empty-link">返回工作台</router-link>
     </div>
   </div>
@@ -224,6 +225,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import CaseDataContributionCard from '../components/CaseDataContributionCard.vue'
+import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import { getReport, updateCaseDataContributionConsent } from '../api/interview'
 import {
   taskFromAbilityGap,
@@ -240,6 +242,7 @@ const interviewId = route.params.id
 const data = ref(null)
 const report = ref(null)
 const loading = ref(true)
+const reportError = ref('')
 const taskMessage = ref('')
 const caseDataContributionConsent = ref(false)
 const caseConsentSaving = ref(false)
@@ -377,6 +380,7 @@ onMounted(async () => {
     caseDataContributionConsent.value = Boolean(res.data_contribution_consent)
   } catch (e) {
     console.error(e)
+    reportError.value = e.message || '报告加载失败'
   } finally {
     loading.value = false
   }

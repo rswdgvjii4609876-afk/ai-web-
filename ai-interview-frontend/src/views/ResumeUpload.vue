@@ -79,6 +79,7 @@
           </p>
         </div>
         <p v-if="error" class="error">{{ error }}</p>
+        <AiConfigErrorNotice :error="error" />
         <button class="btn-primary" style="width:100%" @click="handleUpload" :disabled="!file || uploading">
           {{ uploading ? '上传中...' : '上传并解析简历' }}
         </button>
@@ -370,6 +371,7 @@
           </div>
         </div>
         <p v-if="error" class="error">{{ error }}</p>
+        <AiConfigErrorNotice :error="error" />
         <ul v-if="startErrorTips.length" class="error-tip-list">
           <li v-for="tip in startErrorTips" :key="tip">{{ tip }}</li>
         </ul>
@@ -424,6 +426,8 @@ import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '..
 import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 import { taskFromLearningPlan, upsertLearningTasksToServer } from '../utils/learningTasks'
 import PrivacyConsentNotice from '../components/PrivacyConsentNotice.vue'
+import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
+import { buildAiConfigErrorTips } from '../utils/aiConfigError'
 
 const router = useRouter()
 const route = useRoute()
@@ -989,6 +993,9 @@ function cacheInterviewMeta(interviewId, data) {
 function buildStartErrorTips(message) {
   const text = (message || '').trim()
   if (!text) return []
+
+  const aiConfigTips = buildAiConfigErrorTips(text)
+  if (aiConfigTips.length) return aiConfigTips
 
   if (
     text.includes('数据库写入异常') ||

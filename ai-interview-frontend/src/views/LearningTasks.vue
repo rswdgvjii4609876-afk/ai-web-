@@ -194,6 +194,7 @@
     <p v-if="message" :class="messageType === 'error' ? 'message error' : 'message success'">
       {{ message }}
     </p>
+    <AiConfigErrorNotice v-if="messageType === 'error'" :error="message" />
 
     <div v-if="!loading && !tasks.length" class="card empty-card">
       <h2>还没有学习任务</h2>
@@ -284,6 +285,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { generateLearningPlan, getLearningPlanOptions } from '../api/learningPlans'
+import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import {
   LEARNING_TASKS_VERSION,
   loadLearningTasksFromServer,

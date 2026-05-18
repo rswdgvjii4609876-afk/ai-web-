@@ -230,6 +230,8 @@
       </div>
     </div>
 
+    <AiConfigErrorNotice v-if="!preparing && streamError" :error="streamError" class="interview-error-notice" />
+
     <div v-if="!preparing && !finished" class="input-area">
       <textarea
         v-model="answer"
@@ -262,6 +264,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { getMessages, submitAnswerStream } from '../api/interview'
+import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -275,6 +278,7 @@ const currentIndex = ref(0)
 const totalQuestions = ref(5)
 const chatArea = ref(null)
 const streamingText = ref('')
+const streamError = ref('')
 const latestRoundSummary = ref(null)
 const interviewMeta = ref(null)
 const panelRoleHints = ['岗位匹配', '经历追问', '沟通表达', '证据核查', '改进建议']
@@ -484,6 +488,7 @@ async function handleSubmit() {
   scrollToBottom()
   thinking.value = true
   streamingText.value = ''
+  streamError.value = ''
   let rawStreamText = ''
 
   try {
@@ -535,6 +540,7 @@ async function handleSubmit() {
     )
   } catch (e) {
     streamingText.value = ''
+    streamError.value = e.message || '回答提交失败'
     const optimisticIndex = messages.value.indexOf(optimisticMessage)
     if (optimisticIndex >= 0) {
       messages.value.splice(optimisticIndex, 1)
@@ -545,7 +551,7 @@ async function handleSubmit() {
     } catch (refreshError) {
       console.error('Refresh interview messages after stream failure failed:', refreshError)
     }
-    messages.value.push({ role: 'interviewer', content: `出错了：${e.message}` })
+    messages.value.push({ role: 'interviewer', content: `出错了：${streamError.value}` })
     scrollToBottom()
   } finally {
     thinking.value = false
@@ -560,6 +566,11 @@ async function handleSubmit() {
   height: 100vh;
   max-width: 800px;
   margin: 0 auto;
+}
+
+.interview-error-notice {
+  flex-shrink: 0;
+  margin: 8px 16px;
 }
 
 .prepare-overlay {

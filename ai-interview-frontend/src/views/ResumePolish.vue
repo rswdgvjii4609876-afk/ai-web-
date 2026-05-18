@@ -50,6 +50,7 @@
         <button class="btn-secondary" type="button" :disabled="isRunning" @click="resetPage">清空</button>
       </div>
       <p v-if="error" class="error-text">{{ error }}</p>
+      <AiConfigErrorNotice :error="error" />
     </section>
 
     <section v-if="currentResume" class="summary-grid">
@@ -147,6 +148,7 @@
 import { computed, ref, watch } from 'vue'
 import { getResume, polishResume, uploadResume } from '../api/resume'
 import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
+import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 
 const selectedFile = ref(null)
 const targetPosition = ref('Python后端开发工程师')
