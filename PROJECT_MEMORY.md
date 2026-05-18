@@ -1,14 +1,22 @@
 # PROJECT_MEMORY.md
 
-## 2026-05-18 最新有效主线：阶段 166.4 OPC AI 协同展示页与主控收口
+## 2026-05-18 最新有效主线：阶段 166.4.1 沙盘演示页评委化重构与导航隐藏
 
 当前唯一有效执行线以本节为准；下方早期“最新主线/置顶执行线”均保留为历史记录，不再作为下一步执行依据。
 
-- 已完成：阶段 166.3 个人模式隐私授权 UI 极简化与默认开启；阶段 166.2 AI 原生结构说明书 MD/DOCX 双路径交付；示例 env 文件已归档到项目外并从 Git 跟踪中移除。
-- 当前阶段：阶段 166.4，先实现 `/competition/opc-ai-workflow` OPC AI 协同展示页，作为 OPC 赛道“一个人 + 多 AI Agents + 人机协同工作流”的可运行证据。
-- 下一阶段：阶段 166.5，再基于 OPC 展示页截图、Agent Trace 截图和 12 页 Brief 生成 OPC 答辩 PPT 正式版。
+- 已完成：阶段 166.4 新增 `/competition/opc-ai-workflow`；阶段 166.3 个人模式隐私授权 UI 极简化与默认开启；阶段 166.2 AI 原生结构说明书 MD/DOCX 双路径交付；示例 env 文件已归档到项目外并从 Git 跟踪中移除。
+- 当前阶段：阶段 166.4.1，根据子 agent 评委复审结论，把“比赛展示 / OPC 工作流”从正式用户端导航隐藏；将 `/competition/opc-ai-workflow` 重构为评委演示页，将 `/competition/agent-trace` 降级为证据附录页。
+- 使用策略：PPT 承担主叙事；`/competition/opc-ai-workflow` 只作为答辩演示或录屏素材；`/competition/agent-trace` 只在评委追问 Agent 链路证据时打开。
+- 下一阶段：阶段 166.5，再基于重构后的评委页截图、Agent Trace 证据页截图和 12 页 Brief 生成 OPC 答辩 PPT 正式版。
 - env 口径：仓库不再交付 `.env.example` 或 `.env.*.example`；部署变量以后使用服务器实际 `.env`、脱敏变量清单或部署文档说明，不再依赖示例 env 文件。
 - 边界不变：不宣称真实 OpenAI SFT 已完成，不宣称已有官方微调模型 ID，不宣称 C1/C2/C3 真实闭环已通过，不把 `*.sample.*` 或 demo/preview 写成真实用户数据。
+
+### 阶段 166.4.1 子 agent 评委复审结论
+
+- `/competition/opc-ai-workflow` 可保留，但必须从普通用户功能改成“评委演示页”，首屏先讲问题、创新、证据和边界。
+- `/competition/agent-trace` 当前不适合作为现场主展示页，应降级为“证据附录页”，默认展示业务链路摘要，原始 JSON 只放入折叠区。
+- 用户端主导航不能继续暴露“比赛展示 / OPC 工作流”，避免污染正式求职产品体验。
+- 如果二次复审后 `agent-trace` 仍低于展示标准，现场不主动打开该页，只在 PPT 中使用截图和技术图示。
 
 ## 2026-05-17 历史记录：阶段 166.3 个人模式隐私授权 UI 极简化与默认开启
 
@@ -41,7 +49,7 @@
 - 覆盖 DOCX 前必须备份旧版。
 - 目标目录现有 JPG 含个人联系方式，默认不插入新版说明书正文。
 - 负责人姓名、联系方式、学校/院系等未知信息保留 `【待补】`。
-- 仍不得宣称：真实 OpenAI SFT 已完成、已有官方微调模型 ID、C1/C2/C3 真实闭环已全部通过、构造样本是真实用户数据、Eval Preview 是真实模型实测。
+- 仍不得宣称：真实 OpenAI SFT 已完成、已有官方微调模型 ID、C1/C2/C3 真实闭环已全部通过、构造样本是真实用户数据、规则门禁 Preview 是真实模型实测。
 
 ## 2026-05-17 历史记录：阶段 166.1 OPC 方案对比、优选与审查 Brief
 
@@ -85,8 +93,8 @@
 当前 OPC 答辩口径：
 
 - 可以说：我作为 OPC Commander，把 ChatGPT、Codex、业务大模型、Eval/后台评分组织成高校就业服务 AI 原生工作流。
-- 可以说：项目已有可运行原型、Career-AgentOS Preview、Agent Trace、Eval Preview、SFT-ready 门禁和后台人工评分链路。
-- 不得说：三岗位真实闭环已全部通过、真实 OpenAI 后训练已经落地、已有官方微调模型 ID、demo_constructed 是真实用户数据、Eval Preview 是真实模型实测。
+- 可以说：项目已有可运行原型、Career-AgentOS Preview、Agent Trace、规则门禁 Preview、JSONL Schema Preview 和后台人工评分链路。
+- 不得说：三岗位真实闭环已全部通过、真实 OpenAI 后训练已经落地、已有官方微调模型 ID、demo_constructed 是真实用户数据、规则门禁 Preview 是真实模型实测。
 
 阶段 166 建议：生成 OPC 版答辩 PPT 或新增 `/competition/opc-ai-workflow` 展示页；真实 C1/C2/C3 和真实 OpenAI SFT 继续进入三个月补实路线，不删除、不作废。
 
@@ -113,7 +121,7 @@
 - 阶段 153：后台权限、人工评分与导出准入。新增 `can_review_cases`、`can_export_datasets`、`can_delete_records`；训练/评测导出统一要求本次案例授权、面试完成、人工复核 `review_status=reviewed`，并执行 PII 脱敏/拦截。
 - 阶段 154：用户主链路稳定性。流式答题使用统一 API baseURL/token 处理；答题提交增加 `question_index` 与状态保护；RAG/岗位知识库只能作为岗位要求和追问参考，不能写成候选人真实经历；报告坏 JSON 不再静默伪装为空报告。
 - 阶段 155：简历润色、快照与学习任务质量。简历润色增加“可改但不造假”确定性校验；学习计划优先使用 `resume_evaluation_snapshot`；学习任务质量由后端计算并返回。
-- 阶段 156：Career-AgentOS Preview 严谨化。Eval Preview 固定 7 维 35 分；每个 case 必须包含 `baseline_prompt_preview=19/35` 与 `agent_optimized=34/35`；Trace 必须包含完整 Agent 顺序；旧 `/api/v1/demo/competition` 与旧 `CompetitionDemo.vue` 已清理。
+- 阶段 156：Career-AgentOS Preview 严谨化。规则门禁 Preview 固定 7 维 35 分；每个 case 必须包含 `baseline_prompt_preview` 与 `agent_optimized` 两类沙盘规则记录；Trace 必须包含完整 Agent 顺序；旧 `/api/v1/demo/competition` 与旧 `CompetitionDemo.vue` 已清理。
 - 阶段 157：OpenAI SFT 真实训练门禁。`--real-jsonl` 已禁用，避免自声明 JSONL 伪造授权/复核元数据；create/check/eval 全部进入 shared preflight，未授权、未复核、含 PII、样本不足、job 不匹配或非官方 OpenAI base URL 均不得创建或绑定真实 job。
 - 阶段 158：部署与健康检查。health 增加 Alembic head 检查；生产配置增加 fail-fast；Celery 并发进入数据库容量预算；部署文档统一根目录 `docker compose` 口径。
 
@@ -149,9 +157,9 @@ GitHub 仓库：`YiyuZh/ai-interview`
 - 真实案例进入后台人工评分、评测样本和比赛材料前，必须完成本次案例去标识化数据贡献授权；不同意不影响核心功能使用，但不能计入阶段 138 有效沉淀样本。
 - 阶段 139/139.1 已完成本地功能收口；用户已明确要求继续把 C1/C2/C3 验收后移，当前先做有利于答辩展示的微调准备层。
 - 阶段 141 已新增大模型微调与答辩展示方案文档；阶段 142 已落地“可授权、可人工复核、可导出”的微调准备样本；阶段 143 已生成答辩可用的微调准备 Markdown 报告；阶段 144 启动 OpenAI SFT 脚本闭环。只有 OpenAI job 成功并取得 `fine_tuned_model` 后，才允许写“已完成一次 OpenAI SFT 微调实验”。
-- 阶段 145 起临时切换到比赛版 `Career-AgentOS` 改造主线：先做可展示、可答辩、可追溯的多 Agent 架构、演示沙盘、Agent Trace、Eval Preview 和 SFT Preview；真实 OpenAI SFT、C1/C2/C3 闭环和服务器真实样本继续后移但不作废。
+- 阶段 145 起临时切换到比赛版 `Career-AgentOS` 改造主线：先做可展示、可答辩、可追溯的多 Agent 架构、演示沙盘、Agent Trace、规则门禁 Preview 和 JSONL Schema Preview；真实 OpenAI SFT、C1/C2/C3 闭环和服务器真实样本继续后移但不作废。
 - `docs/competition/职启智评_比赛版Agent改造包_2026-05-17/` 是当前比赛版改造的源材料包，后续阶段以其中 README、Codex 总提示词、适应性改造任务清单和各规范文档为依据。
-- 答辩口径必须分层：可以说“已完成 SFT-ready 数据闭环设计、Agent Trace 方案、微调任务设计”，不能说“已完成真实微调”“已有 fine_tuned_model”“构造样本是真实用户数据”。
+- 答辩口径必须分层：可以说“已完成后训练数据门禁设计、Agent Trace 方案、微调任务设计”，不能说“已完成真实微调”“已有 fine_tuned_model”“构造样本是真实用户数据”。
 - 阶段 145.1 已确认比赛版 Agent 包遗漏“简历润色”功能，后续 Career-AgentOS 固定包含 `简历润色 Agent / Resume Polish Agent`：位置在能力差距诊断之后、面试追问之前；职责是基于证据状态和岗位画像输出“可改但不造假”的岗位化表达建议。
 - 阶段 146-149 深度落地新增可执行资产链：`docs/agents/`、`demo_cases/`、`artifacts/agent_trace/`、`artifacts/eval/`、`artifacts/sft_preview/`、后端 `agent_orchestrator`、脚本入口和用户端 `/competition/agent-trace`；这些资产是比赛 Preview，不等同真实用户样本或真实 OpenAI 微调。
 
@@ -420,8 +428,8 @@ docker compose up -d --build app admin frontend
 
 - 只做主线切换、记忆文档和升级流程收口，不直接新增业务代码、数据库表、前端页面或训练任务。
 - 将阶段 144 真实 OpenAI SFT、阶段 138/140 C1/C2/C3 真实闭环后移，但不删除、不作废。
-- 将未执行阶段写入升级流程手册并置顶：阶段 146 P0 答辩资产与 Agent 角色文档，阶段 147 三岗位演示沙盘与 Trace/Eval/SFT Preview，阶段 148 后端 Agent Orchestrator，阶段 149 前端/后台展示页，阶段 150 赛前部署验收，阶段 151 三个月补实路线。
-- 允许强势表达“多智能体就业诊断架构设计”“SFT-ready 数据闭环设计”“三岗位演示沙盘与 Agent Trace 方案”，但禁止伪造真实 fine-tuning job、模型 ID、真实样本规模或固定提升百分比。
+- 将未执行阶段写入升级流程手册并置顶：阶段 146 P0 答辩资产与 Agent 角色文档，阶段 147 三岗位演示沙盘与 Trace/规则门禁/JSONL Schema Preview，阶段 148 后端 Agent Orchestrator，阶段 149 前端/后台展示页，阶段 150 赛前部署验收，阶段 151 三个月补实路线。
+- 允许强势表达“多智能体就业诊断架构设计”“后训练数据门禁设计”“三岗位演示沙盘与 Agent Trace 方案”，但禁止伪造真实 fine-tuning job、模型 ID、真实样本规模或固定提升百分比。
 
 ### 3.12 阶段 145.1：简历润色 Agent 缺口收口
 
@@ -429,8 +437,8 @@ docker compose up -d --build app admin frontend
 
 收口口径：
 
-- 新增 `Resume Polish Agent / 简历润色 Agent` 到比赛版架构、角色卡、Trace、Eval、SFT Preview 和答辩问答。
-- 固定链路为：简历证据 -> 岗位画像 -> 能力差距 -> 简历润色 -> 面试追问 -> 报告 -> 学习任务 -> 数据治理 -> Eval -> SFT Preview。
+- 新增 `Resume Polish Agent / 简历润色 Agent` 到比赛版架构、角色卡、Trace、规则门禁、JSONL Schema Preview 和答辩问答。
+- 固定链路为：简历证据 -> 岗位画像 -> 能力差距 -> 简历润色 -> 面试追问 -> 报告 -> 学习任务 -> 数据治理 -> 规则门禁 -> JSONL Schema Preview。
 - 简历润色 Agent 只能强化已有真实证据、提示待补证据和风险，不能编造项目、公司、时间、指标或技术经历。
 
 ### 3.13 阶段 146-149：Career-AgentOS 比赛版深度落地
@@ -439,7 +447,7 @@ docker compose up -d --build app admin frontend
 
 - `docs/agents/` 新增 13 个 Agent 角色文档，覆盖 OPC、比赛叙事、简历证据、岗位画像、能力差距、简历润色、面试追问、报告、学习任务、数据治理、Eval、后训练路线和评委拷问。
 - 新增三岗位 `demo_cases`，全部标记 `sample_origin=demo_constructed`、`for_training=false`、`for_competition_demo=true`。
-- 新增 `Agent Trace -> Eval Preview -> SFT Preview` 脚本链和后端只读展示接口 `/api/v1/competition/...`。
+- 新增 `Agent Trace -> 规则门禁 Preview -> JSONL Schema Preview` 脚本链和后端只读展示接口 `/api/v1/competition/...`。
 - 用户端新增 `/competition/agent-trace`，旧 `/competition-demo` 改为跳转新展示页；后台评测样本页增加比赛 Preview 说明。
 - 当前仍不能说真实 OpenAI SFT 已完成；所有 demo/preview 资产只用于比赛展示和链路验证。
 
@@ -447,7 +455,7 @@ docker compose up -d --build app admin frontend
 
 阶段 150.1 针对用户指出的“审查不够深入”进行代码级收口，范围覆盖后端数据流、Competition API、安全边界、脚本复现、前端消费、后台 Preview 错误处理和测试覆盖。
 
-- 子 agent 只读深审发现的 must-fix 已纳入修复范围：脚本任意 cwd/直接文件执行、Eval Preview summary 二次校验、Competition API case_id allowlist、SFT Preview bundle 校验。
+- 子 agent 只读深审发现的 must-fix 已纳入修复范围：脚本任意 cwd/直接文件执行、规则门禁 summary 二次校验、Competition API case_id allowlist、JSONL Schema Preview bundle 校验。
 - 后端统一使用 `asset_guardrails` 校验 demo/trace/eval/SFT preview 资产，要求 `sample_origin=demo_constructed`、`for_training=false`、`for_competition_demo=true`，并扫描邮箱、手机号、身份证号、学号等直接身份标识。
 - Competition API 在读取 trace 和 eval 前先校验 `case_id`，只允许 C1/C2/C3 固定案例；不合规磁盘资产不返回给前端。
 - 脚本链默认输出到仓库根目录 `demo_cases/` 和 `artifacts/`，并补根层 `app` shim，使 `python -m app.scripts.generate_competition_assets` 可从仓库根目录运行；直接执行脚本文件时也能自动定位后端包。

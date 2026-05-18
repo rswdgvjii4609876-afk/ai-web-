@@ -1,41 +1,36 @@
 <template>
   <div class="opc-page">
     <header class="hero">
-      <div>
-        <p class="eyebrow">OPC AI 协同展示页</p>
-        <h1>一个人调度多 AI Agents 的就业服务工作流</h1>
+      <div class="hero-main">
+        <p class="eyebrow">评委演示页 / OPC Preview</p>
+        <h1>职启智评 OPC：一个人 + AI Agents 构建高校就业能力诊断与训练服务单元</h1>
         <p class="lead">
-          本页展示职启智评 OPC 的 AI 协同结构：我作为 OPC Commander 负责目标、真实性、授权、评分标准和最终验收；AI 负责高频生成、检索、工程执行和初步评估。
+          这页回答评委最关心的问题：一个参赛者如何把多类 AI 工具组织成可运行、可追踪、可验收的就业服务工作流。
+          页面只展示 demo/preview 证据，不包含真实用户数据，也不代表真实 OpenAI 微调已完成。
         </p>
       </div>
-      <div class="hero-card">
-        <span>当前状态</span>
-        <strong>Preview / Demo</strong>
-        <p>不是正式训练结果，不包含真实用户数据。</p>
-      </div>
+      <aside class="hero-status">
+        <span>现场定位</span>
+        <strong>评委演示 / 录屏素材</strong>
+        <p>正式用户端不展示入口；需要证明可运行时再打开隐藏 URL。</p>
+      </aside>
     </header>
 
-    <section class="boundary">
-      <strong>边界说明</strong>
-      <span>
-        本页内容来自 OPC 备赛材料、AI 协同样例和 Career-AgentOS Preview。所有样例仅用于说明工作流格式，不代表真实后训练、真实用户数据或真实闭环验收结果。
-      </span>
-    </section>
-
-    <section class="console-bar" aria-label="OPC 展示状态">
-      <div v-for="item in statusItems" :key="item.label" class="console-chip">
+    <section class="signal-grid" aria-label="30 秒总览">
+      <article v-for="item in openingSignals" :key="item.title" class="signal-card">
         <span>{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
-      </div>
+        <h2>{{ item.title }}</h2>
+        <p>{{ item.description }}</p>
+      </article>
     </section>
 
     <section class="workflow-card">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Workflow</p>
-          <h2>AI 协同链路</h2>
+          <p class="eyebrow">Human + AI Workflow</p>
+          <h2>从目标拆解到人工验收的协同链路</h2>
         </div>
-        <router-link class="ghost-link" to="/competition/agent-trace">查看三岗位 Agent Trace</router-link>
+        <router-link class="ghost-link" to="/competition/agent-trace">打开三岗位证据附录</router-link>
       </div>
       <div class="workflow">
         <article v-for="(node, index) in workflowNodes" :key="node.title" class="workflow-node">
@@ -47,15 +42,20 @@
       </div>
     </section>
 
-    <section class="panel trace-bridge">
-      <div>
-        <p class="eyebrow">Career-AgentOS Connection</p>
-        <h2>连接三岗位 Agent Trace</h2>
-        <p>
-          OPC 工作流页说明“一个人如何调度 AI”，三岗位 Agent Trace 说明“调度后的业务链路如何落到简历、润色、追问、报告、Eval 和 SFT Preview”。
-        </p>
+    <section class="case-chain">
+      <div class="section-head compact">
+        <div>
+          <p class="eyebrow">Evidence Chain</p>
+          <h2>评委能看到的完整业务证据链</h2>
+        </div>
       </div>
-      <router-link class="primary-link" to="/competition/agent-trace">打开三岗位 Preview</router-link>
+      <div class="chain-line">
+        <article v-for="item in caseChain" :key="item.title" class="chain-step">
+          <span>{{ item.step }}</span>
+          <h3>{{ item.title }}</h3>
+          <p>{{ item.description }}</p>
+        </article>
+      </div>
     </section>
 
     <section class="grid two">
@@ -63,43 +63,31 @@
         <div class="section-head compact">
           <div>
             <p class="eyebrow">Human-AI Boundary</p>
-            <h2>人机协同分工</h2>
+            <h2>人机边界</h2>
           </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>工作项</th>
-                <th>AI 负责</th>
-                <th>人负责</th>
-                <th>验收证据</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in boundaryRows" :key="item.task">
-                <td>{{ item.task }}</td>
-                <td>{{ item.ai }}</td>
-                <td>{{ item.human }}</td>
-                <td>{{ item.evidence }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="boundary-list">
+          <article v-for="row in boundaryRows" :key="row.task" class="boundary-row">
+            <h3>{{ row.task }}</h3>
+            <p><strong>AI 做：</strong>{{ row.ai }}</p>
+            <p><strong>人做：</strong>{{ row.human }}</p>
+            <span>{{ row.evidence }}</span>
+          </article>
         </div>
       </article>
 
       <article class="panel">
         <div class="section-head compact">
           <div>
-            <p class="eyebrow">Agent Matrix</p>
-            <h2>Agent 分工矩阵</h2>
+            <p class="eyebrow">Agent Roles</p>
+            <h2>关键 Agent 分工</h2>
           </div>
         </div>
         <div class="agent-list">
           <article v-for="agent in agents" :key="agent.name" class="agent-item">
             <div>
               <h3>{{ agent.name }}</h3>
-              <p>{{ agent.input }} -> {{ agent.output }}</p>
+              <p>{{ agent.role }}</p>
             </div>
             <span>{{ agent.guardrail }}</span>
           </article>
@@ -107,14 +95,21 @@
       </article>
     </section>
 
-    <section class="grid three">
-      <article v-for="asset in evidenceAssets" :key="asset.name" class="panel asset">
-        <p class="eyebrow">{{ asset.type }}</p>
-        <h2>{{ asset.name }}</h2>
-        <p>{{ asset.description }}</p>
-        <code>{{ asset.path }}</code>
-        <pre class="sample-snippet">{{ asset.snippet }}</pre>
-      </article>
+    <section class="panel">
+      <div class="section-head compact">
+        <div>
+          <p class="eyebrow">Evidence Assets</p>
+          <h2>答辩可用证据素材</h2>
+        </div>
+      </div>
+      <div class="asset-grid">
+        <article v-for="asset in evidenceAssets" :key="asset.name" class="asset-card">
+          <span>{{ asset.type }}</span>
+          <h3>{{ asset.name }}</h3>
+          <p>{{ asset.description }}</p>
+          <code>{{ asset.path }}</code>
+        </article>
+      </div>
     </section>
 
     <section class="panel">
@@ -133,159 +128,130 @@
       </div>
     </section>
 
-    <section class="panel">
-      <div class="section-head compact">
-        <div>
-          <p class="eyebrow">Claim Boundary</p>
-          <h2>答辩可说与不可说</h2>
-        </div>
-      </div>
-      <div class="claim-grid">
-        <div>
-          <h3>可以说</h3>
-          <ul>
-            <li v-for="item in allowedClaims" :key="item">{{ item }}</li>
-          </ul>
-        </div>
-        <div>
-          <h3>不能说</h3>
-          <ul>
-            <li v-for="item in blockedClaims" :key="item">{{ item }}</li>
-          </ul>
-        </div>
-      </div>
+    <section class="claim-bar">
+      <strong>边界说明</strong>
+      <span>
+        本页只用于 OPC 答辩演示和录屏。可以说已形成 demo/preview 工作流和证据格式；不能把它表述为官方微调已落地、已取得微调模型标识、三岗位真实验收已完成，或 demo 样本来自真实用户。
+      </span>
     </section>
   </div>
 </template>
 
 <script setup>
-const statusItems = [
-  { label: '页面类型', value: 'OPC Preview' },
-  { label: '样本来源', value: 'sample format only' },
-  { label: '训练用途', value: 'for_training=false' },
-  { label: '下一步', value: '166.5 OPC PPT' }
+const openingSignals = [
+  {
+    label: '解决什么问题',
+    title: '就业指导反馈难闭环',
+    description: '学生常拿不到岗位化、证据化、可复训的反馈；老师或指导者也难以持续追踪训练质量。'
+  },
+  {
+    label: '怎么创新',
+    title: '一个人调度多 AI Agents',
+    description: '参赛者负责目标、真实性、授权和验收；AI 负责拆解、生成、工程实现、初评和材料整理。'
+  },
+  {
+    label: '演示什么证据',
+    title: '三岗位 Trace + 规则门禁',
+    description: '展示简历证据、岗位差距、润色建议、追问、报告、学习任务、规则门禁 Preview 和 JSONL Schema Preview。'
+  },
+  {
+    label: '当前边界',
+    title: 'Preview，不冒充真实训练',
+    description: '演示样本为 demo_constructed；真实授权样本、人工评分和 OpenAI SFT 放入后续补实路线。'
+  }
 ]
 
 const workflowNodes = [
   {
-    title: 'OPC Commander',
-    description: '确定参赛目标、真实边界、隐私授权和最终验收标准。',
-    output: '任务优先级与验收口径'
+    title: '目标拆解',
+    description: '把赛事要求、项目真实状态和答辩限制拆成可执行任务。',
+    output: '阶段任务、边界清单、验收标准'
   },
   {
-    title: 'ChatGPT 策略 AI',
-    description: '提炼赛道要求、拆解叙事结构、生成问答和 Prompt 草案。',
-    output: 'OPC 叙事与任务包'
+    title: '工程落地',
+    description: '把任务转成页面、脚本、接口、测试和可提交代码。',
+    output: '可运行前端页、Preview 资产、构建结果'
   },
   {
-    title: 'Codex 工程 AI',
-    description: '把任务落成代码、脚本、文档、测试和 Git 记录。',
-    output: '可运行页面与工程证据'
+    title: '就业诊断',
+    description: '围绕简历证据、岗位画像、能力差距、润色和面试追问产出业务结果。',
+    output: '证据链、追问、报告、学习任务'
   },
   {
-    title: '业务大模型',
-    description: '支持简历诊断、岗位画像、简历润色、面试追问、报告复盘和学习任务。',
-    output: '就业训练业务结果'
-  },
-  {
-    title: 'Eval / 后台评分',
-    description: '检查输出质量、样本准入、PII 风险和人工评分状态。',
-    output: 'Preview 评估与门禁'
+    title: '质量评估',
+    description: '用规则门禁检查聚焦度、证据约束、格式稳定和数据准入风险。',
+    output: '规则门禁 Preview、PII 风险提示、样本门禁'
   },
   {
     title: '人工验收',
-    description: '确认真实性、合规边界、评分标准和最终提交材料。',
-    output: '可答辩、可追溯交付'
+    description: '由人确认是否真实、是否合规、是否可用于答辩或后续训练。',
+    output: '可追溯材料、答辩口径、后续补实路线'
   }
+]
+
+const caseChain = [
+  { step: '01', title: '简历证据', description: '识别 direct / indirect / claimed_only / missing，不把岗位知识库写成个人经历。' },
+  { step: '02', title: '岗位差距', description: '把目标岗位要求映射为能力缺口，形成后续追问和学习任务依据。' },
+  { step: '03', title: '简历润色', description: '只做岗位化表达和补证据建议，不新增公司、项目、时间或指标。' },
+  { step: '04', title: '面试追问', description: '围绕缺口能力追问具体场景、行动、结果和指标。' },
+  { step: '05', title: '报告复盘', description: '输出能力诊断、改进建议、学习任务和训练复盘。' },
+  { step: '06', title: '数据门禁', description: '区分 demo preview 与真实授权样本，真实训练前必须人工复核。' }
 ]
 
 const boundaryRows = [
   {
-    task: '赛道理解',
-    ai: '搜索资料、提炼评审重点、生成叙事草案',
-    human: '判断是否符合项目真实状态',
-    evidence: 'OPC 赛事适配判断'
+    task: '赛事理解',
+    ai: '检索资料、提炼评分点、生成叙事草案。',
+    human: '判断哪些内容符合项目真实状态。',
+    evidence: 'OPC 方案对比、Brief、审查报告'
   },
   {
     task: '工程实现',
-    ai: '生成页面、脚本、测试和文档修改方案',
-    human: '审查是否破坏主链路并决定是否提交',
-    evidence: 'Git 提交与构建输出'
+    ai: '生成页面、脚本、测试和文档修改方案。',
+    human: '审查范围、提交内容和是否破坏主链路。',
+    evidence: 'Git 提交、构建输出、测试记录'
   },
   {
-    task: '业务生成',
-    ai: '生成岗位画像、润色建议、追问和报告',
-    human: '确认不编造经历、不越过授权',
-    evidence: 'Agent Trace 与后台复核'
+    task: '就业诊断',
+    ai: '生成岗位画像、润色建议、追问和报告草稿。',
+    human: '确认不编造经历、不越过授权边界。',
+    evidence: 'Agent Trace、后台人工评分'
   },
   {
-    task: '质量评估',
-    ai: '执行规则评分、样本准入和风险提示',
-    human: '制定评分标准并决定是否纳入样本',
-    evidence: 'Eval Preview 与人工评分'
+    task: '后训练准备',
+    ai: '整理 JSONL 结构和样本门禁。',
+    human: '确认授权、脱敏、复核和是否创建付费 job。',
+    evidence: 'JSONL Schema Preview、后训练操作手册'
   }
 ]
 
 const agents = [
-  {
-    name: 'Competition Research Agent',
-    input: '赛事通知、项目状态',
-    output: '评审重点与答辩主线',
-    guardrail: '不夸大赛道要求'
-  },
-  {
-    name: 'Codex Engineering Agent',
-    input: '任务清单、代码仓库',
-    output: '页面、脚本、测试、提交',
-    guardrail: '不破坏主链路'
-  },
-  {
-    name: 'Resume Polish Agent',
-    input: '简历证据、岗位画像、能力差距',
-    output: '可改但不造假的润色建议',
-    guardrail: '不新增未经证明经历'
-  },
-  {
-    name: 'Eval Agent',
-    input: 'Trace、问答、报告、样本标记',
-    output: 'Preview 评分与风险提示',
-    guardrail: '不替代真实 holdout 评估'
-  },
-  {
-    name: 'SFT Dataset Agent',
-    input: '授权样本、人工复核、脱敏结果',
-    output: 'SFT-ready 数据门禁',
-    guardrail: '未授权不进入训练'
-  },
-  {
-    name: 'Defense Coach Agent',
-    input: 'PPT、讲稿、问答库',
-    output: '评委问答和边界话术',
-    guardrail: '不包装未完成成果'
-  }
+  { name: 'OPC Commander', role: '确定目标、边界、验收口径和最终责任。', guardrail: '人负责最终判断' },
+  { name: '工程执行 Agent', role: '把需求落成页面、脚本、测试和提交。', guardrail: '不破坏主链路' },
+  { name: '简历润色 Agent', role: '根据证据和岗位画像给出可改但不造假的表达。', guardrail: '缺证据只提示补证据' },
+  { name: '面试追问 Agent', role: '围绕能力缺口生成追问和期望回答要素。', guardrail: '不替候选人编经历' },
+  { name: 'Eval Agent', role: '用规则门禁检查输出质量和风险。', guardrail: '不替代真实 holdout eval' },
+  { name: 'SFT Dataset Agent', role: '预演 JSONL 结构和训练样本准入条件。', guardrail: '未授权不训练' }
 ]
 
 const evidenceAssets = [
   {
-    type: 'Prompt Chain',
-    name: 'AI Prompt 交接样例',
-    description: '说明 ChatGPT、Codex 和业务模型之间如何传递任务。',
-    path: 'artifacts/opc_ai_coordination/ai_prompt_chain.sample.md',
-    snippet: 'input: OPC 赛事通知 + 项目状态\noutput: OPC 叙事、PPT Brief、问答库\nreview: 人工删除夸大表述'
+    type: '运行页面',
+    name: '三岗位证据附录',
+    description: '展示 demo case、Agent 业务链路、规则门禁和 JSONL 结构预览。',
+    path: '/competition/agent-trace'
   },
   {
-    type: 'Codex Task',
-    name: 'Codex 任务包样例',
-    description: '说明工程任务如何从需求变成文件、测试和提交。',
-    path: 'artifacts/opc_ai_coordination/codex_task_bundle.sample.md',
-    snippet: 'scope: docs/competition/opc + frontend preview\nchecks: npm run build + 文案扫描\ncommit: 精准暂存，不使用 git add .'
+    type: 'Trace 资产',
+    name: 'Agent Trace JSON/Markdown',
+    description: '用于追溯每个 Agent 的输入、判断、输出和边界。',
+    path: 'artifacts/agent_trace/*.trace.json'
   },
   {
-    type: 'Handoff Log',
-    name: 'AI 交接日志样例',
-    description: '说明人和 AI 如何记录任务输入、输出和验收点。',
-    path: 'artifacts/opc_ai_coordination/ai_handoff_log.sample.md',
-    snippet: 'from: ChatGPT strategy\nTo: Codex engineering\nacceptance: 页面可访问、边界清晰、无真实数据'
+    type: 'OPC 材料',
+    name: 'AI 协同工作流包',
+    description: '记录 Prompt 交接、Codex 任务包、AI handoff log 和复赛实测训练。',
+    path: 'docs/competition/opc_ai_coordination/'
   }
 ]
 
@@ -293,32 +259,18 @@ const drills = [
   {
     time: '30 分钟',
     title: '构建新岗位 AI 工作流',
-    output: '场景识别 -> Agent 分工 -> 输出物定义 -> 质量门禁'
+    output: '从场景识别到 Agent 分工、输出物定义和质量门禁。'
   },
   {
     time: '45 分钟',
     title: '重构人机协同结构',
-    output: '把小团队角色映射为 OPC Commander 与 AI Agents'
+    output: '把传统小团队职责映射为 OPC Commander + AI Agents。'
   },
   {
     time: '60 分钟',
-    title: '垂直场景落地方案',
-    output: '迁移到路演训练、导师面试训练等相邻场景'
+    title: '迁移到垂直场景',
+    output: '把就业训练链路迁移到路演训练、导师面试或课程项目复盘。'
   }
-]
-
-const allowedClaims = [
-  '已形成可运行原型和 Career-AgentOS Preview。',
-  '已完成 OPC AI 协同工作流备赛包和证据格式样例。',
-  '已具备 Agent Trace、Eval Preview、SFT-ready 门禁的展示链路。',
-  '真实训练、真实样本和高校试点进入三个月补实路线。'
-]
-
-const blockedClaims = [
-  '不能说已经完成官方后训练任务。',
-  '不能说三岗位真实闭环已经全部验收。',
-  '不能说 demo 或 constructed 样本来自真实用户。',
-  '不能把 Eval Preview 说成真实模型实测。'
 ]
 </script>
 
@@ -331,9 +283,11 @@ const blockedClaims = [
 }
 
 .hero,
+.signal-card,
 .workflow-card,
+.case-chain,
 .panel,
-.boundary {
+.claim-bar {
   border: 1px solid #dbeafe;
   border-radius: 8px;
   background: #fff;
@@ -341,7 +295,7 @@ const blockedClaims = [
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   gap: 20px;
   align-items: stretch;
   padding: 24px;
@@ -379,71 +333,68 @@ h3 {
 }
 
 .lead {
-  max-width: 780px;
+  max-width: 820px;
   margin: 12px 0 0;
   color: #475569;
   line-height: 1.75;
 }
 
-.hero-card {
+.hero-status {
   padding: 18px;
   border: 1px solid #bae6fd;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.86);
 }
 
-.hero-card span,
-.hero-card p {
+.hero-status span,
+.hero-status p {
   color: #64748b;
   font-size: 13px;
 }
 
-.hero-card strong {
+.hero-status strong {
   display: block;
   margin: 10px 0;
   color: #0f766e;
-  font-size: 22px;
+  font-size: 21px;
 }
 
-.boundary {
-  display: flex;
-  gap: 12px;
-  margin: 16px 0;
-  padding: 14px 16px;
-  border-left: 4px solid #0f766e;
-  color: #374151;
-  line-height: 1.7;
-}
-
-.console-bar {
+.signal-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin: 16px 0;
 }
 
-.console-chip {
-  padding: 12px;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  background: #eff6ff;
+.signal-card {
+  padding: 16px;
 }
 
-.console-chip span {
-  display: block;
-  color: #64748b;
+.signal-card span {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
   font-size: 12px;
+  font-weight: 800;
 }
 
-.console-chip strong {
-  display: block;
-  margin-top: 6px;
-  color: #1e3a8a;
-  font-size: 15px;
-  overflow-wrap: anywhere;
+.signal-card p,
+.workflow-node p,
+.chain-step p,
+.boundary-row p,
+.agent-item p,
+.asset-card p,
+.drill p {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .workflow-card,
+.case-chain,
 .panel {
   padding: 18px;
   margin-bottom: 16px;
@@ -472,74 +423,48 @@ h3 {
   text-decoration: none;
 }
 
-.primary-link {
-  flex-shrink: 0;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: #0f766e;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.trace-bridge {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  align-items: center;
-  background: #f0fdfa;
-  border-color: #99f6e4;
-}
-
-.trace-bridge p {
-  max-width: 760px;
-  margin: 8px 0 0;
-  color: #475569;
-  line-height: 1.7;
-}
-
-.workflow {
+.workflow,
+.asset-grid,
+.drill-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
 }
 
+.workflow {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .workflow-node,
+.chain-step,
+.boundary-row,
 .agent-item,
-.drill,
-.asset {
+.asset-card,
+.drill {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #f8fafc;
 }
 
 .workflow-node {
-  position: relative;
-  min-height: 190px;
+  min-height: 178px;
   padding: 14px;
 }
 
-.node-index {
+.node-index,
+.chain-step span {
   display: inline-flex;
-  width: 28px;
-  height: 28px;
   align-items: center;
   justify-content: center;
-  margin-bottom: 10px;
   border-radius: 999px;
   background: #ccfbf1;
   color: #0f766e;
   font-weight: 800;
 }
 
-.workflow-node p,
-.agent-item p,
-.asset p,
-.drill p {
-  color: #475569;
-  font-size: 13px;
-  line-height: 1.65;
+.node-index {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 10px;
 }
 
 .workflow-node strong {
@@ -549,60 +474,68 @@ h3 {
   font-size: 13px;
 }
 
+.chain-line {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.chain-step {
+  padding: 14px;
+}
+
+.chain-step span {
+  width: 34px;
+  height: 24px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
 .grid {
   display: grid;
   gap: 16px;
 }
 
 .grid.two {
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
 }
 
-.grid.three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 680px;
-}
-
-th,
-td {
-  padding: 10px;
-  border: 1px solid #e5e7eb;
-  text-align: left;
-  vertical-align: top;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-th {
-  background: #f1f5f9;
-  color: #0f172a;
-}
-
-.agent-list {
+.boundary-list,
+.agent-list,
+.asset-grid {
   display: grid;
   gap: 10px;
+}
+
+.boundary-row,
+.agent-item,
+.asset-card,
+.drill {
+  padding: 14px;
+}
+
+.boundary-row p {
+  margin: 8px 0 0;
+}
+
+.boundary-row span {
+  display: inline-block;
+  margin-top: 10px;
+  color: #075985;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .agent-item {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px;
 }
 
 .agent-item span {
   flex-shrink: 0;
   align-self: flex-start;
-  max-width: 130px;
+  max-width: 140px;
   padding: 4px 8px;
   border-radius: 999px;
   background: #e0f2fe;
@@ -611,12 +544,20 @@ th {
   line-height: 1.4;
 }
 
-.asset {
-  padding: 16px;
+.asset-grid,
+.drill-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.asset-card span {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 code {
   display: block;
+  margin-top: 10px;
   padding: 8px;
   border-radius: 6px;
   background: #0f172a;
@@ -627,86 +568,43 @@ code {
   word-break: break-all;
 }
 
-.sample-snippet {
-  min-height: 112px;
-  max-height: 180px;
-  margin-top: 10px;
-  padding: 10px;
-  border-radius: 8px;
-  background: #020617;
-  color: #dbeafe;
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-
-.drill-grid,
-.claim-grid {
-  display: grid;
-  gap: 12px;
-}
-
-.drill-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.drill {
-  padding: 14px;
-}
-
 .drill strong {
   color: #0f766e;
   font-size: 18px;
 }
 
-.claim-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-ul {
-  margin: 10px 0 0;
-  padding-left: 18px;
+.claim-bar {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-left: 4px solid #0f766e;
   color: #374151;
-  line-height: 1.75;
+  line-height: 1.7;
 }
 
-li {
-  margin-bottom: 4px;
-}
-
-@media (max-width: 980px) {
-  .hero,
-  .console-bar,
-  .grid.two,
-  .grid.three,
-  .drill-grid,
-  .claim-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .workflow {
+@media (max-width: 1080px) {
+  .signal-grid,
+  .workflow,
+  .chain-line,
+  .asset-grid,
+  .drill-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 640px) {
-  .opc-page {
-    padding: 18px 14px 36px;
-  }
-
+@media (max-width: 780px) {
   .hero,
-  .workflow-card,
-  .panel {
-    padding: 14px;
-  }
-
-  .workflow {
+  .grid.two,
+  .signal-grid,
+  .workflow,
+  .chain-line,
+  .asset-grid,
+  .drill-grid {
     grid-template-columns: 1fr;
   }
 
   .section-head,
-  .boundary,
-  .trace-bridge,
+  .claim-bar,
   .agent-item {
     display: block;
   }
