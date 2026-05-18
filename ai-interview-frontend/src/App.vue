@@ -6,6 +6,7 @@
         <div class="nav-links">
           <router-link to="/resume-polish">简历润色</router-link>
           <router-link to="/competition/agent-trace">比赛展示</router-link>
+          <router-link to="/competition/opc-ai-workflow">OPC 工作流</router-link>
           <router-link to="/dashboard">工作台</router-link>
           <router-link to="/knowledge-base">岗位画像库</router-link>
           <router-link to="/ability-diagnosis">能力诊断</router-link>
@@ -73,7 +74,9 @@ function logout() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
+  min-height: 56px;
+  padding: 8px 0;
+  gap: 14px;
 }
 .nav-logo {
   font-size: 18px;
@@ -83,7 +86,7 @@ function logout() {
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   font-size: 14px;
   flex-wrap: wrap;
 }
@@ -134,5 +137,24 @@ function logout() {
 }
 .icp-footer a:hover {
   color: #4f46e5;
+}
+
+@media (max-width: 860px) {
+  .nav-content {
+    display: block;
+  }
+  .nav-logo {
+    display: inline-block;
+    margin-bottom: 8px;
+  }
+  .nav-links {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    white-space: nowrap;
+  }
+  .nav-links > * {
+    flex: 0 0 auto;
+  }
 }
 </style>

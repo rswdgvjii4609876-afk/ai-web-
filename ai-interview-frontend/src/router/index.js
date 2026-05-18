@@ -7,6 +7,7 @@ const routes = [
   { path: '/privacy', name: 'PrivacyPolicy', component: () => import('../views/PrivacyPolicy.vue') },
   { path: '/dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true } },
   { path: '/competition-demo', redirect: '/competition/agent-trace' },
+  { path: '/competition/opc-ai-workflow', name: 'CompetitionOpcAiWorkflow', component: () => import('../views/CompetitionOpcAiWorkflow.vue'), meta: { auth: true } },
   { path: '/competition/agent-trace', name: 'CompetitionAgentTrace', component: () => import('../views/CompetitionAgentTrace.vue'), meta: { auth: true } },
   { path: '/knowledge-base', name: 'KnowledgeBase', component: () => import('../views/KnowledgeBase.vue'), meta: { auth: true } },
   { path: '/ability-diagnosis', name: 'AbilityDiagnosis', component: () => import('../views/AbilityDiagnosis.vue'), meta: { auth: true } },
