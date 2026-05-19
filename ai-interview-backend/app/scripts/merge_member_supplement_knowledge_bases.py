@@ -20,17 +20,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import not_, select
+from sqlalchemy import select
 
 from app.db.session import async_session
 from app.models.position_knowledge_base import PositionKnowledgeBase
 from app.scripts.import_member_knowledge_packages import (
     DEFAULT_SOURCE,
-    CANONICAL_TITLE_PREFIX,
+    CanonicalProfileError,
+    MissingCanonicalProfileError,
     MEMBER_TITLE_PREFIX,
     MERGED_HISTORY_PREFIX,
     merge_knowledge_content,
     merge_optional_text,
+    canonical_profile_title,
+    select_single_canonical_profile,
 )
 from app.services.client.position_knowledge_base_slice_service import (
     position_knowledge_base_slice_service,
@@ -55,22 +58,66 @@ def _serialize_kb(item: PositionKnowledgeBase) -> dict[str, Any]:
     }
 
 
-async def _find_canonical(db, supplement: PositionKnowledgeBase) -> PositionKnowledgeBase | None:
-    result = await db.execute(
+async def _find_canonical(
+    db,
+    supplement: PositionKnowledgeBase,
+    *,
+    normalize_single_standard_title: bool = False,
+) -> tuple[PositionKnowledgeBase, bool, str]:
+    canonical_title = canonical_profile_title(supplement.target_position)
+    try:
+        result = await db.execute(
+            select(PositionKnowledgeBase)
+            .where(
+                PositionKnowledgeBase.scope == "public",
+                PositionKnowledgeBase.is_active == True,  # noqa: E712
+                PositionKnowledgeBase.title == canonical_title,
+                PositionKnowledgeBase.id != supplement.id,
+            )
+            .order_by(PositionKnowledgeBase.id.asc())
+        )
+        return (
+            select_single_canonical_profile(
+                result.scalars().all(),
+                target_position=supplement.target_position,
+                canonical_title=canonical_title,
+            ),
+            False,
+            canonical_title,
+        )
+    except MissingCanonicalProfileError:
+        if not normalize_single_standard_title:
+            raise
+
+    fallback_result = await db.execute(
         select(PositionKnowledgeBase)
         .where(
             PositionKnowledgeBase.scope == "public",
+            PositionKnowledgeBase.is_active == True,  # noqa: E712
             PositionKnowledgeBase.target_position == supplement.target_position,
-            not_(PositionKnowledgeBase.title.like(f"{MEMBER_TITLE_PREFIX}%")),
-            not_(PositionKnowledgeBase.title.like(f"{MERGED_HISTORY_PREFIX}%")),
             PositionKnowledgeBase.id != supplement.id,
         )
-        .order_by(PositionKnowledgeBase.is_active.desc(), PositionKnowledgeBase.updated_at.desc())
+        .order_by(PositionKnowledgeBase.id.asc())
     )
-    return result.scalars().first()
+    fallback_items = [
+        item
+        for item in fallback_result.scalars().all()
+        if not item.title.startswith(MEMBER_TITLE_PREFIX)
+        and not item.title.startswith(MERGED_HISTORY_PREFIX)
+    ]
+    if len(fallback_items) != 1:
+        raise CanonicalProfileError(
+            "cannot normalize canonical title because active standard profile count is "
+            f"{len(fallback_items)}: target_position={supplement.target_position}, expected_title={canonical_title}"
+        )
+    return fallback_items[0], fallback_items[0].title != canonical_title, canonical_title
 
 
-async def merge_legacy_supplements(dry_run: bool = False) -> dict[str, Any]:
+async def merge_legacy_supplements(
+    dry_run: bool = False,
+    *,
+    normalize_single_standard_title: bool = False,
+) -> dict[str, Any]:
     async with async_session() as db:
         result = await db.execute(
             select(PositionKnowledgeBase)
@@ -84,26 +131,39 @@ async def merge_legacy_supplements(dry_run: bool = False) -> dict[str, Any]:
         operations: list[dict[str, Any]] = []
         backup_rows: list[dict[str, Any]] = []
 
+        blockers: list[dict[str, Any]] = []
+        resolved_pairs: list[tuple[PositionKnowledgeBase, PositionKnowledgeBase, bool, str]] = []
+
         for supplement in supplements:
-            canonical = await _find_canonical(db, supplement)
-            created_canonical = False
-            if canonical is None:
-                canonical = PositionKnowledgeBase(
-                    user_id=None,
-                    admin_id=None,
-                    scope="public",
-                    title=f"{CANONICAL_TITLE_PREFIX}{supplement.target_position}",
-                    target_position=supplement.target_position,
-                    knowledge_content="",
-                    focus_points=None,
-                    interviewer_prompt=None,
-                    is_active=True,
+            try:
+                canonical, should_rename, canonical_title = await _find_canonical(
+                    db,
+                    supplement,
+                    normalize_single_standard_title=normalize_single_standard_title,
                 )
-                if not dry_run:
-                    db.add(canonical)
-                    await db.flush()
-                    await db.refresh(canonical)
-                created_canonical = True
+                resolved_pairs.append((supplement, canonical, should_rename, canonical_title))
+            except CanonicalProfileError as exc:
+                blockers.append(
+                    {
+                        "supplement_id": supplement.id,
+                        "supplement_title": supplement.title,
+                        "target_position": supplement.target_position,
+                        "reason": str(exc),
+                    }
+                )
+
+        if blockers:
+            return {
+                "dry_run": dry_run,
+                "supplement_count": len(supplements),
+                "operation_count": 0,
+                "blocker_count": len(blockers),
+                "blockers": blockers,
+                "operations": [],
+            }
+
+        for supplement, canonical, should_rename, canonical_title in resolved_pairs:
+            created_canonical = False
 
             operation = {
                 "supplement_id": supplement.id,
@@ -111,11 +171,15 @@ async def merge_legacy_supplements(dry_run: bool = False) -> dict[str, Any]:
                 "target_position": supplement.target_position,
                 "canonical_id": canonical.id,
                 "canonical_title": canonical.title,
+                "canonical_title_after": canonical_title if should_rename else canonical.title,
+                "normalize_canonical_title": should_rename,
                 "created_canonical": created_canonical,
             }
             backup_rows.extend([_serialize_kb(supplement), _serialize_kb(canonical)])
 
             if not dry_run:
+                if should_rename:
+                    canonical.title = canonical_title
                 merged_content, stats = merge_knowledge_content(
                     existing_content=canonical.knowledge_content or "",
                     supplement_content=supplement.knowledge_content or "",
@@ -169,6 +233,8 @@ async def merge_legacy_supplements(dry_run: bool = False) -> dict[str, Any]:
             "dry_run": dry_run,
             "supplement_count": len(supplements),
             "operation_count": len(operations),
+            "blocker_count": 0,
+            "blockers": [],
             "operations": operations,
         }
 
@@ -176,13 +242,29 @@ async def merge_legacy_supplements(dry_run: bool = False) -> dict[str, Any]:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Merge legacy member supplemental profiles into canonical profiles.")
     parser.add_argument("--dry-run", action="store_true", help="Print planned merge operations without database writes.")
+    parser.add_argument(
+        "--normalize-single-standard-title",
+        action="store_true",
+        help=(
+            "If a target has exactly one active standard public profile but its title is not canonical, "
+            "rename it to the canonical title before merging. Multiple standards still block."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    result = asyncio.run(merge_legacy_supplements(dry_run=args.dry_run))
+    result = asyncio.run(
+        merge_legacy_supplements(
+            dry_run=args.dry_run,
+            normalize_single_standard_title=args.normalize_single_standard_title,
+        )
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if result.get("blocker_count", 0):
+        print("result=DRY_RUN_BLOCKED" if args.dry_run else "result=MERGE_BLOCKED")
+        return 1
     print("result=DRY_RUN_PASS" if args.dry_run else "result=MERGE_PASS")
     return 0
 

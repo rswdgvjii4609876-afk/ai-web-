@@ -1,10 +1,14 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.scripts.import_member_knowledge_packages import (
     DEFAULT_SOURCE,
     build_import_plans,
+    canonical_profile_title,
     merge_interview_experience_section,
     merge_knowledge_content,
+    select_single_canonical_profile,
+    CanonicalProfileError,
     _package_paths,
 )
 
@@ -32,6 +36,52 @@ def test_member_knowledge_packages_validate_and_build_canonical_merge_content():
     assert "## 面试追问" in python_plan.knowledge_content
     assert "审核状态：可入库" in python_plan.knowledge_content
     assert python_plan.enabled_experiences >= 1
+
+
+def test_select_single_canonical_profile_requires_exact_active_title():
+    canonical_title = canonical_profile_title("Python后端开发工程师")
+    candidates = [
+        SimpleNamespace(
+            id=1,
+            scope="public",
+            is_active=True,
+            title="成员资料补充：Python后端开发工程师",
+            target_position="Python后端开发工程师",
+        ),
+        SimpleNamespace(
+            id=2,
+            scope="public",
+            is_active=True,
+            title=canonical_title,
+            target_position="Python后端开发工程师",
+        ),
+    ]
+
+    selected = select_single_canonical_profile(candidates, target_position="Python后端开发工程师")
+
+    assert selected.id == 2
+
+
+def test_select_single_canonical_profile_rejects_missing_or_duplicate():
+    canonical_title = canonical_profile_title("产品助理")
+    duplicate_candidates = [
+        SimpleNamespace(id=1, scope="public", is_active=True, title=canonical_title, target_position="产品助理"),
+        SimpleNamespace(id=2, scope="public", is_active=True, title=canonical_title, target_position="产品助理"),
+    ]
+
+    try:
+        select_single_canonical_profile([], target_position="产品助理")
+    except CanonicalProfileError as exc:
+        assert "missing active canonical" in str(exc)
+    else:
+        raise AssertionError("missing canonical profile was not rejected")
+
+    try:
+        select_single_canonical_profile(duplicate_candidates, target_position="产品助理")
+    except CanonicalProfileError as exc:
+        assert "duplicate active canonical" in str(exc)
+    else:
+        raise AssertionError("duplicate canonical profiles were not rejected")
 
 
 def test_merge_knowledge_content_appends_supplement_sections_without_creating_new_profile():

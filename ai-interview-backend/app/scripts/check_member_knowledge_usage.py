@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from sqlalchemy import not_, select
+from sqlalchemy import select
 
 from app.models.position_knowledge_base import PositionKnowledgeBase
 from app.models.position_knowledge_base_slice import PositionKnowledgeBaseSlice
@@ -52,6 +52,7 @@ class PositionUsage:
     interview_experience_slice_count: int
     package_experience_count: int
     imported: bool
+    status: str = ""
     notes: str = ""
 
 
@@ -85,6 +86,7 @@ def _usage_from_packages(plans: Sequence[ImportPlan]) -> list[PositionUsage]:
                 interview_experience_slice_count=len(interview_experience),
                 package_experience_count=plan.enabled_experiences,
                 imported=False,
+                status="package_ready_for_canonical_merge",
                 notes="package_ready_for_canonical_merge",
             )
         )
@@ -94,21 +96,78 @@ def _usage_from_packages(plans: Sequence[ImportPlan]) -> list[PositionUsage]:
 async def _usage_from_database(plans: Sequence[ImportPlan]) -> list[PositionUsage]:
     from app.db.session import async_session
 
-    target_positions = [plan.target_position for plan in plans]
     async with async_session() as db:
-        result = await db.execute(
-            select(PositionKnowledgeBase)
-            .where(
-                PositionKnowledgeBase.scope == "public",
-                PositionKnowledgeBase.target_position.in_(target_positions),
-                not_(PositionKnowledgeBase.title.like(f"{MEMBER_TITLE_PREFIX}%")),
-                not_(PositionKnowledgeBase.title.like(f"{MERGED_HISTORY_PREFIX}%")),
-            )
-            .order_by(PositionKnowledgeBase.target_position.asc(), PositionKnowledgeBase.id.asc())
-        )
-        knowledge_bases = result.scalars().all()
         usages: list[PositionUsage] = []
-        for item in knowledge_bases:
+        for plan in plans:
+            kb_result = await db.execute(
+                select(PositionKnowledgeBase)
+                .where(
+                    PositionKnowledgeBase.scope == "public",
+                    PositionKnowledgeBase.target_position == plan.target_position,
+                )
+                .order_by(PositionKnowledgeBase.id.asc())
+            )
+            all_items = kb_result.scalars().all()
+            active_standard_items = [
+                item
+                for item in all_items
+                if item.is_active
+                and not item.title.startswith(MEMBER_TITLE_PREFIX)
+                and not item.title.startswith(MERGED_HISTORY_PREFIX)
+            ]
+            exact_canonical_items = [
+                item
+                for item in active_standard_items
+                if item.title == plan.canonical_title
+            ]
+            active_member_supplements = [
+                item
+                for item in all_items
+                if item.is_active and item.title.startswith(MEMBER_TITLE_PREFIX)
+            ]
+            history_supplements = [
+                item
+                for item in all_items
+                if item.title.startswith(MERGED_HISTORY_PREFIX)
+            ]
+
+            status = "ok"
+            notes: list[str] = []
+            item: PositionKnowledgeBase | None = None
+            if active_member_supplements:
+                status = "active_member_supplement"
+                notes.append(f"active_member_supplement_count={len(active_member_supplements)}")
+            if not exact_canonical_items:
+                status = "missing_canonical_profile" if status == "ok" else f"{status};missing_canonical_profile"
+                notes.append("missing active exact canonical profile")
+            elif len(exact_canonical_items) > 1:
+                status = "duplicate_canonical_profile" if status == "ok" else f"{status};duplicate_canonical_profile"
+                notes.append("duplicate active exact canonical profiles")
+            else:
+                item = exact_canonical_items[0]
+            if len(active_standard_items) > 1:
+                status = "duplicate_active_standard_profiles" if status == "ok" else f"{status};duplicate_active_standard_profiles"
+                notes.append(f"active_standard_profile_count={len(active_standard_items)}")
+            if history_supplements:
+                notes.append(f"history_supplement_count={len(history_supplements)}")
+
+            if item is None:
+                usages.append(
+                    PositionUsage(
+                        target_position=plan.target_position,
+                        title=plan.canonical_title,
+                        knowledge_base_count=len(active_standard_items),
+                        slice_count=0,
+                        enabled_slice_count=0,
+                        interview_experience_slice_count=0,
+                        package_experience_count=plan.enabled_experiences,
+                        imported=False,
+                        status=status,
+                        notes="; ".join(notes),
+                    )
+                )
+                continue
+
             slices_result = await db.execute(
                 select(PositionKnowledgeBaseSlice).where(
                     PositionKnowledgeBaseSlice.knowledge_base_id == item.id
@@ -129,9 +188,10 @@ async def _usage_from_database(plans: Sequence[ImportPlan]) -> list[PositionUsag
                     slice_count=len(slices),
                     enabled_slice_count=len(enabled),
                     interview_experience_slice_count=len(interview_experience),
-                    package_experience_count=0,
-                    imported=True,
-                    notes="canonical_profile_imported",
+                    package_experience_count=plan.enabled_experiences,
+                    imported=status == "ok",
+                    status=status,
+                    notes="; ".join(notes) or "canonical_profile_imported",
                 )
             )
     return usages
@@ -152,14 +212,14 @@ def build_report(usages: Sequence[PositionUsage], mode: str) -> str:
         "",
         "## 岗位覆盖与切片质量",
         "",
-        "| 岗位 | 标准画像标题 | 入库状态 | 切片数 | 启用切片 | 问答经验切片 | 资料包面经数 | 备注 |",
-        "|---|---|---|---:|---:|---:|---:|---|",
+        "| 岗位 | 标准画像标题 | 入库状态 | 数据状态 | 切片数 | 启用切片 | 问答经验切片 | 资料包面经数 | 备注 |",
+        "|---|---|---|---|---:|---:|---:|---:|---|",
     ]
     for item in usages:
         status = "已归并入标准岗位画像" if item.imported else "待归并入标准岗位画像"
         lines.append(
             "| "
-            f"{item.target_position} | {item.title} | {status} | "
+            f"{item.target_position} | {item.title} | {status} | {item.status or '-'} | "
             f"{item.slice_count} | {item.enabled_slice_count} | "
             f"{item.interview_experience_slice_count} | {item.package_experience_count} | {item.notes} |"
         )
@@ -213,6 +273,10 @@ def write_report(report: str, output_path: Path) -> None:
     output_path.write_text(report, encoding="utf-8")
 
 
+def database_usage_blockers(usages: Sequence[PositionUsage]) -> list[PositionUsage]:
+    return [item for item in usages if item.status and item.status != "ok"]
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check member knowledge package usage and coverage.")
     parser.add_argument("--source", default=str(DEFAULT_SOURCE), help="Knowledge package source directory or JSON file.")
@@ -234,6 +298,15 @@ def main(argv: list[str] | None = None) -> int:
     write_report(report, Path(args.output))
     print(report)
     print(f"report={Path(args.output)}")
+    if args.database:
+        blockers = database_usage_blockers(usages)
+        if blockers:
+            print("result=CHECK_FAIL")
+            print(
+                "first_blocker="
+                f"{blockers[0].target_position}: {blockers[0].status}; {blockers[0].notes}"
+            )
+            return 1
     print("result=CHECK_PASS")
     return 0
 

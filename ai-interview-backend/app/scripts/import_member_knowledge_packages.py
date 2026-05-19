@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from sqlalchemy import and_, not_, select
+from sqlalchemy import select
 
 from app.db.session import async_session
 from app.models.position_knowledge_base import PositionKnowledgeBase
@@ -55,6 +55,18 @@ class PackageValidationError(ValueError):
     pass
 
 
+class CanonicalProfileError(RuntimeError):
+    pass
+
+
+class MissingCanonicalProfileError(CanonicalProfileError):
+    pass
+
+
+class DuplicateCanonicalProfileError(CanonicalProfileError):
+    pass
+
+
 @dataclass(frozen=True)
 class ImportPlan:
     package_path: Path
@@ -67,6 +79,42 @@ class ImportPlan:
     interviewer_prompt: str
     total_experiences: int
     enabled_experiences: int
+
+
+def normalize_target_position(value: str | None) -> str:
+    return re.sub(r"\s+", "", _clean_text(value))
+
+
+def canonical_profile_title(target_position: str) -> str:
+    return f"{CANONICAL_TITLE_PREFIX}{normalize_target_position(target_position)}"
+
+
+def select_single_canonical_profile(
+    candidates: Iterable[PositionKnowledgeBase],
+    *,
+    target_position: str,
+    canonical_title: str | None = None,
+) -> PositionKnowledgeBase:
+    expected_title = canonical_title or canonical_profile_title(target_position)
+    normalized_target = normalize_target_position(target_position)
+    matches = [
+        item
+        for item in candidates
+        if item.scope == "public"
+        and item.is_active
+        and item.title == expected_title
+        and normalize_target_position(item.target_position) == normalized_target
+    ]
+    if not matches:
+        raise MissingCanonicalProfileError(
+            f"missing active canonical public profile: target_position={target_position}, title={expected_title}"
+        )
+    if len(matches) > 1:
+        ids = ", ".join(str(item.id) for item in matches)
+        raise DuplicateCanonicalProfileError(
+            f"duplicate active canonical public profiles: target_position={target_position}, title={expected_title}, ids={ids}"
+        )
+    return matches[0]
 
 
 def _clean_text(value: Any) -> str:
@@ -353,16 +401,25 @@ async def _find_canonical_public_profile(db, plan: ImportPlan) -> PositionKnowle
         select(PositionKnowledgeBase)
         .where(
             PositionKnowledgeBase.scope == "public",
-            PositionKnowledgeBase.target_position == plan.target_position,
-            not_(PositionKnowledgeBase.title.like(f"{MEMBER_TITLE_PREFIX}%")),
-            not_(PositionKnowledgeBase.title.like(f"{MERGED_HISTORY_PREFIX}%")),
+            PositionKnowledgeBase.is_active == True,  # noqa: E712
+            PositionKnowledgeBase.title == plan.canonical_title,
         )
-        .order_by(PositionKnowledgeBase.is_active.desc(), PositionKnowledgeBase.updated_at.desc())
+        .order_by(PositionKnowledgeBase.id.asc())
     )
-    return result.scalars().first()
+    candidates = result.scalars().all()
+    return select_single_canonical_profile(
+        candidates,
+        target_position=plan.target_position,
+        canonical_title=plan.canonical_title,
+    )
 
 
-async def _import_plan_as_separate_profile(db, plan: ImportPlan) -> tuple[str, int]:
+async def _import_plan_as_separate_profile(
+    db,
+    plan: ImportPlan,
+    *,
+    allow_active_legacy_public: bool = False,
+) -> tuple[str, int]:
     result = await db.execute(
         select(PositionKnowledgeBase).where(
             PositionKnowledgeBase.scope == "public",
@@ -377,7 +434,7 @@ async def _import_plan_as_separate_profile(db, plan: ImportPlan) -> tuple[str, i
         "knowledge_content": plan.knowledge_content,
         "focus_points": plan.focus_points,
         "interviewer_prompt": plan.interviewer_prompt,
-        "is_active": True,
+        "is_active": allow_active_legacy_public,
     }
     action = "updated"
     if item:
@@ -393,10 +450,18 @@ async def _import_plan_as_separate_profile(db, plan: ImportPlan) -> tuple[str, i
     return action, len(slices)
 
 
-async def _merge_plan_into_canonical_profile(db, plan: ImportPlan) -> tuple[str, int, dict[str, int]]:
-    item = await _find_canonical_public_profile(db, plan)
+async def _merge_plan_into_canonical_profile(
+    db,
+    plan: ImportPlan,
+    *,
+    create_missing_canonical: bool = False,
+) -> tuple[str, int, dict[str, int]]:
     action = "merged"
-    if item is None:
+    try:
+        item = await _find_canonical_public_profile(db, plan)
+    except CanonicalProfileError:
+        if not create_missing_canonical:
+            raise
         item = PositionKnowledgeBase(
             user_id=None,
             admin_id=None,
@@ -406,10 +471,10 @@ async def _merge_plan_into_canonical_profile(db, plan: ImportPlan) -> tuple[str,
             knowledge_content="",
             focus_points=None,
             interviewer_prompt=None,
-            is_active=True,
+            is_active=False,
         )
         db.add(item)
-        action = "created_and_merged"
+        action = "created_inactive_review_candidate_and_merged"
         await db.flush()
         await db.refresh(item)
 
@@ -427,15 +492,19 @@ async def _merge_plan_into_canonical_profile(db, plan: ImportPlan) -> tuple[str,
     )
     stats["focus_points_added"] = int(focus_added)
     stats["interviewer_prompt_added"] = int(prompt_added)
-    item.is_active = True
-
     await db.flush()
     await db.refresh(item)
     slices = await position_knowledge_base_slice_service.rebuild_for_knowledge_base(db, item)
     return action, len(slices), stats
 
 
-async def import_plans(plans: list[ImportPlan], mode: str = "merge") -> None:
+async def import_plans(
+    plans: list[ImportPlan],
+    mode: str = "merge",
+    *,
+    create_missing_canonical: bool = False,
+    allow_active_legacy_public: bool = False,
+) -> None:
     async with async_session() as db:
         created = 0
         updated = 0
@@ -443,15 +512,23 @@ async def import_plans(plans: list[ImportPlan], mode: str = "merge") -> None:
         total_slices = 0
         for plan in plans:
             if mode == "separate":
-                action, slice_count = await _import_plan_as_separate_profile(db, plan)
+                action, slice_count = await _import_plan_as_separate_profile(
+                    db,
+                    plan,
+                    allow_active_legacy_public=allow_active_legacy_public,
+                )
                 if action == "created":
                     created += 1
                 else:
                     updated += 1
                 print(f"imported_separate={plan.target_position}, action={action}, slices={slice_count}")
             else:
-                action, slice_count, stats = await _merge_plan_into_canonical_profile(db, plan)
-                if action == "created_and_merged":
+                action, slice_count, stats = await _merge_plan_into_canonical_profile(
+                    db,
+                    plan,
+                    create_missing_canonical=create_missing_canonical,
+                )
+                if action.startswith("created_"):
                     created += 1
                 else:
                     merged += 1
@@ -487,6 +564,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--check-only", action="store_true", help="Validate packages without connecting to database.")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print import plan without database writes.")
+    parser.add_argument(
+        "--create-missing-canonical",
+        action="store_true",
+        help=(
+            "Create an inactive canonical review candidate when the standard public profile is missing. "
+            "Default behavior fails instead of silently publishing a new profile."
+        ),
+    )
+    parser.add_argument(
+        "--allow-active-legacy-public",
+        action="store_true",
+        help=(
+            "Dangerous rollback-only option: keep legacy separate member supplement profiles active. "
+            "By default separate profiles are imported inactive."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -503,7 +596,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.dry_run:
             print("result=DRY_RUN_PASS")
             return 0
-        asyncio.run(import_plans(plans, mode=mode))
+        asyncio.run(
+            import_plans(
+                plans,
+                mode=mode,
+                create_missing_canonical=args.create_missing_canonical,
+                allow_active_legacy_public=args.allow_active_legacy_public,
+            )
+        )
         print("result=IMPORT_PASS")
         return 0
     except Exception as exc:

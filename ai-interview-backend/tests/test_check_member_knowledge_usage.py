@@ -2,8 +2,10 @@ from pathlib import Path
 
 from app.scripts.check_member_knowledge_usage import (
     INSUFFICIENT_POSITIONS,
+    PositionUsage,
     _usage_from_packages,
     build_report,
+    database_usage_blockers,
 )
 from app.scripts.import_member_knowledge_packages import (
     DEFAULT_SOURCE,
@@ -36,3 +38,38 @@ def test_member_knowledge_usage_package_slices_include_interview_experience():
     assert any(item.interview_experience_slice_count > 0 for item in usages)
     operation_usage = next(item for item in usages if item.target_position == "运营助理")
     assert operation_usage.interview_experience_slice_count == operation_usage.package_experience_count
+
+
+def test_member_knowledge_usage_database_blockers_detect_non_ok_status():
+    usages = [
+        PositionUsage(
+            target_position="Python后端开发工程师",
+            title="职启智评岗位画像：Python后端开发工程师",
+            knowledge_base_count=1,
+            slice_count=10,
+            enabled_slice_count=10,
+            interview_experience_slice_count=3,
+            package_experience_count=3,
+            imported=True,
+            status="ok",
+        ),
+        PositionUsage(
+            target_position="产品助理",
+            title="职启智评岗位画像：产品助理",
+            knowledge_base_count=0,
+            slice_count=0,
+            enabled_slice_count=0,
+            interview_experience_slice_count=0,
+            package_experience_count=2,
+            imported=False,
+            status="missing_canonical_profile",
+            notes="missing active exact canonical profile",
+        ),
+    ]
+
+    blockers = database_usage_blockers(usages)
+    report = build_report(usages, mode="database_canonical_profiles")
+
+    assert len(blockers) == 1
+    assert blockers[0].target_position == "产品助理"
+    assert "missing_canonical_profile" in report
