@@ -60,3 +60,11 @@ async def require_record_delete_admin(
     if not _has_admin_permission(current_admin, "can_delete_records"):
         _forbid("Not enough permissions to delete records")
     return current_admin
+
+
+async def require_admin_manager_admin(
+    current_admin: Admin = Depends(get_current_admin),
+) -> Admin:
+    if not _has_admin_permission(current_admin, "can_manage_admins"):
+        _forbid("Not enough permissions to manage users or admins")
+    return current_admin

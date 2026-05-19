@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 from app.db.session import get_db
-from app.api.backoffice.deps import get_current_admin
+from app.api.backoffice.deps import get_current_admin, require_admin_manager_admin
 from app.models.admin import Admin
 from app.models.user import User
 from app.models.resume import Resume
@@ -18,7 +18,7 @@ async def list_users(
     per_page: int = 20,
     keyword: str = None,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin)
+    current_admin: Admin = Depends(require_admin_manager_admin)
 ):
     """获取用户列表"""
     query = select(User).order_by(User.created_at.desc())
@@ -61,7 +61,7 @@ async def list_users(
 async def toggle_user_active(
     user_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin)
+    current_admin: Admin = Depends(require_admin_manager_admin)
 ):
     """启用/禁用用户"""
     user = await db.get(User, user_id)

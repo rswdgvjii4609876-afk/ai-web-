@@ -345,6 +345,17 @@ function loadInterviewMeta() {
 function hydrateMessages(data) {
   const msgList = Array.isArray(data) ? data : (data?.items || data || [])
   const safeList = Array.isArray(msgList) ? msgList : []
+  if (!Array.isArray(data) && data && typeof data === 'object') {
+    if (Number.isInteger(Number(data.total_questions)) && Number(data.total_questions) > 0) {
+      totalQuestions.value = Number(data.total_questions)
+    }
+    if (Number.isInteger(Number(data.current_question_index)) && Number(data.current_question_index) >= 0) {
+      currentIndex.value = Number(data.current_question_index)
+    }
+    if (data.status === 'completed') {
+      finished.value = true
+    }
+  }
   messages.value = safeList.map(item => ({
     role: item.role,
     content: item.content,
@@ -352,7 +363,7 @@ function hydrateMessages(data) {
     feedback: item.feedback
   }))
   const indices = safeList.map(item => item.question_index).filter(index => index != null)
-  if (indices.length) {
+  if (indices.length && !finished.value) {
     currentIndex.value = Math.max(...indices)
   }
   if (currentIndex.value >= totalQuestions.value) {

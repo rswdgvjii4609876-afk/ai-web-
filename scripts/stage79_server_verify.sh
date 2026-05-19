@@ -197,9 +197,9 @@ echo "commit: $PROJECT_COMMIT_BEFORE"
 if [ "$DO_DEPLOY" -eq 1 ]; then
   section "Deploy origin/main"
   run git fetch origin
-  run git reset --hard origin/main
+  run git pull --ff-only origin main
   PROJECT_COMMIT_AFTER="$(git log --oneline -1)"
-  echo "after reset: $PROJECT_COMMIT_AFTER"
+  echo "after fast-forward pull: $PROJECT_COMMIT_AFTER"
 
   section "Build services"
   run docker compose up -d --build app frontend admin
@@ -221,7 +221,8 @@ run docker compose ps
 
 section "Environment check"
 if [ -f .env ]; then
-  grep -E '^(REDIS_HOST|REDIS_PORT|REDIS_PASSWORD|CELERY_BROKER_URL|CELERY_RESULT_BACKEND)=' .env || true
+  grep -E '^(REDIS_HOST|REDIS_PORT)=' .env || true
+  grep -E '^(REDIS_PASSWORD|CELERY_BROKER_URL|CELERY_RESULT_BACKEND)=' .env | sed -E 's/=.*/=<redacted>/' || true
   redis_port="$(grep -E '^REDIS_PORT=' .env | tail -n 1 | cut -d= -f2- | tr -d '"'\''[:space:]' || true)"
   if [ -n "$redis_port" ] && ! printf '%s' "$redis_port" | grep -Eq '^[0-9]+$'; then
     echo "FAIL: REDIS_PORT is not numeric: $redis_port" >&2

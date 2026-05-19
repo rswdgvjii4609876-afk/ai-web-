@@ -38,9 +38,9 @@ This is the internal API interface documentation for the backoffice management s
 - Password management functions
 
 ### Cloud Storage Management (AWS)
-- File management functionality
-- S3 storage operations
-- Upload permission control
+- File management uses server-side storage flows
+- Temporary credential export is disabled
+- `/aws/temporary-credentials` is retained only as a compatibility endpoint and returns 410
 
 ## Authentication Instructions
 
@@ -58,7 +58,7 @@ This is the internal API interface documentation for the backoffice management s
 - 🚀 **High Performance**: Based on FastAPI async framework
 - 📊 **Database**: PostgreSQL + SQLAlchemy ORM
 - 🎯 **Cache**: Redis cache system
-- ☁️ **Cloud Storage**: AWS S3 integration
+- ☁️ **Cloud Storage**: server-side storage integration; no temporary key export
 - 📝 **Documentation**: Auto-generated OpenAPI documentation
 - ⚡ **Async**: Full async processing for improved performance
 
@@ -120,7 +120,7 @@ BACKOFFICE_OPENAPI_TAGS = [
     },
     {
         "name": "backoffice-aws",
-        "description": "Backoffice cloud storage management",
+        "description": "Backoffice cloud storage compatibility interface. Temporary credential export is disabled and returns 410.",
         "externalDocs": {
             "description": "AWS management documentation",
             "url": "https://docs.aws.amazon.com/s3/",

@@ -1,4 +1,5 @@
 import logging
+import json
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -110,17 +111,22 @@ async def submit_answer(
     current_user: User = Depends(require_base_privacy_consent),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await interview_service.submit_answer(
-        db=db,
-        user_id=current_user.id,
-        interview_id=interview_id,
-        answer=data.answer,
-        question_index=data.question_index,
-        ai_config=deepseek_config_service.build_runtime_config(
-            current_user,
-            require_personal_key=True,
-        ),
-    )
+    try:
+        result = await interview_service.submit_answer(
+            db=db,
+            user_id=current_user.id,
+            interview_id=interview_id,
+            answer=data.answer,
+            question_index=data.question_index,
+            ai_config=deepseek_config_service.build_runtime_config(
+                current_user,
+                require_personal_key=True,
+            ),
+        )
+    except (ValueError, json.JSONDecodeError) as exc:
+        await db.rollback()
+        logger.warning("Interview answer evaluation returned invalid JSON: interview_id=%s error=%s", interview_id, exc)
+        raise ValidationError(message="AI 返回的面试评价格式异常，请稍后重试或到个人设置检查 API 配置") from exc
     return ApiResponse.success(data=result)
 
 

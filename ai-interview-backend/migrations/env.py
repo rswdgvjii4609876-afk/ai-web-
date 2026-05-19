@@ -1,6 +1,7 @@
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.engine import URL
 from alembic import context
 import os
 import sys
@@ -38,8 +39,14 @@ config = context.config
 # 使用项目的数据库 URL 覆盖 alembic.ini 中的配置
 config.set_main_option(
     "sqlalchemy.url",
-    f"postgresql+psycopg2://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
-    f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+    URL.create(
+        "postgresql+psycopg2",
+        username=settings.POSTGRES_USER,
+        password=settings.POSTGRES_PASSWORD,
+        host=settings.POSTGRES_HOST,
+        port=settings.POSTGRES_PORT,
+        database=settings.POSTGRES_DB,
+    ).render_as_string(hide_password=False),
 )
 
 # 解析配置文件中的 Python 日志设置

@@ -3471,7 +3471,7 @@ class InterviewService:
             .order_by(InterviewMessage.id)
         )
         messages = result.scalars().all()
-        return [
+        items = [
             {
                 "id": item.id,
                 "role": item.role,
@@ -3483,6 +3483,12 @@ class InterviewService:
             }
             for item in messages
         ]
+        return {
+            "items": items,
+            "status": interview.status,
+            "current_question_index": interview.current_question_index,
+            "total_questions": interview.total_questions,
+        }
 
     @staticmethod
     async def delete_interview(

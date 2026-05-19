@@ -1,11 +1,16 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.engine import URL
 from app.core.config import settings
 from .models import Base
 
-SQLALCHEMY_DATABASE_URL = (
-    f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
-    f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+SQLALCHEMY_DATABASE_URL = URL.create(
+    "postgresql+asyncpg",
+    username=settings.POSTGRES_USER,
+    password=settings.POSTGRES_PASSWORD,
+    host=settings.POSTGRES_HOST,
+    port=settings.POSTGRES_PORT,
+    database=settings.POSTGRES_DB,
 )
 
 # 延迟创建引擎，避免 Alembic 迁移时的导入问题

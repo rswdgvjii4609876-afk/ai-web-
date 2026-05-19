@@ -42,9 +42,9 @@ This is the public API interface documentation for client applications.
 - System configuration queries
 
 ### Cloud Storage Service (AWS)
-- File upload functionality
-- S3 storage integration
-- Temporary credentials (requires authentication)
+- File upload is handled by server-side flows
+- Direct browser temporary credentials are disabled
+- `/aws/temporary-credentials` is retained only as a compatibility endpoint and returns 410
 
 ### Waiting List Management
 - Waiting list application submission
@@ -66,7 +66,7 @@ This is the public API interface documentation for client applications.
 
 ### Protected Interfaces (Authentication required):
 - User profile retrieval (`/auth/me`)
-- AWS temporary credentials (`/aws/temporary-credentials`)
+- Disabled cloud credential compatibility endpoint (`/aws/temporary-credentials`, returns 410)
 
 ### How to use authentication:
 1. Call the `/auth/login` interface to get an access token
@@ -80,7 +80,7 @@ This is the public API interface documentation for client applications.
 - 🚀 **High Performance**: Based on FastAPI async framework
 - 📊 **Database**: PostgreSQL + SQLAlchemy ORM
 - 🎯 **Cache**: Redis cache system
-- ☁️ **Cloud Storage**: AWS S3 integration
+- ☁️ **Cloud Storage**: server-side storage integration; no temporary key export
 - 📝 **Documentation**: Auto-generated OpenAPI documentation
 - ⚡ **Async**: Full async processing for improved performance
 
@@ -142,7 +142,7 @@ CLIENT_OPENAPI_TAGS = [
     },
     {
         "name": "client-aws",
-        "description": "Client cloud storage interfaces (requires authentication for temporary credentials)",
+        "description": "Client cloud storage compatibility interface. Temporary credential export is disabled and returns 410.",
         "externalDocs": {
             "description": "AWS S3 documentation",
             "url": "https://docs.aws.amazon.com/s3/",

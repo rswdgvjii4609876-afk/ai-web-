@@ -1264,6 +1264,20 @@ class AIService:
         return any(token in text for token in tokens)
 
     @staticmethod
+    def _is_candidate_evidence_source_text(*values: Any) -> bool:
+        tokens = (
+            "resume",
+            "resume_evidence",
+            "candidate",
+            "candidate_evidence",
+            "interview",
+            "interview_answer",
+            "answer",
+        )
+        text = " ".join(AIService._string_or_empty(value).lower() for value in values)
+        return any(token in text for token in tokens)
+
+    @staticmethod
     def _split_candidate_and_role_ids(
         *,
         evidence_ids: List[int],
@@ -1390,6 +1404,8 @@ class AIService:
                 role_reference = AIService._is_role_reference_text(raw_source, claim, evidence, risk_reason) or (
                     bool(role_requirement_source_ids) and not bool(evidence_ids)
                 )
+                if evidence_ids and not evidence and not AIService._is_candidate_evidence_source_text(raw_source):
+                    role_reference = True
                 evidence_ids, role_requirement_source_ids = AIService._split_candidate_and_role_ids(
                     evidence_ids=evidence_ids,
                     role_requirement_source_ids=role_requirement_source_ids,
@@ -2823,7 +2839,12 @@ class AIService:
             },
         ]
         result = await AIService._chat(messages, temperature=0.5, ai_config=ai_config)
-        payload = AIService._extract_json(result)
+        payload = await AIService._extract_or_repair_json(
+            result,
+            messages,
+            "JSON object with panel, moderator, metadata, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
+            ai_config=ai_config,
+        )
         normalized = AIService._normalize_panel_question_payload(
             payload=payload,
             question_plan=question_plan,
@@ -2880,7 +2901,12 @@ class AIService:
             },
         ]
         result = await AIService._chat(messages, temperature=0.35, ai_config=ai_config)
-        payload = AIService._extract_json(result)
+        payload = await AIService._extract_or_repair_json(
+            result,
+            messages,
+            "JSON object with score, feedback, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
+            ai_config=ai_config,
+        )
         return AIService._normalize_single_evaluation_payload(
             payload=payload,
             question_meta=question_meta,

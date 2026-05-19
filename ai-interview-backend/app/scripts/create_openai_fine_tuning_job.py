@@ -64,8 +64,14 @@ def main() -> int:
     if not args.model:
         raise SystemExit("OPENAI_FINE_TUNE_BASE_MODEL or --model is required.")
     job_record_path = dataset_dir / "job_record.json"
+    job_intent_path = dataset_dir / "job_intent.json"
     if job_record_path.exists() and not args.force_new_job:
         raise SystemExit(f"Refusing to create another OpenAI fine-tuning job because job_record.json already exists: {job_record_path}")
+    if job_intent_path.exists() and not args.force_new_job and not job_record_path.exists():
+        raise SystemExit(
+            f"Refusing to create OpenAI fine-tuning job because a previous creation intent exists without job_record.json: {job_intent_path}. "
+            "Check OpenAI dashboard/status first, then remove the intent manually if no job was created."
+        )
     existing_job_info = {"previous_job_id": "", "previous_job_record_path": ""}
     if job_record_path.exists() and args.force_new_job:
         old_record = json.loads(job_record_path.read_text(encoding="utf-8"))
@@ -73,7 +79,7 @@ def main() -> int:
 
     try:
         base_url = validate_official_openai_base_url(os.getenv("OPENAI_BASE_URL", settings.OPENAI_BASE_URL))
-        preflight = validate_openai_fine_tuning_dataset_dir(dataset_dir, require_ready=True)
+        preflight = validate_openai_fine_tuning_dataset_dir(dataset_dir, require_ready=True, require_validation=True)
     except OpenAIFineTuningDataError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -101,6 +107,15 @@ def main() -> int:
     except OpenAIFineTuningDataError as exc:
         raise SystemExit(str(exc)) from exc
 
+    _write_json(
+        job_intent_path,
+        {
+            **preflight_record,
+            "dry_run": False,
+            "status": "creating",
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        },
+    )
     client = OpenAI(api_key=api_key, base_url=base_url)
     with train_path.open("rb") as train_file:
         training_file = client.files.create(file=train_file, purpose="fine-tune")
@@ -132,6 +147,16 @@ def main() -> int:
         "fine_tuning_job": _sdk_dump(job),
     }
     _write_json(dataset_dir / "job_record.json", record)
+    _write_json(
+        job_intent_path,
+        {
+            **preflight_record,
+            "dry_run": False,
+            "status": "created",
+            "job_id": getattr(job, "id", ""),
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        },
+    )
     print(f"PASS: OpenAI fine-tuning job created: {getattr(job, 'id', '')}")
     return 0
 

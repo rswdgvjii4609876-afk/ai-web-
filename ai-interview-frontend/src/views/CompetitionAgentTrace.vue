@@ -427,13 +427,13 @@ function buildStepCard(step) {
 
 function evalVariantLabel(value) {
   if (value === 'baseline_prompt_preview') return '规则基线 Preview'
-  if (value === 'agent_optimized') return 'Agent 优化 Preview'
+  if (value === 'agent_optimized') return 'Agent 链路规则自检'
   return value || 'Preview'
 }
 
 function evalGateLabel(row) {
   if (row.model_variant === 'baseline_prompt_preview') return '需人工复核'
-  if (row.model_variant === 'agent_optimized') return '规则通过'
+  if (row.model_variant === 'agent_optimized') return '规则自检示例'
   return '规则预览'
 }
 

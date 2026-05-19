@@ -1,11 +1,7 @@
 from fastapi import APIRouter, Depends, Header
-from sqlalchemy.orm import Session
 from app.models.user import User
-from app.utils import utils
-from app.db.session import get_db
 from app.api.client.deps import require_base_privacy_consent
 from app.exceptions.http_exceptions import APIException
-from app.schemas.response import ApiResponse
 from typing import Optional
 
 router = APIRouter()
@@ -14,12 +10,11 @@ router = APIRouter()
 @router.get("/temporary-credentials")
 async def get_temporary_credentials(
     language: str = Header(None),
-    db: Session = Depends(get_db),
     current_user: User = Depends(require_base_privacy_consent)
 ):
-    """获取S3临时访问凭证"""
-    try:
-        temporary_credentials = utils.get_temporary_credentials()
-        return ApiResponse.success(data=temporary_credentials)
-    except Exception as e:
-        raise APIException(status_code=500, message=str(e), language=language)
+    """Temporary credential export is disabled; use server-side upload proxy instead."""
+    raise APIException(
+        status_code=410,
+        message="Temporary AWS credentials are disabled for security. Use server-side upload or presigned scoped URLs.",
+        language=language,
+    )

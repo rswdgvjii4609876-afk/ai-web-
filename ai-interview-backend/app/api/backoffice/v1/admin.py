@@ -4,7 +4,7 @@ from app.db.session import get_db, transaction
 from app.schemas.backoffice.admin import AdminCreate, AdminResponse, AdminUpdate, AdminChangePassword, ResetPassword
 from app.services.backoffice.admin import admin_service
 from app.api.backoffice.deps import get_current_admin
-from app.models.admin import Admin
+from app.models.admin import Admin, ROOT_ADMIN_EMAIL
 from app.schemas.response import ApiResponse
 from app.schemas.paginator import Paginator
 from typing import List
@@ -35,6 +35,10 @@ def _require_root_admin(current_admin: Admin) -> None:
         raise APIException(status_code=403, message="Only the root admin can change admin-management permission")
 
 
+def _is_reserved_root_email(email: str | None) -> bool:
+    return (email or "").strip().lower() == ROOT_ADMIN_EMAIL
+
+
 def _permission_payload_requests_grant(payload: dict) -> bool:
     return any(bool(payload.get(field)) for field in ADMIN_PERMISSION_FIELDS if field in payload)
 
@@ -47,6 +51,8 @@ async def create_admin(
 ):
     """Create new admin (admin-management permission required)"""
     _require_admin_manager(current_admin)
+    if _is_reserved_root_email(admin_data.email) and not current_admin.is_root_admin:
+        raise APIException(status_code=403, message="Only root admin can create or claim the reserved root email")
     if _permission_payload_requests_grant(admin_data.model_dump()):
         _require_root_admin(current_admin)
     
@@ -128,6 +134,13 @@ async def update_admin(
         raise APIException(status_code=status.HTTP_404_NOT_FOUND, message="Admin not found")
 
     update_payload = admin_data.model_dump(exclude_unset=True)
+    if (
+        "email" in update_payload
+        and _is_reserved_root_email(update_payload.get("email"))
+        and not target.is_root_admin
+        and not current_admin.is_root_admin
+    ):
+        raise APIException(status_code=403, message="Only root admin can assign the reserved root email")
     if any(field in update_payload for field in ADMIN_PERMISSION_FIELDS):
         _require_root_admin(current_admin)
         if target.is_root_admin and any(update_payload.get(field) is False for field in ADMIN_PERMISSION_FIELDS):

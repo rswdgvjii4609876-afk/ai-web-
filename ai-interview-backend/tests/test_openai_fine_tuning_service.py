@@ -132,18 +132,23 @@ def test_constructed_samples_must_declare_origin_and_are_counted_separately():
 
 @pytest.mark.unit
 def test_dataset_ready_requires_three_real_authorized_and_ten_train_samples():
-    real_records = [make_record(index=index) for index in range(1, 4)]
-    constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 11)]
+    real_records = [make_record(index=index) for index in range(1, 16)]
+    constructed_records = []
 
     bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
     summary = bundle["summary"]
 
     assert summary["ready_for_openai_job"] is True
-    assert summary["counts"]["real_authorized_samples"] == 3
-    assert summary["counts"]["constructed_samples"] == 7
+    assert summary["counts"]["real_authorized_samples"] == 15
+    assert summary["counts"]["constructed_samples"] == 0
     assert summary["counts"]["train_samples"] == 10
-    assert summary["counts"]["validation_samples"] == 0
+    assert summary["counts"]["validation_samples"] == 5
+    assert summary["counts"]["validation_real_authorized_samples"] == 5
 
+    constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 11)]
+    mixed = build_openai_fine_tuning_dataset(real_records[:3], constructed_records)
+    assert mixed["summary"]["ready_for_openai_job"] is False
+    assert any("constructed samples" in item for item in mixed["summary"]["blockers"])
     constructed_only = build_openai_fine_tuning_dataset([], constructed_records + [make_record(index=99, origin="constructed")])
     assert constructed_only["summary"]["ready_for_openai_job"] is False
     assert "真实授权样本不足" in constructed_only["summary"]["blockers"][0]
@@ -151,9 +156,9 @@ def test_dataset_ready_requires_three_real_authorized_and_ten_train_samples():
 
 @pytest.mark.unit
 def test_write_bundle_outputs_upload_safe_jsonl_and_local_manifest(tmp_path):
-    real_records = [make_record(index=index) for index in range(1, 4)]
+    real_records = [make_record(index=index) for index in range(1, 16)]
     constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 11)]
-    bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
+    bundle = build_openai_fine_tuning_dataset(real_records, [])
 
     paths = write_openai_fine_tuning_bundle(bundle, tmp_path)
     train_line = paths["train"].read_text(encoding="utf-8").splitlines()[0]
@@ -184,9 +189,9 @@ def test_real_records_require_manual_review_quality_and_true_origin():
 
 @pytest.mark.unit
 def test_preflight_validates_jsonl_manifest_hashes_and_counts(tmp_path):
-    real_records = [make_record(index=index) for index in range(1, 4)]
+    real_records = [make_record(index=index) for index in range(1, 16)]
     constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 16)]
-    bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
+    bundle = build_openai_fine_tuning_dataset(real_records, [])
     write_openai_fine_tuning_bundle(bundle, tmp_path)
 
     preflight = validate_openai_fine_tuning_dataset_dir(tmp_path, require_ready=True, require_validation=True)
@@ -221,9 +226,9 @@ def test_preflight_does_not_allow_lowering_default_training_gate(tmp_path):
 
 @pytest.mark.unit
 def test_preflight_rejects_pii_in_upload_jsonl(tmp_path):
-    real_records = [make_record(index=index) for index in range(1, 4)]
+    real_records = [make_record(index=index) for index in range(1, 16)]
     constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 11)]
-    bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
+    bundle = build_openai_fine_tuning_dataset(real_records, [])
     write_openai_fine_tuning_bundle(bundle, tmp_path)
 
     train_path = tmp_path / "train_openai.jsonl"
@@ -305,9 +310,9 @@ def test_job_record_and_status_must_match_dataset_job_id(tmp_path):
 
 @pytest.mark.unit
 def test_job_record_must_match_current_dataset_fingerprint(tmp_path):
-    real_records = [make_record(index=index) for index in range(1, 4)]
+    real_records = [make_record(index=index) for index in range(1, 16)]
     constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 11)]
-    bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
+    bundle = build_openai_fine_tuning_dataset(real_records, [])
     write_openai_fine_tuning_bundle(bundle, tmp_path)
     preflight = validate_openai_fine_tuning_dataset_dir(tmp_path, require_ready=True)
     fingerprint = {**preflight["dataset_fingerprint"], "train_sha256": "bad"}
@@ -328,9 +333,9 @@ def test_job_record_must_match_current_dataset_fingerprint(tmp_path):
 
 @pytest.mark.unit
 def test_job_status_provenance_must_match_current_dataset_fingerprint(tmp_path):
-    real_records = [make_record(index=index) for index in range(1, 4)]
+    real_records = [make_record(index=index) for index in range(1, 16)]
     constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 11)]
-    bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
+    bundle = build_openai_fine_tuning_dataset(real_records, [])
     write_openai_fine_tuning_bundle(bundle, tmp_path)
     preflight = validate_openai_fine_tuning_dataset_dir(tmp_path, require_ready=True)
     (tmp_path / "job_record.json").write_text(
@@ -367,9 +372,9 @@ def test_job_status_provenance_must_match_current_dataset_fingerprint(tmp_path):
 def test_create_job_dry_run_is_idempotent_unless_forced(tmp_path, monkeypatch):
     from app.scripts import create_openai_fine_tuning_job as create_script
 
-    real_records = [make_record(index=index) for index in range(1, 4)]
+    real_records = [make_record(index=index) for index in range(1, 16)]
     constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 11)]
-    bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
+    bundle = build_openai_fine_tuning_dataset(real_records, [])
     write_openai_fine_tuning_bundle(bundle, tmp_path)
     (tmp_path / "job_record.json").write_text(
         json.dumps({"job_id": "ftjob_existing", "fine_tuning_job": {"id": "ftjob_existing"}}),
@@ -398,9 +403,9 @@ def test_create_job_dry_run_is_idempotent_unless_forced(tmp_path, monkeypatch):
 def test_eval_rejects_base_model_mismatch_without_explicit_override(tmp_path, monkeypatch):
     from app.scripts import run_fine_tuning_eval as eval_script
 
-    real_records = [make_record(index=index) for index in range(1, 4)]
+    real_records = [make_record(index=index) for index in range(1, 16)]
     constructed_records = [make_record(index=index, origin="constructed") for index in range(4, 16)]
-    bundle = build_openai_fine_tuning_dataset(real_records, constructed_records)
+    bundle = build_openai_fine_tuning_dataset(real_records, [])
     write_openai_fine_tuning_bundle(bundle, tmp_path)
     preflight = validate_openai_fine_tuning_dataset_dir(tmp_path, require_ready=True, require_validation=True)
     (tmp_path / "job_record.json").write_text(

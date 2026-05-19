@@ -370,8 +370,10 @@ def build_openai_fine_tuning_dataset(
     train_records = split["train_records"]
     validation_records = split["validation_records"]
     train_manifests = split["train_manifests"]
+    validation_manifests = split["validation_manifests"]
     origin_counter = Counter(manifest["sample_origin"] for manifest in manifests)
     train_origin_counter = Counter(manifest["sample_origin"] for manifest in train_manifests)
+    validation_origin_counter = Counter(manifest["sample_origin"] for manifest in validation_manifests)
     position_counter = Counter(str(manifest.get("target_position") or "未填写岗位") for manifest in manifests)
 
     real_authorized_total = origin_counter.get("real_authorized", 0)
@@ -383,6 +385,14 @@ def build_openai_fine_tuning_dataset(
         blockers.append(f"训练样本不足：当前 train={len(train_records)} 条，最低需要 {min_training_samples} 条。")
     if not validation_records:
         warnings.append("当前样本不足以拆出 5 条 holdout/eval；可创建训练集前继续补样本。")
+    if validation_origin_counter.get("real_authorized", 0) < min_eval_samples:
+        blockers.append(
+            f"validation real_authorized samples are below minimum: {validation_origin_counter.get('real_authorized', 0)} < {min_eval_samples}"
+        )
+    if origin_counter.get("constructed", 0):
+        blockers.append(
+            "Real OpenAI fine-tuning jobs must not include constructed samples; use them only for preview or format validation."
+        )
     if rejected:
         warnings.append(f"已有 {len(rejected)} 条样本因未授权、未复核、含直接标识或反例原因被剔除。")
 
@@ -403,6 +413,8 @@ def build_openai_fine_tuning_dataset(
             "validation_samples": len(validation_records),
             "train_real_authorized_samples": train_origin_counter.get("real_authorized", 0),
             "train_constructed_samples": train_origin_counter.get("constructed", 0),
+            "validation_real_authorized_samples": validation_origin_counter.get("real_authorized", 0),
+            "validation_constructed_samples": validation_origin_counter.get("constructed", 0),
             "rejected_samples": len(rejected),
             "positions": dict(position_counter),
         },
@@ -425,7 +437,7 @@ def build_openai_fine_tuning_dataset(
         "train_records": train_records,
         "validation_records": validation_records,
         "train_manifests": train_manifests,
-        "validation_manifests": split["validation_manifests"],
+        "validation_manifests": validation_manifests,
     }
 
 
@@ -651,8 +663,22 @@ def validate_openai_fine_tuning_dataset_dir(
         errors.append(f"train sample count is below minimum: {len(train_records)} < {min_train}")
     if actual_counts.get("real_authorized", 0) < min_real:
         errors.append(f"real authorized sample count is below minimum: {actual_counts.get('real_authorized', 0)} < {min_real}")
+    if require_ready and actual_counts.get("constructed", 0):
+        errors.append(
+            f"constructed samples are not allowed for real OpenAI fine-tuning jobs: {actual_counts.get('constructed', 0)}"
+        )
     if require_validation and len(validation_records) < min_eval_samples:
         errors.append(f"validation sample count is below minimum for eval: {len(validation_records)} < {min_eval_samples}")
+    if require_validation:
+        validation_counts = Counter(item.get("sample_origin") for item in validation_manifests)
+        if validation_counts.get("real_authorized", 0) < min_eval_samples:
+            errors.append(
+                f"validation real_authorized sample count is below minimum for eval: {validation_counts.get('real_authorized', 0)} < {min_eval_samples}"
+            )
+        if validation_counts.get("constructed", 0):
+            errors.append(
+                f"validation split contains constructed samples that cannot prove real-model eval readiness: {validation_counts.get('constructed', 0)}"
+            )
 
     actual_fingerprint = _dataset_fingerprint(train_content, validation_content, manifest_content)
     expected_fingerprint = summary.get("dataset_fingerprint") or {}
@@ -762,12 +788,13 @@ def resolve_fine_tuned_model_for_eval(
     if preflight is not None:
         status_fingerprint = ((status.get("provenance") or {}).get("dataset_fingerprint") or {})
         current_fingerprint = preflight.get("dataset_fingerprint") or {}
-        if status_fingerprint:
-            for key, value in current_fingerprint.items():
-                if status_fingerprint.get(key) != value:
-                    raise OpenAIFineTuningDataError(
-                        f"job_status.json provenance dataset_fingerprint does not match current dataset: {key}"
-                    )
+        if not status_fingerprint:
+            raise OpenAIFineTuningDataError("job_status.json is missing provenance.dataset_fingerprint")
+        for key, value in current_fingerprint.items():
+            if status_fingerprint.get(key) != value:
+                raise OpenAIFineTuningDataError(
+                    f"job_status.json provenance dataset_fingerprint does not match current dataset: {key}"
+                )
     status_job = status.get("fine_tuning_job") or {}
     status_job_id = str(status.get("job_id") or status_job.get("id") or "")
     if status_job_id != job_id:

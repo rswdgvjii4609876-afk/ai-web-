@@ -791,9 +791,6 @@ async function handleUpload() {
   resumeEvidence.value = null
   evidenceSummary.value = []
   try {
-    const profile = await getProfile()
-    applyAiProfile(profile)
-
     // 切换到解析动画
     step.value = 'parsing'
     startTipRotation()

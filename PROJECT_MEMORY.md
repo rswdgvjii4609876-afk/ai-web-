@@ -1,5 +1,56 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-19 当前有效状态：阶段 167-171 全链条代码审查修复收口
+
+当前最高优先级是代码级质量收口，而不是继续扩展新页面或启动真实微调。六个子 agent 的审查结果已归并；与用户强制要求冲突的项（例如个人模式下基础隐私与数据贡献默认开启、简历润色页不展示隐私块）不反向修改，其余 P0 风险已尽量收口。
+
+本轮已完成的关键修复：
+- 禁用用户端和后台端 AWS 临时凭证导出接口，统一返回 410，避免把 STS key/secret/token 暴露给前端。
+- 收紧后台权限：案例列表/详情需要案例复核权限，用户列表/启停需要管理员管理权限，导出接口需要数据集导出权限。
+- 保护 root 管理员邮箱，非 root 管理员不能创建或抢占 `ROOT_ADMIN_EMAIL`。
+- 训练/评测导出忽略 `include_user_email` 参数，不再按请求返回用户邮箱。
+- PostgreSQL/Alembic 连接串改用 SQLAlchemy `URL.create`，避免生产随机密码含特殊字符时连接失败。
+- OpenAI SFT 真实 job preflight 加固：禁止 constructed 样本进入真实付费 job，强制 validation/holdout，缺少 provenance 或 fingerprint 不允许 eval，新增 `job_intent.json` 防重复付费创建。
+- RAG/岗位知识库在 high-risk claim 中默认只作为岗位校准参考；缺少候选人证据来源的 claim 不进入候选人真实证据链。
+- 面试回答坏 JSON 返回可诊断错误；面试消息接口返回 `status/current_question_index/total_questions`，前端刷新后可正确恢复已完成态。
+- 上传页不再在提交瞬间重新拉取 Profile 覆盖用户当前选择的 AI provider/model。
+- Competition Trace 文案降级为规则自检示例；OPC/Trace 隐藏路由保持公开只读，不出现在主导航。
+- 部署文档不再依赖 `.env.example`，健康检查改用宿主机 `curl 127.0.0.1:18001`，旧 stage79 脚本不再 `git reset --hard`，敏感 Redis/Celery 配置输出已脱敏。
+
+已验证：
+- `python -m compileall app migrations` 通过。
+- 后端全量 `python -m pytest -q`：193 passed, 1 skipped。
+- 用户端 `npm run build` 通过。
+- 后台端 `npm run build` 通过。
+- `git diff --check` 通过，仅有 CRLF 提示。
+
+仍不得宣称：C1/C2/C3 真实闭环已通过、真实 OpenAI SFT 已完成、已有 `fine_tuned_model`、构造/半合成样本是真实用户完整面试数据、Eval Preview 是真实模型实测效果。
+
+## 2026-05-19 最新有效主线：阶段 167-171 全链条代码审查、修复与复审闭环
+
+当前最高优先级已从 OPC 展示页推进到全链条代码级质量收口。6 个只读子 agent 分别审查后端安全、前端主链路、LLM/RAG、SFT 数据、比赛展示、部署测试；本轮按“数据安全与授权门禁 > 用户主链路稳定性 > LLM 证据边界 > SFT 门禁 > OPC 展示 > 部署文档”的顺序修复。
+
+本轮已处理的硬问题：
+- 禁用用户端/后台端直接返回 AWS 临时凭证的接口，改为 410，避免把 STS key/secret/token 暴露给前端。
+- 收紧后台权限：用户列表/启停必须具备管理员管理权限；案例列表/详情必须具备案例复核权限；训练/评测导出不再按参数返回用户邮箱。
+- 增加 root 邮箱保留保护，非 root 管理员不得创建或抢占 `ROOT_ADMIN_EMAIL`。
+- PostgreSQL 连接串改为 SQLAlchemy `URL.create`，避免生产随机密码包含 `@:/%` 时 FastAPI/Alembic 连接失败。
+- OpenAI SFT 真实 job 门禁改为不允许混入 constructed 样本，且必须具备真实授权 holdout/validation；创建付费 job 前强制 validation preflight，并写入 `job_intent.json` 防重复付费创建。
+- LLM 答题评估改为坏 JSON 先修复一次；非流式答题仍失败时返回可诊断错误，不直接 500。
+- RAG/岗位知识库在 high-risk claim 中默认只作为岗位校准来源；缺少候选人证据来源的 claim 不进入候选人真实证据链。
+- 上传页不再在点击上传瞬间重新拉取 Profile 覆盖用户已选择的 AI provider/model。
+- 比赛 Trace 页把 `agent_optimized` 降级为“规则自检示例”，避免被误解为真实模型效果。
+- 部署文档不再要求 `.env.example`；健康检查改为宿主机 `curl 127.0.0.1:18001`；发布手册改用阶段 138 验收脚本，不再推荐 `git reset --hard` 和 stage79。
+
+已完成本地验证：
+- `python -m compileall app migrations` 通过。
+- `python -m pytest tests/test_openai_fine_tuning_service.py tests/test_deployment_guardrails.py -q`：26 passed。
+- `python -m pytest tests/test_agent_orchestrator_competition.py tests/test_resume_polish_service.py tests/test_privacy_consent_service.py -q`：42 passed。
+- 用户端 `npm run build` 通过。
+- 后台端 `npm run build` 通过。
+
+仍不得宣称：C1/C2/C3 真实闭环已通过、真实 OpenAI SFT 已完成、已有 `fine_tuned_model`、构造/半合成样本是真实用户完整面试数据、Eval Preview 是真实模型实测效果。
+
 ## 2026-05-18 最新有效主线：阶段 166.4.1 沙盘演示页评委化重构与导航隐藏
 
 当前唯一有效执行线以本节为准；下方早期“最新主线/置顶执行线”均保留为历史记录，不再作为下一步执行依据。

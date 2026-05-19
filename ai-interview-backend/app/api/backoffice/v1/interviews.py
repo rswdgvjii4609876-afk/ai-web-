@@ -9,7 +9,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.backoffice.deps import (
-    get_current_admin,
     require_case_reviewer_admin,
     require_dataset_export_admin,
     require_record_delete_admin,
@@ -52,7 +51,7 @@ async def list_interviews(
     per_page: int = 20,
     status: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_case_reviewer_admin),
 ):
     """List interview records for backoffice review."""
     query = (
@@ -100,6 +99,7 @@ async def export_training_samples(
 ):
     """Export completed interviews as versioned training samples."""
     safe_limit = min(max(int(limit or 20), 1), 100)
+    include_user_email = False
     samples = await interview_service.get_completed_training_samples(
         db=db,
         include_user_email=include_user_email,
@@ -114,7 +114,7 @@ async def export_training_samples(
             "total": len(samples),
             "limit": safe_limit,
             "min_score": min_score,
-            "pii_included": include_user_email,
+            "pii_included": False,
         }
     )
 
@@ -126,6 +126,7 @@ async def get_evaluation_dataset_preview(
     current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Preview offline evaluation datasets derived from reviewed interview samples."""
+    include_user_email = False
     try:
         samples = await interview_service.get_completed_training_samples(
             db=db,
@@ -164,6 +165,7 @@ async def export_evaluation_datasets(
     current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export offline evaluation datasets as ZIP + JSONL files."""
+    include_user_email = False
     try:
         samples = await interview_service.get_completed_training_samples(
             db=db,
@@ -209,6 +211,7 @@ async def export_fine_tuning_samples(
     current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export reviewed authorized samples as JSONL for future fine-tuning preparation."""
+    include_user_email = False
     try:
         samples = await interview_service.get_completed_training_samples(
             db=db,
@@ -240,6 +243,7 @@ async def export_fine_tuning_readiness_report(
     current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export a Markdown readiness report for future fine-tuning preparation."""
+    include_user_email = False
     try:
         samples = await interview_service.get_completed_training_samples(
             db=db,
@@ -268,7 +272,7 @@ async def export_fine_tuning_readiness_report(
 async def get_interview_detail(
     interview_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_case_reviewer_admin),
 ):
     """Get one interview record with messages and report."""
     interview = await db.get(Interview, interview_id)
@@ -360,6 +364,7 @@ async def get_interview_training_sample(
     current_admin: Admin = Depends(require_dataset_export_admin),
 ):
     """Export one interview as a versioned training sample."""
+    include_user_email = False
     result = await db.execute(
         select(Interview, User.email)
         .join(User, Interview.user_id == User.id)

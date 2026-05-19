@@ -102,9 +102,11 @@ git push origin main
 ```bash
 cd /opt/apps/ai-interview
 git fetch origin
-git reset --hard origin/main
-bash scripts/stage79_server_verify.sh --deploy
+git pull --ff-only
+bash scripts/stage138_server_closed_loop_verify.sh --deploy --readiness-only
 ```
+
+说明：生产发布默认使用阶段 138 验收脚本。`stage79_server_verify.sh` 只作为旧脚本保留，不再推荐用于生产发布；发布手册不再使用 `git reset --hard`，避免误删服务器未备份文件。
 
 脚本会执行：
 
@@ -120,13 +122,13 @@ bash scripts/stage79_server_verify.sh --deploy
 
 ```bash
 cd /opt/apps/ai-interview
-bash scripts/stage79_server_verify.sh
+bash scripts/stage138_server_closed_loop_verify.sh --readiness-only
 ```
 
 如果要把报告写到指定位置：
 
 ```bash
-bash scripts/stage79_server_verify.sh --deploy --report docs/competition/server_validation_reports/$(date +%Y%m%d_%H%M%S)_stage79.md
+bash scripts/stage138_server_closed_loop_verify.sh --deploy --readiness-only --report docs/competition/server_validation_reports/$(date +%Y%m%d_%H%M%S)_stage138.md
 ```
 
 报告中会记录：执行前后提交、公共岗位画像数量、知识切片数量、HTTP 检查结果、最近后端关键日志和人工验收入口。若脚本返回 `FAIL`，先处理报告里第一条失败项。
