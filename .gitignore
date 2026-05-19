@@ -39,6 +39,39 @@ docs/competition/renders/
 docs/competition/openai_fine_tuning_runs/
 ai-interview-backend/docker-compose-linux-x86_64
 
+# Archived competition materials kept outside the repository
+docs/competition/chatgpt_sft_analysis_pack/
+docs/competition/成员资料/
+docs/competition/申报书/
+docs/competition/职启智评_比赛版Agent改造包_2026-05-17/
+docs/competition/职启智评_OPC超级个体备赛包_2026-05-17/
+docs/competition/AI评分与人工评分对比_初赛版.xlsx
+docs/competition/Harvard-College-CS-Resume-Example.pdf
+docs/competition/PPT主线.md
+docs/competition/PPT页面大纲.md
+docs/competition/三分钟讲稿.md
+docs/competition/八分钟讲稿.md
+docs/competition/技术深度升级路线.md
+docs/competition/数据集与岗位知识库建设手册.md
+docs/competition/测试案例与人工评分对比.md
+docs/competition/演示流程检查表.md
+docs/competition/演示脚本.md
+docs/competition/真实案例测试记录_初赛版.xlsx
+docs/competition/答辩问答库.md
+docs/competition/职启智评_Career-AgentOS答辩PPT当前状态汇总.md
+docs/competition/职启智评_Career-AgentOS答辩PPT评委审查与优化记录.md
+docs/competition/职启智评_大模型微调与答辩展示升级方案.md
+docs/competition/职启智评初赛答辩演讲稿_演讲优化版.docx
+docs/competition/职启智评操作手册.md
+docs/competition/职启智评项目背景与成员招募说明.md
+docs/competition/评委点评整理_正式版.md
+docs/competition/评委问答库.md
+docs/competition/通俗手册_原项目改了什么创新点在哪.md
+docs/competition/阶段3岗位画像候选稿.md
+docs/competition/院内报名表_填写前备份.docx
+docs/competition/院内报名表填写稿.md
+docs/competition/项目说明书.md
+
 # OS / editor
 .DS_Store
 Thumbs.db
