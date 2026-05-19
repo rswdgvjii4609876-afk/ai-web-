@@ -37,17 +37,18 @@ import_all_models()
 config = context.config
 
 # 使用项目的数据库 URL 覆盖 alembic.ini 中的配置
-config.set_main_option(
-    "sqlalchemy.url",
-    URL.create(
-        "postgresql+psycopg2",
-        username=settings.POSTGRES_USER,
-        password=settings.POSTGRES_PASSWORD,
-        host=settings.POSTGRES_HOST,
-        port=settings.POSTGRES_PORT,
-        database=settings.POSTGRES_DB,
-    ).render_as_string(hide_password=False),
-)
+database_url = URL.create(
+    "postgresql+psycopg2",
+    username=settings.POSTGRES_USER,
+    password=settings.POSTGRES_PASSWORD,
+    host=settings.POSTGRES_HOST,
+    port=settings.POSTGRES_PORT,
+    database=settings.POSTGRES_DB,
+).render_as_string(hide_password=False)
+
+# Alembic stores this value in ConfigParser; percent-encoded passwords such as
+# "%23" must escape "%" for ConfigParser interpolation.
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # 解析配置文件中的 Python 日志设置
 if config.config_file_name is not None:
