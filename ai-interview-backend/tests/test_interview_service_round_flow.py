@@ -53,6 +53,208 @@ def test_deterministic_question_fallback_generates_normalizable_questions():
 
 
 @pytest.mark.unit
+def test_blueprint_priority_stays_out_of_question_intent():
+    question_plan = InterviewService._build_question_plan(total_questions=4, difficulty="medium")
+    enriched = InterviewService._apply_blueprint_to_question_plan(
+        question_plan=question_plan,
+        interview_blueprint={
+            "priority_question_tracks": [
+                {
+                    "track": "追问表述模糊的经历，确认候选人是主导、负责还是参与支持",
+                    "requirement_status": "weak",
+                    "reason": "candidate ownership needs verification",
+                    "evidence_ids": [1],
+                }
+            ],
+            "training_focus": ["验证项目主导程度"],
+            "blueprint_evidence": {"resume_evidence_summary": ["HireMate project"]},
+        },
+    )
+
+    assert enriched[0]["blueprint_track"]
+    assert "Blueprint priority" not in enriched[0]["intent"]
+
+
+@pytest.mark.unit
+def test_deterministic_question_fallback_does_not_expose_internal_intent():
+    question_plan = InterviewService._build_question_plan(total_questions=5, difficulty="hard")
+    question_plan[3]["intent"] = (
+        "Assess boundary awareness and trade-offs under pressure. "
+        "Blueprint priority: 追问表述模糊的经历。"
+    )
+    question_plan[4]["intent"] = (
+        "Place the candidate in a realistic business scenario to test execution quality."
+    )
+
+    raw_questions = InterviewService._build_deterministic_question_fallback(
+        question_plan=question_plan,
+        parsed_resume={"projects": [{"title": "HireMate"}]},
+        target_position="Python后端开发工程师",
+        total_questions=5,
+    )
+    visible_text = "\n".join(item["question"] for item in raw_questions)
+
+    assert "Blueprint priority" not in visible_text
+    assert "Assess boundary awareness" not in visible_text
+    assert "Place the candidate" not in visible_text
+
+
+@pytest.mark.unit
+def test_all_question_template_intents_are_treated_as_internal_prompt_text():
+    from app.services.client.interview_service import QUESTION_TEMPLATES
+
+    for item in QUESTION_TEMPLATES.values():
+        assert InterviewService._question_has_internal_prompt_leak(item["intent"])
+
+
+@pytest.mark.unit
+def test_normalize_questions_redacts_internal_prompt_leak():
+    question_plan = InterviewService._build_question_plan(total_questions=2, difficulty="medium")
+    raw_questions = [
+        {
+            "question": "Blueprint priority: 追问表述模糊的经历，确认候选人是主导、负责还是参与支持。",
+            "category": "scenario",
+        },
+        {
+            "question": "Place the candidate in a realistic business scenario to test execution quality.",
+            "category": "scenario",
+        },
+    ]
+
+    normalized = InterviewService._normalize_questions(
+        raw_questions=raw_questions,
+        question_plan=question_plan,
+        interview_mode="single",
+    )
+
+    for item in normalized:
+        assert "Blueprint priority" not in item["question"]
+        assert "Place the candidate" not in item["question"]
+        assert item["panel_context"]["metadata"]["question_sanitized_reason"] == "internal_prompt_leak"
+        assert item["panel_context"]["metadata"]["original_question_redacted"] is True
+
+
+@pytest.mark.unit
+def test_normalize_questions_redacts_new_routing_context_labels():
+    question_plan = InterviewService._build_question_plan(total_questions=2, difficulty="medium")
+    raw_questions = [
+        {
+            "question": (
+                "Plan #1: step=scenario, type=system-design, lead_role=interviewer, "
+                "assessment_points: boundary awareness, priority: verify ownership."
+            ),
+            "question_target_gap": "goal: hidden routing objective",
+            "question_reason": "Interview routing context: internal plan",
+            "selected_followups": ["used_slice_ids=[1,2]", "Please describe one concrete example."],
+        },
+        {
+            "question": "Internal panel mode enabled. Moderator name: chief interviewer. focus=ownership.",
+            "panel_context": {
+                "moderator": {
+                    "selected_question": "Internal roles: Lead role: coach. Support roles: evaluator.",
+                    "selected_followups": ["selected_questions: hidden", "Please continue with specifics."],
+                }
+            },
+        },
+    ]
+
+    normalized = InterviewService._normalize_questions(
+        raw_questions=raw_questions,
+        question_plan=question_plan,
+        interview_mode="panel",
+    )
+
+    for item in normalized:
+        assert not InterviewService._question_has_internal_prompt_leak(item["question"])
+        assert not InterviewService._question_has_internal_prompt_leak(item.get("question_target_gap"))
+        assert not InterviewService._question_has_internal_prompt_leak(item.get("question_reason"))
+        assert item["panel_context"]["metadata"]["question_sanitized_reason"] == "internal_prompt_leak"
+    assert normalized[0]["selected_followups"] == ["Please describe one concrete example."]
+    assert normalized[1]["panel_context"]["moderator"]["selected_followups"] == ["Please continue with specifics."]
+    assert not InterviewService._question_has_internal_prompt_leak(
+        normalized[1]["panel_context"]["moderator"]["selected_question"]
+    )
+
+
+@pytest.mark.unit
+def test_normalize_questions_sanitizes_derived_visible_fields_and_panel_context():
+    question_plan = InterviewService._build_question_plan(total_questions=1, difficulty="medium")
+    question_plan[0]["intent"] = "Assess boundary awareness and trade-offs under pressure."
+    raw_questions = [
+        {
+            "question": "请介绍一个你主导的项目。",
+            "question_target_gap": "evaluation_focus: hidden internal rubric",
+            "question_reason": "Question plan: internal moderator note",
+            "selected_followups": [
+                "Blueprint priority: verify ambiguous ownership claims.",
+                "请补充一个具体取舍。",
+            ],
+            "panel_context": {
+                "moderator": {
+                    "selected_question": "Place the candidate in a realistic business scenario.",
+                    "selected_followups": ["selected_followups: hidden", "请继续说明。"],
+                }
+            },
+        }
+    ]
+
+    normalized = InterviewService._normalize_questions(
+        raw_questions=raw_questions,
+        question_plan=question_plan,
+        interview_mode="panel",
+    )
+    item = normalized[0]
+
+    assert not InterviewService._question_has_internal_prompt_leak(item["question"])
+    assert not InterviewService._question_has_internal_prompt_leak(item.get("question_target_gap"))
+    assert not InterviewService._question_has_internal_prompt_leak(item.get("question_reason"))
+    assert item["selected_followups"] == ["请补充一个具体取舍。"]
+    assert not InterviewService._question_has_internal_prompt_leak(
+        item["panel_context"]["moderator"]["selected_question"]
+    )
+    assert item["panel_context"]["moderator"]["selected_followups"] == ["请继续说明。"]
+    assert item["panel_context"]["metadata"]["question_sanitized_reason"] == "internal_prompt_leak"
+
+
+@pytest.mark.unit
+def test_round_evaluation_public_fields_sanitize_raw_next_best_followup():
+    evaluation = {
+        "selected_followups": [
+            "Blueprint priority: verify ambiguous ownership claims.",
+            "请补充一个具体取舍。",
+        ],
+        "next_best_followup": {
+            "question": "Assess boundary awareness and trade-offs under pressure.",
+            "reason": "Question plan: internal moderator note",
+            "target_gap": "evaluation_focus: hidden internal rubric",
+            "target_evidence": ["schema: hidden", "候选人提到了项目取舍。"],
+        },
+        "moderator": {
+            "selected_followups": ["selected_followups: hidden", "请继续说明。"],
+            "next_best_followup": {
+                "question": "Place the candidate in a realistic business scenario.",
+                "reason": "Question reason: hidden",
+            },
+        },
+        "unresolved_gaps": ["evaluation_focus: hidden", "缺少量化结果"],
+    }
+
+    cleaned = InterviewService._sanitize_round_evaluation_public_fields(
+        evaluation,
+        fallback_question="请补充一个具体例子。",
+    )
+
+    assert cleaned["selected_followups"] == ["请补充一个具体取舍。"]
+    assert cleaned["next_best_followup"]["question"] == "请补充一个具体例子。"
+    assert cleaned["next_best_followup"].get("reason") is None
+    assert cleaned["next_best_followup"].get("target_gap") is None
+    assert cleaned["next_best_followup"]["target_evidence"] == ["候选人提到了项目取舍。"]
+    assert cleaned["moderator"]["selected_followups"] == ["请继续说明。"]
+    assert cleaned["moderator"]["next_best_followup"]["question"] == "请补充一个具体例子。"
+    assert cleaned["unresolved_gaps"] == ["缺少量化结果"]
+
+
+@pytest.mark.unit
 def test_merge_report_defaults_diagnoses_non_object_report_payload():
     report = InterviewService._merge_report_defaults(
         report=["bad"],
@@ -131,6 +333,55 @@ def test_apply_followup_to_next_question_rewrites_next_round_with_moderator_choi
     assert rewritten["question_reason"] == "Need to verify whether the candidate can explain the degradation decision in concrete terms."
     assert rewritten["panel_context"]["moderator"]["next_best_followup"]["evidence_source_ids"] == [21]
     assert rewritten["panel_context"]["moderator"]["selected_question"] == rewritten["question"]
+
+
+@pytest.mark.unit
+def test_apply_followup_to_next_question_redacts_internal_prompt_leaks():
+    current_question_meta = {
+        "index": 3,
+        "question": "Describe your project ownership.",
+        "intent": "Assess ownership.",
+        "panel_context": {"moderator": {}},
+    }
+    next_question_meta = {
+        "index": 4,
+        "question": "Original next question",
+        "category": "scenario",
+    }
+    evaluation = {
+        "moderator": {
+            "selected_followups": [
+                "Blueprint priority: verify ambiguous ownership claims.",
+                "Please describe one concrete implementation trade-off.",
+                "Which production signal would you watch first?",
+            ],
+            "next_best_followup": {
+                "question": "Assess boundary awareness and trade-offs under pressure.",
+                "target_gap": "evaluation_focus: hidden internal rubric",
+                "reason": "Question plan: internal moderator note",
+            },
+        }
+    }
+
+    rewritten = InterviewService._apply_followup_to_next_question(
+        current_question_meta=current_question_meta,
+        next_question_meta=next_question_meta,
+        evaluation=evaluation,
+    )
+
+    assert rewritten["question"] == "Please describe one concrete implementation trade-off."
+    assert rewritten["selected_followups"] == ["Which production signal would you watch first?"]
+    assert not InterviewService._question_has_internal_prompt_leak(rewritten["question"])
+    assert not InterviewService._question_has_internal_prompt_leak(
+        rewritten["panel_context"]["moderator"]["next_best_followup"]["question"]
+    )
+    assert not InterviewService._question_has_internal_prompt_leak(rewritten.get("question_target_gap"))
+    assert not InterviewService._question_has_internal_prompt_leak(rewritten.get("question_reason"))
+    assert (
+        rewritten["panel_context"]["metadata"]["question_sanitized_reason"]
+        == "internal_prompt_leak"
+    )
+    assert rewritten["panel_context"]["metadata"]["original_question_redacted"] is True
 
 
 @pytest.mark.unit
@@ -291,6 +542,67 @@ def test_reroute_question_slices_and_report_signals_capture_round_metadata():
 
 
 @pytest.mark.unit
+def test_reroute_question_slices_sanitizes_rederived_public_fields():
+    question_meta = {
+        "index": 1,
+        "question": "Please describe one concrete backend trade-off.",
+        "stage": "scenario",
+        "lead_role": "technical_deep_dive",
+        "category": "system-design",
+        "intent": "Plan #1: step=scenario, type=system-design, lead_role=technical_deep_dive",
+        "evaluation_focus": ["Interview routing context: internal assessment_points"],
+        "question_target_gap": "Candidate evidence target: hidden routing objective",
+        "question_reason": "Lead role: hidden internal role",
+    }
+    knowledge_base = {
+        "slices": [
+            {
+                "slice_id": 21,
+                "title": "Backend trade-off",
+                "content": "Discuss latency, reliability, async tasks, Redis, and PostgreSQL trade-offs.",
+                "priority": 8,
+                "stage_tags": ["scenario"],
+                "role_tags": ["technical_deep_dive"],
+                "scene_tags": ["system-design"],
+                "topic_tags": ["Python Backend Engineer"],
+                "skill_tags": ["redis", "postgresql"],
+                "keywords": ["latency", "reliability", "async"],
+                "difficulty": "medium",
+                "is_enabled": True,
+            }
+        ]
+    }
+
+    routed = InterviewService._reroute_question_slices(
+        question_meta=question_meta,
+        knowledge_base=knowledge_base,
+        parsed_resume={"skills": ["redis"], "projects": ["backend service"]},
+        target_position="Python Backend Engineer",
+        difficulty="medium",
+        context_terms=["latency"],
+    )
+
+    assert not InterviewService._question_has_internal_prompt_leak(routed["question"])
+    assert not InterviewService._question_has_internal_prompt_leak(routed.get("question_target_gap"))
+    assert not InterviewService._question_has_internal_prompt_leak(routed.get("question_reason"))
+    assert 21 in routed["used_slice_ids"]
+
+
+@pytest.mark.unit
+def test_internal_evaluation_labels_are_treated_as_prompt_leaks():
+    leaked_values = [
+        "candidate_evidence_or_verification_reason: hidden",
+        "Requirement status: weak",
+        "Candidate evidence / verification reason: hidden",
+        "Candidate evidence target: ownership",
+        "Suggested followups: ask about the private plan",
+    ]
+
+    for value in leaked_values:
+        assert InterviewService._question_has_internal_prompt_leak(value)
+
+
+@pytest.mark.unit
 def test_route_question_plan_accepts_structured_resume_sections():
     question_plan = InterviewService._build_question_plan(total_questions=2, difficulty="medium")
     knowledge_base = {
@@ -445,7 +757,8 @@ def test_apply_blueprint_to_question_plan_adds_track_and_traceable_fields():
     assert enriched[0]["blueprint_requirement_status"] == "weak"
     assert enriched[0]["blueprint_evidence_ids"] == [31, 32]
     assert enriched[0]["blueprint_evidence_summary"]
-    assert "Project ownership verification" in enriched[0]["intent"]
+    assert "Project ownership verification" not in enriched[0]["intent"]
+    assert "Project ownership verification" in enriched[0]["evaluation_focus"]
     assert "Led a platform rebuild" in enriched[0]["selected_followups"]
 
 

@@ -598,7 +598,6 @@ class InterviewService:
             if not track_name and training_focus:
                 track_name = training_focus[min(index, len(training_focus) - 1)]
             if track_name:
-                base_intent = str(next_item.get("intent") or "").strip()
                 candidate_summary_seed = [track_reason] if track_reason and track_ids else []
                 role_summary_seed = [track_reason] if track_reason and not track_ids else []
                 next_item["blueprint_track"] = track_name
@@ -612,11 +611,6 @@ class InterviewService:
                 next_item["blueprint_role_calibration_summary"] = InterviewService._unique_strings(
                     [*role_summary_seed, *global_role_calibration_summary],
                     limit=3,
-                )
-                next_item["intent"] = (
-                    f"{base_intent} Blueprint priority: {track_name}."
-                    if base_intent
-                    else f"Blueprint priority: {track_name}."
                 )
                 next_item["evaluation_focus"] = InterviewService._unique_strings(
                     [
@@ -1003,6 +997,355 @@ class InterviewService:
         return ""
 
     @staticmethod
+    def _question_has_internal_prompt_leak(text: Any) -> bool:
+        value = str(text or "")
+        if not value.strip():
+            return False
+        patterns = (
+            r"Blueprint\s+priority",
+            r"blueprint[_\s-]*track",
+            r"blueprint[_\s-]*priority",
+            r"role[_\s-]*calibration",
+            r"Assess\s+boundary",
+            r"Place\s+the\s+candidate",
+            r"Question\s+plan",
+            r"Question\s+reason",
+            r"Question\s+target\s+gap",
+            r"Evaluation\s+focus",
+            r"Interview\s+routing\s+context",
+            r"Interview\s+blueprint",
+            r"Internal\s+panel",
+            r"Internal\s+roles",
+            r"Moderator\s+name",
+            r"Plan\s*#",
+            r"Lead\s+role",
+            r"Support\s+roles",
+            r"Requirement\s+status",
+            r"Candidate\s+evidence",
+            r"Suggested\s+followups",
+            r"question_plan",
+            r"candidate_evidence",
+            r"verification_reason",
+            r"stage/category/intent",
+            r"lead_role",
+            r"support_roles",
+            r"assessment_points",
+            r"selected_questions",
+            r"used_slice_ids",
+            r"routed[_\s-]*slice",
+            r"routed\s+slices",
+            r"evaluation_focus",
+            r"selected_followups",
+            r"chain[-\s]?of[-\s]?thought",
+            r"Use\s+the\s+self[-\s]?introduction",
+            r"Deep[-\s]?dive\s+the\s+most\s+important\s+project",
+            r"Validate\s+mastery\s+of\s+core\s+knowledge",
+            r"Evaluate\s+collaboration",
+            r"Use\s+debugging\s+or\s+optimization",
+            r"Further\s+verify\s+role\s+boundaries",
+            r"Use\s+business\s+changes",
+            r"Close\s+the\s+interview",
+            r"Probe\s+technical\s+depth",
+            r"\b(stage|category|intent|moderator|schema|step|type|goal|priority|focus|blueprint)\b\s*[:=]",
+        )
+        return any(re.search(pattern, value, flags=re.IGNORECASE) for pattern in patterns)
+
+    @staticmethod
+    def _safe_visible_text(text: Any, fallback: Optional[str] = None) -> Optional[str]:
+        if text is None:
+            return None
+        value = str(text).strip()
+        if not value:
+            return ""
+        if InterviewService._question_has_internal_prompt_leak(value):
+            return fallback
+        return value
+
+    @staticmethod
+    def _sanitize_public_payload(
+        payload: Any,
+        fallback_question: Optional[str] = None,
+        key_name: Optional[str] = None,
+    ) -> Any:
+        if isinstance(payload, dict):
+            cleaned = {}
+            for key, value in payload.items():
+                cleaned_value = InterviewService._sanitize_public_payload(
+                    value,
+                    fallback_question=fallback_question,
+                    key_name=str(key),
+                )
+                if cleaned_value is None:
+                    continue
+                cleaned[key] = cleaned_value
+            return cleaned
+        if isinstance(payload, list):
+            cleaned_items = []
+            for item in payload:
+                cleaned_item = InterviewService._sanitize_public_payload(
+                    item,
+                    fallback_question=fallback_question,
+                    key_name=key_name,
+                )
+                if cleaned_item is None:
+                    continue
+                if isinstance(cleaned_item, str) and not cleaned_item.strip():
+                    continue
+                cleaned_items.append(cleaned_item)
+            return cleaned_items
+        if isinstance(payload, str):
+            if InterviewService._question_has_internal_prompt_leak(payload):
+                if key_name in {"question", "selected_question"} and fallback_question:
+                    return fallback_question
+                return None
+            return payload
+        return payload
+
+    @staticmethod
+    def _safe_visible_list(items: Any) -> List[str]:
+        if not items:
+            return []
+        if isinstance(items, str):
+            items = [items]
+        result = []
+        for item in items or []:
+            value = InterviewService._safe_visible_text(item)
+            if value:
+                result.append(value)
+        return result
+
+    @staticmethod
+    def _sanitize_followup_payload(payload: Any, fallback_question: str) -> Optional[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return None
+        cleaned = dict(payload)
+        if InterviewService._question_has_internal_prompt_leak(cleaned.get("question")):
+            cleaned["question"] = fallback_question
+        for key in ("reason", "target_gap", "next_focus"):
+            if InterviewService._question_has_internal_prompt_leak(cleaned.get(key)):
+                cleaned[key] = None
+        for key in ("target_evidence", "evidence_source_summary", "selected_followups"):
+            if key in cleaned:
+                cleaned[key] = InterviewService._safe_visible_list(cleaned.get(key))
+        return cleaned
+
+    @staticmethod
+    def _sanitize_panel_context(
+        panel_context: Any,
+        fallback_question: str,
+    ) -> tuple[Dict[str, Any], bool]:
+        if not isinstance(panel_context, dict):
+            return {}, False
+        sanitized = False
+        context = dict(panel_context)
+        moderator = dict(context.get("moderator") or {})
+        if moderator:
+            if InterviewService._question_has_internal_prompt_leak(moderator.get("selected_question")):
+                moderator["selected_question"] = fallback_question
+                sanitized = True
+            raw_followups = moderator.get("selected_followups") or []
+            safe_followups = InterviewService._safe_visible_list(raw_followups)
+            if safe_followups != (raw_followups if isinstance(raw_followups, list) else [raw_followups]):
+                sanitized = True
+            moderator["selected_followups"] = safe_followups
+            if isinstance(moderator.get("next_best_followup"), dict):
+                cleaned_followup = InterviewService._sanitize_followup_payload(
+                    moderator.get("next_best_followup"),
+                    fallback_question=fallback_question,
+                )
+                if cleaned_followup != moderator.get("next_best_followup"):
+                    sanitized = True
+                moderator["next_best_followup"] = cleaned_followup
+            context["moderator"] = moderator
+
+        panel_items = []
+        for item in context.get("panel") or []:
+            if not isinstance(item, dict):
+                continue
+            panel_item = dict(item)
+            for key in ("question_candidates", "followup_candidates"):
+                if key in panel_item:
+                    safe_values = InterviewService._safe_visible_list(panel_item.get(key))
+                    if safe_values != panel_item.get(key):
+                        sanitized = True
+                    panel_item[key] = safe_values
+            panel_items.append(panel_item)
+        if panel_items:
+            context["panel"] = panel_items
+
+        if sanitized:
+            metadata = dict(context.get("metadata") or {})
+            metadata["question_sanitized_reason"] = "internal_prompt_leak"
+            metadata["original_question_redacted"] = True
+            context["metadata"] = metadata
+        context = InterviewService._sanitize_public_payload(
+            context,
+            fallback_question=fallback_question,
+        )
+        return context, sanitized
+
+    @staticmethod
+    def _sanitize_question_public_fields(question_meta: Dict) -> Dict:
+        meta = dict(question_meta or {})
+        sanitized = False
+        question_text = str(meta.get("question") or "").strip()
+        if InterviewService._question_has_internal_prompt_leak(question_text):
+            category, fallback_question = InterviewService._safe_question_text_for_plan(
+                index=int(meta.get("index") or 0),
+                plan=meta,
+                position_label="目标岗位",
+            )
+            meta["question"] = fallback_question
+            meta["category"] = meta.get("category") or category
+            question_text = fallback_question
+            sanitized = True
+
+        for key in ("question_target_gap", "question_reason", "panel_reasoning_summary"):
+            if InterviewService._question_has_internal_prompt_leak(meta.get(key)):
+                meta[key] = None
+                sanitized = True
+        if InterviewService._question_has_internal_prompt_leak(meta.get("feedback")):
+            meta["feedback"] = ""
+            sanitized = True
+
+        for key in ("selected_followups", "question_target_evidence", "evidence_summary"):
+            if key in meta:
+                safe_values = InterviewService._safe_visible_list(meta.get(key))
+                if safe_values != meta.get(key):
+                    sanitized = True
+                meta[key] = safe_values
+
+        if isinstance(meta.get("evaluation"), dict):
+            meta["evaluation"] = InterviewService._sanitize_round_evaluation_public_fields(
+                meta.get("evaluation") or {},
+                fallback_question=question_text or "请继续补充一个具体例子。",
+            )
+
+        panel_context, panel_sanitized = InterviewService._sanitize_panel_context(
+            meta.get("panel_context") or {},
+            fallback_question=question_text or "请继续补充一个具体例子。",
+        )
+        if panel_context:
+            meta["panel_context"] = panel_context
+        sanitized = sanitized or panel_sanitized
+        if sanitized:
+            panel_context = dict(meta.get("panel_context") or {})
+            metadata = dict(panel_context.get("metadata") or {})
+            metadata["question_sanitized_reason"] = "internal_prompt_leak"
+            metadata["original_question_redacted"] = True
+            panel_context["metadata"] = metadata
+            meta["panel_context"] = panel_context
+        return meta
+
+    @staticmethod
+    def _sanitize_round_evaluation_public_fields(
+        evaluation: Dict,
+        fallback_question: str,
+    ) -> Dict:
+        cleaned = dict(evaluation or {})
+        cleaned["selected_followups"] = InterviewService._safe_visible_list(
+            cleaned.get("selected_followups") or []
+        )
+        cleaned["feedback"] = InterviewService._safe_visible_text(cleaned.get("feedback"))
+        cleaned["strengths"] = InterviewService._safe_visible_list(cleaned.get("strengths") or [])
+        cleaned["gaps"] = InterviewService._safe_visible_list(cleaned.get("gaps") or [])
+        cleaned["next_focus"] = InterviewService._safe_visible_text(cleaned.get("next_focus"))
+        if isinstance(cleaned.get("moderator"), dict):
+            moderator = dict(cleaned.get("moderator") or {})
+            moderator["selected_followups"] = InterviewService._safe_visible_list(
+                moderator.get("selected_followups") or []
+            )
+            moderator["reasoning_summary"] = InterviewService._safe_visible_text(
+                moderator.get("reasoning_summary")
+            )
+            moderator["difficulty_hint"] = InterviewService._safe_visible_text(
+                moderator.get("difficulty_hint")
+            )
+            if isinstance(moderator.get("next_best_followup"), dict):
+                moderator["next_best_followup"] = InterviewService._sanitize_followup_payload(
+                    moderator.get("next_best_followup"),
+                    fallback_question=fallback_question,
+                )
+            cleaned["moderator"] = moderator
+        if isinstance(cleaned.get("next_best_followup"), dict):
+            cleaned["next_best_followup"] = InterviewService._sanitize_followup_payload(
+                cleaned.get("next_best_followup"),
+                fallback_question=fallback_question,
+            )
+        for key in ("unresolved_gaps",):
+            cleaned[key] = InterviewService._safe_visible_list(cleaned.get(key) or [])
+        for key in ("evidence_strength_delta", "claim_confidence_change"):
+            safe_items = []
+            for item in cleaned.get(key) or []:
+                if not isinstance(item, dict):
+                    continue
+                safe_item = dict(item)
+                for text_key in ("evidence", "reason", "claim"):
+                    if text_key in safe_item:
+                        safe_item[text_key] = InterviewService._safe_visible_text(safe_item.get(text_key))
+                safe_items.append(safe_item)
+            cleaned[key] = safe_items
+        cleaned = InterviewService._sanitize_public_payload(
+            cleaned,
+            fallback_question=fallback_question,
+        )
+        return cleaned
+
+    @staticmethod
+    def _safe_question_text_for_plan(
+        *,
+        index: int,
+        plan: Dict,
+        position_label: str,
+        evidence_hint: Optional[str] = None,
+    ) -> tuple[str, str]:
+        safe_position = position_label or "目标岗位"
+        safe_evidence = evidence_hint or "简历中最相关的一段经历"
+        stage = str((plan or {}).get("stage") or "").strip().lower()
+        category = str((plan or {}).get("category") or "").strip().lower()
+        key = stage or category
+
+        if index == 0 or key == "opening" or category == "self-intro":
+            return (
+                "self-intro",
+                f"请先做一个简短自我介绍，说明你为什么匹配{safe_position}，并指出简历里最能支撑这个岗位的一段经历。",
+            )
+        if index == 1 or key == "project" or "project" in category:
+            return (
+                "project",
+                f"请围绕“{safe_evidence}”展开说明：当时的场景是什么，你具体做了什么，最后形成了什么结果？",
+            )
+        if index == 2 or key == "gap":
+            return (
+                "gap",
+                f"结合{safe_position}的要求，你认为自己当前最需要补强的能力是什么？接下来会如何学习和验证？",
+            )
+        if key == "technical" or "technical" in category:
+            return (
+                "technical",
+                "请结合一个具体项目说明你如何拆解技术问题、选择方案并验证结果，重点说明你自己的判断依据。",
+            )
+        if key == "scenario" or "scenario" in category:
+            return (
+                "scenario",
+                f"假设你在{safe_position}工作中遇到需求变化或资源受限，请结合一个具体经历说明你会如何做取舍。",
+            )
+        if key == "behavior" or "behavior" in category:
+            return (
+                "behavior",
+                "请举一个你与他人协作或独立推进任务的例子，说明你如何沟通、推进和复盘。",
+            )
+        if key == "closing":
+            return (
+                "closing",
+                f"如果入职{safe_position}，你前三个月会如何补齐短板并证明自己能胜任？",
+            )
+        return (
+            "followup",
+            f"请补充一个与{safe_position}相关的具体例子，说明你的行动、判断依据和复盘改进。",
+        )
+
+    @staticmethod
     def _build_deterministic_question_fallback(
         *,
         question_plan: Sequence[Dict],
@@ -1041,6 +1384,18 @@ class InterviewService:
                 f"结合{position_label}的要求，你认为自己当前最需要补强的能力是什么？接下来会如何学习和验证？",
             ),
         ]
+
+        while len(templates) < count:
+            extra_index = len(templates)
+            extra_plan = dict(question_plan[extra_index]) if extra_index < len(question_plan) else {}
+            templates.append(
+                InterviewService._safe_question_text_for_plan(
+                    index=extra_index,
+                    plan=extra_plan,
+                    position_label=position_label,
+                    evidence_hint=evidence_hint,
+                )
+            )
 
         questions: List[Dict] = []
         for index in range(count):
@@ -1114,6 +1469,7 @@ class InterviewService:
                     selected_slices = matched
             panel_context = dict(raw.get("panel_context") or {})
             metadata = dict(panel_context.get("metadata") or {})
+            sanitized_category = None
             if selected_slices:
                 metadata["grounding_confidence_summary"] = InterviewService._grounding_confidence_summary(
                     selected_slices
@@ -1121,11 +1477,51 @@ class InterviewService:
                 if requested_ids:
                     metadata["retrieved_slice_ids"] = requested_ids
                 panel_context["metadata"] = metadata
+            if InterviewService._question_has_internal_prompt_leak(question_text):
+                sanitized_category, fallback_question = InterviewService._safe_question_text_for_plan(
+                    index=index,
+                    plan=plan,
+                    position_label="目标岗位",
+                )
+                question_text = fallback_question
+                metadata["question_sanitized_reason"] = "internal_prompt_leak"
+                metadata["original_question_redacted"] = True
+                panel_context["metadata"] = metadata
+
+            raw_followups = raw.get("selected_followups") or []
+            if isinstance(raw_followups, str):
+                raw_followups = [raw_followups]
+            selected_followups = []
+            for item in raw_followups:
+                followup = str(item or "").strip()
+                if not followup:
+                    continue
+                if InterviewService._question_has_internal_prompt_leak(followup):
+                    metadata["question_sanitized_reason"] = "internal_prompt_leak"
+                    metadata["original_question_redacted"] = True
+                    metadata["selected_followups_redacted"] = True
+                    panel_context["metadata"] = metadata
+                    continue
+                selected_followups.append(followup)
+
+            question_target_gap = raw.get("question_target_gap") or plan.get("question_target_gap")
+            if InterviewService._question_has_internal_prompt_leak(question_target_gap):
+                question_target_gap = None
+                metadata["question_sanitized_reason"] = "internal_prompt_leak"
+                metadata["question_target_gap_redacted"] = True
+                panel_context["metadata"] = metadata
+
+            question_reason = raw.get("question_reason") or plan.get("question_reason")
+            if InterviewService._question_has_internal_prompt_leak(question_reason):
+                question_reason = None
+                metadata["question_sanitized_reason"] = "internal_prompt_leak"
+                metadata["question_reason_redacted"] = True
+                panel_context["metadata"] = metadata
 
             question_item = {
                 "index": index,
                 "question": question_text,
-                "category": raw.get("category") or plan.get("category"),
+                "category": raw.get("category") or plan.get("category") or sanitized_category,
                 "stage": raw.get("stage") or plan.get("stage"),
                 "lead_role": raw.get("lead_role") or plan.get("lead_role"),
                 "support_roles": support_roles,
@@ -1159,15 +1555,15 @@ class InterviewService:
                 "blueprint_high_risk_claims": raw.get("blueprint_high_risk_claims")
                 or plan.get("blueprint_high_risk_claims")
                 or [],
-                "selected_followups": raw.get("selected_followups") or [],
+                "selected_followups": selected_followups,
                 "difficulty_hint": raw.get("difficulty_hint"),
                 "panel_context": panel_context,
                 "panel_reasoning_summary": raw.get("panel_reasoning_summary"),
                 "verification_target": raw.get("verification_target") or plan.get("verification_target"),
-                "question_target_gap": raw.get("question_target_gap") or plan.get("question_target_gap"),
+                "question_target_gap": question_target_gap,
                 "question_target_evidence": raw.get("question_target_evidence") or [],
                 "question_target_evidence_ids": raw.get("question_target_evidence_ids") or [],
-                "question_reason": raw.get("question_reason") or plan.get("question_reason"),
+                "question_reason": question_reason,
                 "interview_mode": interview_mode,
                 "answer": None,
                 "score": None,
@@ -1175,6 +1571,7 @@ class InterviewService:
                 "evaluation": None,
             }
             question_item.update(InterviewService._derive_question_target_fields(question_item))
+            question_item = InterviewService._sanitize_question_public_fields(question_item)
             normalized.append(question_item)
         return normalized
 
@@ -1359,10 +1756,41 @@ class InterviewService:
         if not followups:
             return next_question_meta
 
+        followups_sanitized = False
+        safe_followups = []
+        for item in followups:
+            followup = str(item or "").strip()
+            if not followup:
+                continue
+            if InterviewService._question_has_internal_prompt_leak(followup):
+                followups_sanitized = True
+                continue
+            safe_followups.append(followup)
+
+        fallback_category = None
+        if not safe_followups:
+            try:
+                fallback_index = int(
+                    next_question_meta.get("index")
+                    if next_question_meta.get("index") is not None
+                    else (current_question_meta.get("index") or 0) + 1
+                )
+            except (TypeError, ValueError):
+                fallback_index = 0
+            fallback_category, fallback_question = InterviewService._safe_question_text_for_plan(
+                index=fallback_index,
+                plan=next_question_meta,
+                position_label="目标岗位",
+            )
+            safe_followups = [fallback_question]
+            followups_sanitized = True
+
         next_meta = dict(next_question_meta)
-        next_meta["question"] = followups[0]
+        next_meta["question"] = safe_followups[0]
         next_meta["stage"] = current_question_meta.get("stage") or next_meta.get("stage")
-        next_meta["category"] = current_question_meta.get("category") or next_meta.get("category")
+        next_meta["category"] = (
+            current_question_meta.get("category") or next_meta.get("category") or fallback_category
+        )
         next_meta["lead_role"] = current_question_meta.get("lead_role") or next_meta.get("lead_role")
         next_meta["support_roles"] = (
             current_question_meta.get("support_roles") or next_meta.get("support_roles") or []
@@ -1378,7 +1806,7 @@ class InterviewService:
             or next_meta.get("evaluation_focus")
             or []
         )
-        next_meta["selected_followups"] = followups[1:]
+        next_meta["selected_followups"] = safe_followups[1:]
         next_meta["followup_source_question_index"] = current_question_meta.get("index")
         next_meta["is_dynamic_followup"] = True
         next_meta["blueprint_track"] = (
@@ -1448,11 +1876,35 @@ class InterviewService:
             )
 
         panel_context = dict(current_question_meta.get("panel_context") or {})
+        metadata = dict(panel_context.get("metadata") or {})
+        if InterviewService._question_has_internal_prompt_leak(next_meta.get("question_target_gap")):
+            next_meta["question_target_gap"] = None
+            metadata["question_sanitized_reason"] = "internal_prompt_leak"
+            metadata["question_target_gap_redacted"] = True
+        if InterviewService._question_has_internal_prompt_leak(next_meta.get("question_reason")):
+            next_meta["question_reason"] = None
+            metadata["question_sanitized_reason"] = "internal_prompt_leak"
+            metadata["question_reason_redacted"] = True
+        if followups_sanitized:
+            metadata["question_sanitized_reason"] = "internal_prompt_leak"
+            metadata["original_question_redacted"] = True
+            metadata["selected_followups_redacted"] = True
+        if metadata:
+            panel_context["metadata"] = metadata
+
         moderator = dict(panel_context.get("moderator") or {})
-        moderator["selected_question"] = followups[0]
-        moderator["selected_followups"] = followups[1:]
+        moderator["selected_question"] = safe_followups[0]
+        moderator["selected_followups"] = safe_followups[1:]
         if isinstance(next_best_followup, dict) and next_best_followup:
-            moderator["next_best_followup"] = next_best_followup
+            safe_next_best_followup = dict(next_best_followup)
+            if InterviewService._question_has_internal_prompt_leak(
+                safe_next_best_followup.get("question")
+            ):
+                safe_next_best_followup["question"] = safe_followups[0]
+                metadata["question_sanitized_reason"] = "internal_prompt_leak"
+                metadata["original_question_redacted"] = True
+                panel_context["metadata"] = metadata
+            moderator["next_best_followup"] = safe_next_best_followup
         if (evaluation or {}).get("moderator", {}).get("reasoning_summary"):
             moderator["reasoning_summary"] = evaluation["moderator"]["reasoning_summary"]
         if (evaluation or {}).get("moderator", {}).get("difficulty_hint"):
@@ -1462,6 +1914,7 @@ class InterviewService:
             next_meta["panel_context"] = panel_context
 
         next_meta.update(InterviewService._derive_question_target_fields(next_meta))
+        next_meta = InterviewService._sanitize_question_public_fields(next_meta)
         return next_meta
 
     @staticmethod
@@ -1532,7 +1985,7 @@ class InterviewService:
             panel_context["metadata"] = metadata
             next_meta["panel_context"] = panel_context
         next_meta.update(InterviewService._derive_question_target_fields(next_meta))
-        return next_meta
+        return InterviewService._sanitize_question_public_fields(next_meta)
 
     @staticmethod
     async def _evaluate_round(
@@ -3387,6 +3840,10 @@ class InterviewService:
             panel_snapshot=interview.panel_snapshot,
             ai_config=ai_config,
         )
+        evaluation = InterviewService._sanitize_round_evaluation_public_fields(
+            evaluation,
+            fallback_question=current_question,
+        )
 
         score = float(evaluation.get("score", 5.0))
         feedback = (evaluation.get("feedback") or "").strip()
@@ -3425,6 +3882,7 @@ class InterviewService:
             **evaluation,
             "evaluation_mode": evaluation_mode,
         }
+        current_question_meta = InterviewService._sanitize_question_public_fields(current_question_meta)
         questions[current_index] = current_question_meta
 
         next_index = current_index + 1

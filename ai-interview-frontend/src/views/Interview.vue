@@ -44,7 +44,7 @@
 
     <div v-if="!preparing && loadError" class="interview-load-error card">
       <h2>面试记录暂时无法打开</h2>
-      <p>{{ loadError }}</p>
+      <p>{{ safeText(loadError) }}</p>
       <div class="load-error-actions">
         <button type="button" class="btn-secondary" @click="reloadMessages">重试</button>
         <router-link to="/dashboard" class="btn-secondary">返回工作台</router-link>
@@ -61,16 +61,16 @@
         <span class="blueprint-mode-chip">{{ interviewModeLabel }}</span>
       </div>
       <ul v-if="trainingFocus.length" class="blueprint-list">
-        <li v-for="item in trainingFocus" :key="`focus-${item}`">{{ item }}</li>
+        <li v-for="item in trainingFocus" :key="`focus-${item}`">{{ safeText(item) }}</li>
       </ul>
       <div v-if="highRiskClaims.length" class="blueprint-risk-block">
         <p class="blueprint-subtitle">当前高风险点</p>
         <ul class="blueprint-list compact">
-          <li v-for="item in highRiskClaims" :key="`risk-${item}`">{{ item }}</li>
+          <li v-for="item in highRiskClaims" :key="`risk-${item}`">{{ safeText(item) }}</li>
         </ul>
       </div>
       <p v-if="blueprintEvidenceSummary.length" class="blueprint-evidence">
-        证据摘要：{{ blueprintEvidenceSummary.join('；') }}
+        证据摘要：{{ safeJoin(blueprintEvidenceSummary) }}
       </p>
     </div>
 
@@ -90,10 +90,10 @@
       <details v-if="latestRoundSummary" class="round-summary">
         <summary>最近一轮内部评估</summary>
         <p v-if="latestRoundSummary.feedback" class="round-summary-feedback">
-          {{ latestRoundSummary.feedback }}
+          {{ safeText(latestRoundSummary.feedback) }}
         </p>
         <ul v-if="latestRoundSummary.points.length" class="round-summary-list">
-          <li v-for="(item, index) in latestRoundSummary.points" :key="`${item}-${index}`">{{ item }}</li>
+          <li v-for="(item, index) in latestRoundSummary.points" :key="`${item}-${index}`">{{ safeText(item) }}</li>
         </ul>
       </details>
     </div>
@@ -168,7 +168,7 @@
       <div class="round-feedback-bar">
         <div class="round-feedback-main">
           <strong>上一题评分 {{ roundSummaryScoreText }}</strong>
-          <span>{{ latestRoundSummary.questionTargetGap || latestRoundSummary.feedback || '本轮评估已完成，可以继续回答下一题。' }}</span>
+          <span>{{ safeText(latestRoundSummary.questionTargetGap || latestRoundSummary.feedback || '本轮评估已完成，可以继续回答下一题。') }}</span>
         </div>
         <div class="round-feedback-actions">
           <button
@@ -186,12 +186,12 @@
       </div>
       <div v-if="roundSummaryExpanded" class="round-feedback-detail">
         <p v-if="latestRoundSummary.questionReason" class="round-loop-feedback">
-          {{ latestRoundSummary.questionReason }}
+          {{ safeText(latestRoundSummary.questionReason) }}
         </p>
         <div class="round-loop-grid">
           <div v-if="latestRoundSummary.questionTargetGap" class="round-loop-block">
             <p class="round-loop-title">当前验证缺口</p>
-            <p class="round-loop-text">{{ latestRoundSummary.questionTargetGap }}</p>
+            <p class="round-loop-text">{{ safeText(latestRoundSummary.questionTargetGap) }}</p>
           </div>
           <div v-if="latestRoundSummary.questionTargetEvidence.length" class="round-loop-block">
             <p class="round-loop-title">当前证据目标</p>
@@ -200,7 +200,7 @@
                 v-for="(item, index) in latestRoundSummary.questionTargetEvidence"
                 :key="`question-target-${item}-${index}`"
               >
-                {{ item }}
+                {{ safeText(item) }}
               </li>
             </ul>
           </div>
@@ -208,7 +208,7 @@
             <p class="round-loop-title">仍待澄清</p>
             <ul class="round-loop-list">
               <li v-for="(item, index) in latestRoundSummary.unresolvedGaps" :key="`gap-${item}-${index}`">
-                {{ item }}
+                {{ safeText(item) }}
               </li>
             </ul>
           </div>
@@ -219,8 +219,8 @@
                 v-for="(item, index) in latestRoundSummary.evidenceStrengthDelta"
                 :key="`delta-${index}`"
               >
-                {{ item.evidence }}：{{ formatDeltaLabel(item.delta) }}
-                <span v-if="item.reason" class="round-loop-inline-note">（{{ item.reason }}）</span>
+                {{ safeText(item.evidence) }}：{{ formatDeltaLabel(item.delta) }}
+                <span v-if="item.reason" class="round-loop-inline-note">（{{ safeText(item.reason) }}）</span>
               </li>
             </ul>
           </div>
@@ -231,31 +231,31 @@
                 v-for="(item, index) in latestRoundSummary.claimConfidenceChange"
                 :key="`claim-${index}`"
               >
-                {{ item.claim }}：{{ item.from_level || 'unknown' }} -> {{ item.to_level || 'unknown' }}
+                {{ safeText(item.claim) }}：{{ formatConfidenceLevel(item.from_level) }} -> {{ formatConfidenceLevel(item.to_level) }}
               </li>
             </ul>
           </div>
           <div v-if="latestRoundSummary.nextBestFollowup" class="round-loop-block">
             <p class="round-loop-title">下一步最佳追问</p>
-            <p class="round-loop-text">{{ latestRoundSummary.nextBestFollowup.question }}</p>
+            <p class="round-loop-text">{{ safeText(latestRoundSummary.nextBestFollowup.question) }}</p>
             <p v-if="latestRoundSummary.nextBestFollowup.reason" class="round-loop-inline-note">
-              {{ latestRoundSummary.nextBestFollowup.reason }}
+              {{ safeText(latestRoundSummary.nextBestFollowup.reason) }}
             </p>
             <p
               v-if="latestRoundSummary.nextBestFollowup.evidenceSourceSummary?.length"
               class="round-loop-inline-note"
             >
-              证据来源：{{ latestRoundSummary.nextBestFollowup.evidenceSourceSummary.join('；') }}
+              证据来源：{{ safeJoin(latestRoundSummary.nextBestFollowup.evidenceSourceSummary) }}
             </p>
           </div>
         </div>
         <ul v-if="latestRoundSummary.points.length" class="round-summary-list compact">
-          <li v-for="(item, index) in latestRoundSummary.points" :key="`round-point-${index}`">{{ item }}</li>
+          <li v-for="(item, index) in latestRoundSummary.points" :key="`round-point-${index}`">{{ safeText(item) }}</li>
         </ul>
       </div>
     </div>
 
-    <AiConfigErrorNotice v-if="!preparing && !loadError && streamError" :error="streamError" class="interview-error-notice" />
+    <AiConfigErrorNotice v-if="!preparing && !loadError && streamError" :error="safeText(streamError)" class="interview-error-notice" />
 
     <div v-if="!preparing && !loadError && !finished" class="input-area">
       <textarea
@@ -491,15 +491,46 @@ function formatDeltaLabel(delta) {
     insufficient: '证据不足',
     unchanged: '变化有限'
   }
-  return map[delta] || delta || '变化有限'
+  return map[delta] || '变化有限'
+}
+
+function formatConfidenceLevel(level) {
+  const map = {
+    direct: 'direct',
+    indirect: 'indirect',
+    claimed_only: 'claimed_only',
+    missing: 'missing',
+    high: 'high',
+    medium: 'medium',
+    low: 'low',
+    unknown: 'unknown'
+  }
+  return map[level] || 'unknown'
+}
+
+function hasInternalPromptLeak(text) {
+  const value = String(text || '')
+  return /Blueprint\s+priority|blueprint[_\s-]*track|blueprint[_\s-]*priority|role[_\s-]*calibration|Assess\s+boundary|Place\s+the\s+candidate|Question\s+plan|Question\s+reason|Question\s+target\s+gap|Evaluation\s+focus|Interview\s+routing\s+context|Interview\s+blueprint|Internal\s+panel|Internal\s+roles|Moderator\s+name|Plan\s*#|Lead\s+role|Support\s+roles|Requirement\s+status|Candidate\s+evidence|Suggested\s+followups|question_plan|candidate_evidence|verification_reason|stage\/category\/intent|lead_role|support_roles|assessment_points|selected_questions|used_slice_ids|routed[_\s-]*slice|routed\s+slices|evaluation_focus|selected_followups|chain[-\s]?of[-\s]?thought|Use\s+the\s+self[-\s]?introduction|Deep[-\s]?dive\s+the\s+most\s+important\s+project|Validate\s+mastery\s+of\s+core\s+knowledge|Evaluate\s+collaboration|Use\s+debugging\s+or\s+optimization|Further\s+verify\s+role\s+boundaries|Use\s+business\s+changes|Close\s+the\s+interview|Probe\s+technical\s+depth|\b(stage|category|intent|moderator|schema|step|type|goal|priority|focus|blueprint)\b\s*[:=]/i.test(value)
 }
 
 function renderContent(text) {
   if (!text) return ''
+  if (hasInternalPromptLeak(text)) {
+    return '题目生成异常：系统已拦截内部调试信息，请刷新页面或重新开始面试。'
+  }
   return String(text)
     .replace(/```json\s*\{[\s\S]*?\}\s*```/g, '')
     .replace(/\{[^{}]*"score"\s*:\s*[\d.]+[^{}]*\}/g, '')
     .trim()
+}
+
+function safeText(text) {
+  return renderContent(text)
+}
+
+function safeJoin(items, separator = '；') {
+  if (!Array.isArray(items)) return ''
+  return items.map((item) => safeText(item)).filter(Boolean).join(separator)
 }
 
 function scrollToBottom() {
@@ -623,7 +654,7 @@ async function handleSubmit() {
     } catch (refreshError) {
       console.error('Refresh interview messages after stream failure failed:', refreshError)
     }
-    messages.value.push({ role: 'interviewer', content: `出错了：${streamError.value}` })
+    messages.value.push({ role: 'interviewer', content: `出错了：${safeText(streamError.value)}` })
     scrollToBottom()
   } finally {
     thinking.value = false

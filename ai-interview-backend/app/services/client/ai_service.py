@@ -1982,20 +1982,20 @@ class AIService:
     def _build_question_plan_context(question_plan: Optional[Sequence[Dict]]) -> str:
         if not question_plan:
             return ""
-        lines = ["Question plan and routed slices:"]
+        lines = ["Interview routing context:"]
         for item in question_plan:
             lines.append(
                 f"- Plan #{item.get('index', 0)}: "
-                f"stage={item.get('stage')}, category={item.get('category')}, "
+                f"step={item.get('stage')}, type={item.get('category')}, "
                 f"lead_role={item.get('lead_role')}, support_roles={','.join(item.get('support_roles') or []) or '-'}"
             )
-            lines.append(f"  intent: {item.get('intent')}")
+            lines.append(f"  goal: {item.get('intent')}")
             evaluation_focus = item.get("evaluation_focus") or []
             if evaluation_focus:
-                lines.append(f"  evaluation_focus: {', '.join(evaluation_focus)}")
+                lines.append(f"  assessment_points: {', '.join(evaluation_focus)}")
             if item.get("blueprint_track"):
                 lines.append(
-                    f"  blueprint_track: {item.get('blueprint_track')} ({item.get('blueprint_requirement_status') or 'weak'})"
+                    f"  priority: {item.get('blueprint_track')} ({item.get('blueprint_requirement_status') or 'weak'})"
                 )
             if item.get("blueprint_evidence_summary"):
                 lines.append(
@@ -2008,7 +2008,7 @@ class AIService:
                     + " | ".join((item.get("blueprint_role_calibration_summary") or [])[:2])
                 )
             for slice_item in (item.get("selected_slices") or [])[:3]:
-                lines.append(f"  routed_slice: {AIService._slice_line(slice_item, limit=180)}")
+                lines.append(f"  reference: {AIService._slice_line(slice_item, limit=180)}")
         return "\n".join(lines)
     @staticmethod
     def _build_interview_blueprint_context(interview_blueprint: Optional[Dict]) -> str:
@@ -2764,8 +2764,10 @@ class AIService:
                     f"Target role: {target_position}. Difficulty: {difficulty_desc}. "
                     f"Generate exactly {count} interview questions. "
                     "The first question must be self-introduction. "
-                    "If question plan is provided, strictly follow the stage/category/intent order. "
+                    "If interview routing context is provided, strictly follow the provided order and goal. "
                     "Use the routed knowledge slices as the primary calibration source. "
+                    "Candidate-visible question text must be natural Chinese only. "
+                    "Never expose internal field names or planning text such as question plan, blueprint, evaluation_focus, selected_followups, moderator, schema, stage/category/intent, or chain-of-thought. "
                     "Return pure JSON array only with schema: "
                     '[{"index":0,"question":"...","category":"self-intro|project|technical|system-design|behavior"}].\n'
                     f"{AIService._build_grounding_rules('question', has_routed_evidence=has_routed_evidence)}\n"
@@ -2809,6 +2811,8 @@ class AIService:
                     "Use a single model call and return strict JSON only. "
                     "Do not output chain-of-thought. Keep reasoning summaries brief. "
                     "Every panel role must think from its own focus, propose candidates, then the moderator selects the final question. "
+                    "Candidate-visible selected_question text must be natural Chinese only. "
+                    "Never expose internal field names or planning text such as question plan, blueprint, evaluation_focus, selected_followups, moderator, schema, stage/category/intent, or chain-of-thought. "
                     "Return an object with this schema: "
                     '{"panel":[{"role":"technical","role_key":"technical_deep_dive","focus":"",'
                     '"question_candidates":[""],"followup_candidates":[""],"evaluation_points":[""]}],'
