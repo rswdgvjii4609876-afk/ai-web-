@@ -44,11 +44,16 @@ def make_record(
         "reviewer_hash": f"reviewer-hash-{index}" if reviewed else "",
         "data_contribution_consent": consent,
         "interview_id": index,
+        "sample_origin": origin,
+        "candidate_answer_source": "human",
+        "for_real_sft": True,
     }
     if origin == "constructed":
         metadata["sample_origin"] = "constructed"
         metadata["constructed_for"] = "unit_test"
         metadata["data_contribution_consent"] = False
+        metadata["candidate_answer_source"] = "constructed"
+        metadata["for_real_sft"] = False
     return {
         "schema_version": "ai-interview.fine-tuning-sample.v1",
         "task_type": "followup_generation",
@@ -86,6 +91,8 @@ def test_convert_authorized_real_record_to_openai_chat_jsonl_shape():
     assert assistant_payload["question"].startswith("请说明一个实际接口")
     assert manifest["sample_origin"] == "real_authorized"
     assert manifest["data_contribution_consent"] is True
+    assert manifest["candidate_answer_source"] == "human"
+    assert manifest["for_real_sft"] is True
     assert manifest["reviewer_present"] is True
     assert manifest["reviewer_hash"]
 
@@ -128,6 +135,21 @@ def test_constructed_samples_must_declare_origin_and_are_counted_separately():
     malformed = make_record(index=12, consent=False)
     with pytest.raises(OpenAIFineTuningDataError, match="sample_origin=constructed"):
         convert_internal_record_to_openai_chat(malformed, sample_origin="constructed")
+
+
+@pytest.mark.unit
+def test_semi_synthetic_samples_are_rejected_from_real_openai_sft():
+    simulated = make_record(index=13)
+    simulated["metadata"].update(
+        {
+            "sample_origin": "simulated_from_resume",
+            "candidate_answer_source": "ai_simulated",
+            "for_real_sft": False,
+        }
+    )
+
+    with pytest.raises(OpenAIFineTuningDataError, match="unsupported sample_origin"):
+        convert_internal_record_to_openai_chat(simulated)
 
 
 @pytest.mark.unit
@@ -205,6 +227,38 @@ def test_preflight_validates_jsonl_manifest_hashes_and_counts(tmp_path):
     train_path.write_text("\n".join([json.dumps(tampered, ensure_ascii=False), *rest]) + "\n", encoding="utf-8")
 
     with pytest.raises(OpenAIFineTuningDataError, match="sample_hash|dataset_fingerprint"):
+        validate_openai_fine_tuning_dataset_dir(tmp_path, require_ready=True)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("field", "bad_value", "expected_message"),
+    [
+        ("candidate_answer_source", "ai_simulated", "candidate_answer_source=human"),
+        ("for_real_sft", False, "for_real_sft=true"),
+    ],
+)
+def test_preflight_rejects_real_authorized_manifest_with_simulated_boundary(
+    tmp_path,
+    field,
+    bad_value,
+    expected_message,
+):
+    real_records = [make_record(index=index) for index in range(1, 16)]
+    bundle = build_openai_fine_tuning_dataset(real_records, [])
+    write_openai_fine_tuning_bundle(bundle, tmp_path)
+
+    manifest_path = tmp_path / "sample_manifest.jsonl"
+    first, *rest = manifest_path.read_text(encoding="utf-8").splitlines()
+    tampered = json.loads(first)
+    assert tampered["sample_origin"] == "real_authorized"
+    tampered[field] = bad_value
+    manifest_path.write_text(
+        "\n".join([json.dumps(tampered, ensure_ascii=False), *rest]) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(OpenAIFineTuningDataError, match=expected_message):
         validate_openai_fine_tuning_dataset_dir(tmp_path, require_ready=True)
 
 

@@ -37,7 +37,10 @@ logs/
 *.MP4
 docs/competition/renders/
 docs/competition/openai_fine_tuning_runs/
+docs/competition/datasets/raw-data-resume/
 ai-interview-backend/docker-compose-linux-x86_64
+ai-interview-backend/app/data/knowledge_packages/member_submissions/20*/
+ai-interview-backend/logs/semi_synthetic_resume_runs/
 
 # Archived competition materials kept outside the repository
 docs/competition/chatgpt_sft_analysis_pack/

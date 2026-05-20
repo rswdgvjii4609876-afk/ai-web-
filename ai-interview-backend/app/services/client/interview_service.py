@@ -1839,15 +1839,87 @@ class InterviewService:
         return review.get("review_status") == "reviewed"
 
     @staticmethod
+    def _sample_boundary_from_snapshot(
+        snapshot: Any,
+        *,
+        data_contribution_consent: bool = False,
+    ) -> Dict[str, Any]:
+        raw = snapshot if isinstance(snapshot, dict) else {}
+        sample_origin = str(raw.get("sample_origin") or "").strip()
+        candidate_answer_source = str(raw.get("candidate_answer_source") or "").strip()
+        for_real_sft = raw.get("for_real_sft")
+
+        if (
+            (sample_origin and sample_origin != "real_authorized")
+            or (candidate_answer_source and candidate_answer_source != "human")
+            or for_real_sft is False
+        ):
+            return {
+                "sample_origin": sample_origin or "not_real_authorized",
+                "candidate_answer_source": candidate_answer_source or "unknown",
+                "for_real_sft": False,
+                "for_training": False,
+                "for_competition_demo": bool(raw.get("for_competition_demo", True)),
+                "claim_boundary": raw.get("claim_boundary")
+                or "半合成样本只用于流程压测、演示和 SFT Preview，不能进入真实 SFT。",
+            }
+
+        if data_contribution_consent:
+            return {
+                "sample_origin": "real_authorized",
+                "candidate_answer_source": candidate_answer_source or "human",
+                "for_real_sft": True,
+                "for_training": True,
+                "for_competition_demo": bool(raw.get("for_competition_demo", False)),
+                "claim_boundary": raw.get("claim_boundary") or "真实授权样本，仍需人工复核和 PII 扫描后才能进入 SFT。",
+            }
+
+        return {
+            "sample_origin": sample_origin or "not_authorized",
+            "candidate_answer_source": candidate_answer_source or "unknown",
+            "for_real_sft": False,
+            "for_training": False,
+            "for_competition_demo": bool(raw.get("for_competition_demo", False)),
+            "claim_boundary": raw.get("claim_boundary") or "未获得数据贡献授权，不能进入训练/评测样本。",
+        }
+
+    @staticmethod
+    def _is_real_sft_boundary(boundary: Any) -> bool:
+        item = boundary if isinstance(boundary, dict) else {}
+        return bool(
+            item.get("sample_origin") == "real_authorized"
+            and item.get("candidate_answer_source") == "human"
+            and item.get("for_real_sft") is True
+            and item.get("for_training") is True
+        )
+
+    @staticmethod
+    def _sample_boundary_from_sample(sample: Dict[str, Any]) -> Dict[str, Any]:
+        interview = sample.get("interview") or {}
+        export_notes = sample.get("export_notes") or {}
+        existing = sample.get("sample_boundary") or export_notes.get("sample_boundary")
+        if isinstance(existing, dict) and existing:
+            return existing
+        return InterviewService._sample_boundary_from_snapshot(
+            export_notes.get("privacy_consent_snapshot"),
+            data_contribution_consent=bool(
+                interview.get("data_contribution_consent")
+                or export_notes.get("data_contribution_consent")
+            ),
+        )
+
+    @staticmethod
     def _is_export_ready_training_sample(sample: Dict[str, Any]) -> bool:
         interview = sample.get("interview") or {}
         export_notes = sample.get("export_notes") or {}
+        sample_boundary = InterviewService._sample_boundary_from_sample(sample)
         return bool(
             interview.get("status") == "completed"
             and (
                 interview.get("data_contribution_consent")
                 or export_notes.get("data_contribution_consent")
             )
+            and InterviewService._is_real_sft_boundary(sample_boundary)
             and InterviewService._is_reviewed_training_sample(sample)
         )
 
@@ -1925,6 +1997,12 @@ class InterviewService:
             raise NotFoundError(message="面试记录不存在")
         if not getattr(interview, "data_contribution_consent", False):
             raise ValidationError(message="该面试未获得去标识化数据贡献授权，不能进入人工评分沉淀流程")
+        sample_boundary = InterviewService._sample_boundary_from_snapshot(
+            getattr(interview, "privacy_consent_snapshot", None),
+            data_contribution_consent=bool(getattr(interview, "data_contribution_consent", False)),
+        )
+        if not InterviewService._is_real_sft_boundary(sample_boundary):
+            raise ValidationError(message="该案例不是真实授权训练样本，不能进入人工评分沉淀流程")
         if getattr(interview, "status", None) != "completed":
             raise ValidationError(message="该面试尚未完成，不能保存人工评分")
 
@@ -2053,11 +2131,16 @@ class InterviewService:
             ),
             "created_at": interview.created_at.isoformat() if interview.created_at else None,
         }
+        sample_boundary = InterviewService._sample_boundary_from_snapshot(
+            getattr(interview, "privacy_consent_snapshot", None),
+            data_contribution_consent=bool(getattr(interview, "data_contribution_consent", False)),
+        )
         if include_user_email and user_email:
             interview_meta["user_email"] = user_email
 
         sample = {
             "sample_version": "ai-interview.training-sample.v1",
+            "sample_boundary": sample_boundary,
             "interview": interview_meta,
             "evidence_context": {
                 "knowledge_base_id": interview.knowledge_base_id,
@@ -2081,6 +2164,7 @@ class InterviewService:
                     "privacy_consent_snapshot",
                     None,
                 ),
+                "sample_boundary": sample_boundary,
                 "review_status": training_sample_review.get("review_status"),
                 "export_recommended": training_sample_review.get("export_recommended"),
                 "intended_use": "offline review, hallucination analysis, follow-up quality review, and future fine-tuning preparation",
@@ -2144,6 +2228,8 @@ class InterviewService:
                 )
                 if require_reviewed and not InterviewService._is_reviewed_training_sample(sample):
                     continue
+                if not InterviewService._is_export_ready_training_sample(sample):
+                    continue
                 samples.append(sample)
                 if limit is not None and len(samples) >= limit:
                     break
@@ -2177,6 +2263,7 @@ class InterviewService:
         interview = sample.get("interview") or {}
         review = sample.get("training_sample_review") or {}
         export_notes = sample.get("export_notes") or {}
+        sample_boundary = InterviewService._sample_boundary_from_sample(sample)
         try:
             overall_score = float(interview.get("overall_score") or 0)
         except (TypeError, ValueError):
@@ -2184,9 +2271,14 @@ class InterviewService:
         base_rules = [
             "status=completed",
             "data_contribution_consent=true",
+            "sample_boundary.sample_origin=real_authorized",
+            "sample_boundary.candidate_answer_source=human",
+            "sample_boundary.for_real_sft=true",
             "training_sample_review.review_status=reviewed",
         ]
         if not (interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent")):
+            return {}
+        if not InterviewService._is_real_sft_boundary(sample_boundary):
             return {}
         if interview.get("status") != "completed" or review.get("review_status") != "reviewed":
             return {}
@@ -2250,11 +2342,14 @@ class InterviewService:
         interview = sample.get("interview") or {}
         review = sample.get("training_sample_review") or {}
         export_notes = sample.get("export_notes") or {}
+        sample_boundary = InterviewService._sample_boundary_from_sample(sample)
         if interview.get("status") != "completed":
             return None
         if review.get("review_status") != "reviewed":
             return None
         if not (interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent")):
+            return None
+        if not InterviewService._is_real_sft_boundary(sample_boundary):
             return None
         if not (
             review.get("is_high_quality")
@@ -2340,6 +2435,9 @@ class InterviewService:
                 "human_overall_score": review.get("human_overall_score"),
                 "dataset_split": review.get("dataset_split"),
                 "data_contribution_consent": True,
+                "sample_origin": "real_authorized",
+                "candidate_answer_source": "human",
+                "for_real_sft": True,
             },
         }
         return json.loads(json.dumps(record, ensure_ascii=False, default=InterviewService._json_safe))
@@ -2359,7 +2457,7 @@ class InterviewService:
             is_completed = interview.get("status") == "completed"
             if is_completed and (
                 interview.get("data_contribution_consent") or export_notes.get("data_contribution_consent")
-            ):
+            ) and InterviewService._is_real_sft_boundary(InterviewService._sample_boundary_from_sample(sample)):
                 authorized_samples += 1
             if is_completed and review.get("review_status") == "reviewed":
                 reviewed_samples += 1
@@ -2409,6 +2507,9 @@ class InterviewService:
             "base_requirements": [
                 "status=completed",
                 "data_contribution_consent=true",
+                "sample_boundary.sample_origin=real_authorized",
+                "sample_boundary.candidate_answer_source=human",
+                "sample_boundary.for_real_sft=true",
                 "training_sample_review.review_status=reviewed",
                 "positive_sft_requires_has_hallucination=false",
                 "requires_quality_or_followup_or_report_signal=true",
@@ -2608,6 +2709,9 @@ class InterviewService:
             "base_requirements": [
                 "status=completed",
                 "data_contribution_consent=true",
+                "sample_boundary.sample_origin=real_authorized",
+                "sample_boundary.candidate_answer_source=human",
+                "sample_boundary.for_real_sft=true",
                 "training_sample_review.review_status=reviewed",
             ],
             "thresholds": {
@@ -3393,6 +3497,12 @@ class InterviewService:
             raise NotFoundError(message="面试记录不存在")
 
         consent = bool(data_contribution_consent)
+        proposed_boundary = InterviewService._sample_boundary_from_snapshot(
+            getattr(interview, "privacy_consent_snapshot", None),
+            data_contribution_consent=True,
+        )
+        if consent and not InterviewService._is_real_sft_boundary(proposed_boundary):
+            raise ValidationError(message="该案例不是真实授权训练样本，不能开启数据贡献授权")
         snapshot = privacy_consent_service.build_snapshot(
             current_user,
             data_contribution_consent=consent,

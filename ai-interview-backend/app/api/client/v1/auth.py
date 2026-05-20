@@ -306,11 +306,12 @@ async def update_profile(
     selected_provider = deepseek_config_service.normalize_provider(current_user.ai_provider)
     selected_provider_label = deepseek_config_service.provider_label(selected_provider)
     if selected_provider == "openai" and not current_user.openai_api_key_encrypted:
-        return ApiResponse.error(
-            message=f"切换到 {selected_provider_label} 前，请先保存对应的 API Key"
+        return ApiResponse.failed(
+            message=f"切换到 {selected_provider_label} 前，请先保存对应的 API Key",
+            body_code=400,
         )
     if selected_provider == "deepseek" and not current_user.deepseek_api_key_encrypted:
-        return ApiResponse.error(message="切换到 DeepSeek 前，请先保存对应的 API Key")
+        return ApiResponse.failed(message="切换到 DeepSeek 前，请先保存对应的 API Key", body_code=400)
 
     current_user.deepseek_use_personal_api = (
         selected_provider == "deepseek" and bool(current_user.deepseek_api_key_encrypted)
@@ -373,14 +374,14 @@ async def upload_avatar(
     db: AsyncSession = Depends(get_db),
 ):
     if not file.content_type or not file.content_type.startswith("image/"):
-        return ApiResponse.error(message="仅支持图片文件")
+        return ApiResponse.failed(message="仅支持图片文件", body_code=400)
 
     content = await file.read()
     safe_ext = _safe_avatar_extension(file.content_type or "", content)
     if not safe_ext:
-        return ApiResponse.error(message="Unsupported avatar image type")
+        return ApiResponse.failed(message="Unsupported avatar image type", body_code=400)
     if len(content) > 5 * 1024 * 1024:
-        return ApiResponse.error(message="文件大小不能超过 5MB")
+        return ApiResponse.failed(message="文件大小不能超过 5MB", body_code=400)
 
     filename = f"{current_user.id}.{safe_ext}"
     filepath = os.path.join(AVATAR_DIR, filename)
@@ -405,10 +406,10 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.verify_password(data.old_password):
-        return ApiResponse.error(message="当前密码不正确")
+        return ApiResponse.failed(message="当前密码不正确", body_code=400)
 
     if len(data.new_password) < 6:
-        return ApiResponse.error(message="新密码至少 6 位")
+        return ApiResponse.failed(message="新密码至少 6 位", body_code=400)
 
     current_user.hashed_password = User.get_password_hash(data.new_password)
     await db.commit()

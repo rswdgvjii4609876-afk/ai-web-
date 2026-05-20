@@ -6,10 +6,13 @@ from typing import Any
 
 
 class ResumeTextExtractor:
-    """Extract resume text from PDF files with diagnostics and OCR fallback hooks."""
+    """Extract resume text from PDF/DOCX/image files with diagnostics."""
 
-    VERSION = "resume_text_extraction_v1"
+    VERSION = "resume_text_extraction_v2"
     LOW_CHAR_THRESHOLD = 120
+    PDF_EXTENSIONS = {".pdf"}
+    DOCX_EXTENSIONS = {".docx"}
+    IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
     SECTION_TERMS = {
         "education": ("教育", "学历", "学校", "大学", "学院", "bachelor", "master", "education"),
@@ -23,25 +26,43 @@ class ResumeTextExtractor:
     @classmethod
     def extract(cls, file_path: str | Path, *, enable_ocr: bool = False) -> dict[str, Any]:
         path = Path(file_path)
-        methods = [
-            cls._extract_with_pdfplumber(path),
-            cls._extract_with_pypdf(path),
-        ]
+        suffix = path.suffix.lower()
+        if suffix in cls.PDF_EXTENSIONS:
+            methods = [
+                cls._extract_with_pdfplumber(path),
+                cls._extract_with_pypdf(path),
+            ]
+        elif suffix in cls.DOCX_EXTENSIONS:
+            methods = [cls._extract_with_docx(path)]
+        elif suffix in cls.IMAGE_EXTENSIONS:
+            methods = [cls._extract_image_with_ocr(path) if enable_ocr else cls._unsupported_image(path)]
+        else:
+            methods = [
+                cls._diagnose(
+                    "unsupported_file_type",
+                    "",
+                    error=f"Unsupported resume file type: {suffix or '<none>'}",
+                )
+            ]
+
         best = cls._choose_best(methods)
         low_reasons = cls._low_quality_reasons(best)
         ocr_used = False
 
-        if low_reasons and enable_ocr:
+        if suffix in cls.PDF_EXTENSIONS and low_reasons and enable_ocr:
             ocr_result = cls._extract_with_ocr(path)
             methods.append(ocr_result)
             if ocr_result.get("char_count", 0) > best.get("char_count", 0):
                 best = ocr_result
                 ocr_used = bool(ocr_result.get("text"))
                 low_reasons = cls._low_quality_reasons(best)
+        elif suffix in cls.IMAGE_EXTENSIONS and enable_ocr:
+            ocr_used = bool(best.get("text"))
 
         diagnostics = {
             "version": cls.VERSION,
             "file_name": path.name,
+            "file_type": suffix.lstrip("."),
             "page_count": max((item.get("page_count") or 0 for item in methods), default=0),
             "best_method": best.get("method"),
             "char_count": best.get("char_count", 0),
@@ -111,6 +132,48 @@ class ResumeTextExtractor:
             return cls._diagnose("pypdf", "\n".join(texts), page_count=len(reader.pages))
         except Exception as exc:  # pragma: no cover - depends on PDF backend
             return cls._diagnose("pypdf", "", error=str(exc))
+
+    @classmethod
+    def _extract_with_docx(cls, path: Path) -> dict[str, Any]:
+        try:
+            from docx import Document
+
+            document = Document(str(path))
+            chunks: list[str] = []
+            chunks.extend(paragraph.text for paragraph in document.paragraphs if paragraph.text)
+            for table in document.tables:
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
+                    if cells:
+                        chunks.append(" | ".join(cells))
+            return cls._diagnose("python-docx", "\n".join(chunks), page_count=0)
+        except Exception as exc:  # pragma: no cover - depends on input file
+            return cls._diagnose("python-docx", "", error=str(exc))
+
+    @classmethod
+    def _unsupported_image(cls, path: Path) -> dict[str, Any]:
+        return cls._diagnose(
+            "image_ocr_disabled",
+            "",
+            page_count=1,
+            error="Image resume OCR is disabled. Convert the image to text/PDF/DOCX or enable OCR.",
+        )
+
+    @classmethod
+    def _extract_image_with_ocr(cls, path: Path) -> dict[str, Any]:
+        try:
+            import pytesseract
+            from PIL import Image
+
+            text = pytesseract.image_to_string(Image.open(str(path)), lang="chi_sim+eng")
+            return cls._diagnose("image_ocr_tesseract", text, page_count=1)
+        except Exception as exc:  # pragma: no cover - OCR is optional in most envs
+            return cls._diagnose(
+                "image_ocr_tesseract",
+                "",
+                page_count=1,
+                error=f"Image OCR unavailable or failed: {exc}",
+            )
 
     @classmethod
     def _extract_with_ocr(cls, path: Path) -> dict[str, Any]:

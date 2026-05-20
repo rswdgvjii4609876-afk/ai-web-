@@ -881,6 +881,58 @@ def test_set_case_data_contribution_consent_updates_current_interview_only():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        {
+            "sample_origin": "simulated_from_resume",
+            "candidate_answer_source": "ai_simulated",
+            "for_real_sft": False,
+        },
+        {
+            "sample_origin": "constructed",
+            "candidate_answer_source": "constructed",
+            "for_real_sft": False,
+        },
+    ],
+)
+def test_set_case_data_contribution_consent_rejects_non_real_sft_case(snapshot):
+    interview = SimpleNamespace(
+        id=89,
+        user_id=3,
+        resume_id=10,
+        target_position="产品助理/产品经理实习生",
+        data_contribution_consent=False,
+        privacy_consent_snapshot=snapshot,
+    )
+    user = SimpleNamespace(
+        id=3,
+        privacy_policy_version="2026-05-15",
+        privacy_agreed_at=datetime(2026, 5, 15, 12, 0, 0),
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return interview
+
+    class _Db:
+        async def execute(self, query):
+            return _Result()
+
+    with pytest.raises(ValidationError, match="不是真实授权训练样本"):
+        asyncio.run(
+            InterviewService.set_case_data_contribution_consent(
+                db=_Db(),
+                current_user=user,
+                interview_id=89,
+                data_contribution_consent=True,
+            )
+        )
+
+    assert interview.data_contribution_consent is False
+
+
+@pytest.mark.unit
 def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_default():
     interview = SimpleNamespace(
         id=99,
@@ -894,6 +946,8 @@ def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_defau
         current_question_index=1,
         interview_mode="panel",
         overall_score=Decimal("8.2"),
+        data_contribution_consent=True,
+        privacy_consent_snapshot={"source": "unit_test", "data_contribution_consent": True},
         created_at=datetime(2026, 4, 18, 12, 0, 0),
         knowledge_base_snapshot={"title": "Python Backend KB"},
         panel_snapshot={
@@ -988,6 +1042,9 @@ def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_defau
     )
 
     assert sample["sample_version"] == "ai-interview.training-sample.v1"
+    assert sample["sample_boundary"]["sample_origin"] == "real_authorized"
+    assert sample["sample_boundary"]["candidate_answer_source"] == "human"
+    assert sample["sample_boundary"]["for_real_sft"] is True
     assert "user_email" not in sample["interview"]
     assert sample["evidence_context"]["retrieved_slice_ids"] == [11]
     assert sample["training_sample_review"]["quality_tier"] == "high"
@@ -1010,6 +1067,49 @@ def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_defau
     assert sample_with_pii["interview"]["user_email"] == "candidate@example.com"
     assert sample["training_sample_review"]["reviewer_email"] == "[REDACTED_EMAIL]"
     assert sample["export_notes"]["pii_redaction"]["redacted"] is True
+
+
+@pytest.mark.unit
+def test_build_fine_tuning_record_rejects_semi_synthetic_even_if_reviewed():
+    sample = {
+        "sample_version": "ai-interview.training-sample.v1",
+        "sample_boundary": {
+            "sample_origin": "simulated_from_resume",
+            "candidate_answer_source": "ai_simulated",
+            "for_real_sft": False,
+            "for_training": False,
+        },
+        "interview": {
+            "id": 501,
+            "target_position": "产品助理/产品经理实习生",
+            "status": "completed",
+            "data_contribution_consent": True,
+            "overall_score": 8.0,
+        },
+        "rounds": [
+            {
+                "question": "请介绍一个需求分析项目。",
+                "answer": "这是 AI 模拟回答。",
+                "question_target_gap": "需求分析",
+                "feedback": "ok",
+                "evaluation": {"next_best_followup": {"question": "继续追问", "target_gap": "需求分析"}},
+            }
+        ],
+        "report_summary": {"common_gaps": ["需求分析"], "training_priorities": ["补 PRD"]},
+        "training_sample_review": {
+            "review_status": "reviewed",
+            "reviewed_at": "2026-05-20T00:00:00+00:00",
+            "reviewer_email": "reviewer@example.com",
+            "is_high_quality": True,
+            "has_hallucination": False,
+            "followup_worthy": True,
+            "report_actionable": True,
+        },
+        "export_notes": {"data_contribution_consent": True},
+    }
+
+    assert InterviewService._is_export_ready_training_sample(sample) is False
+    assert InterviewService._build_fine_tuning_record(sample) is None
 
 
 @pytest.mark.unit

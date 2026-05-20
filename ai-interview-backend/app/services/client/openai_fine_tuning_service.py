@@ -130,6 +130,12 @@ def _validate_source_metadata(metadata: Dict[str, Any], *, origin: str) -> None:
         raise OpenAIFineTuningDataError(f"unsupported sample_origin={origin}")
     if declared_origin and declared_origin != "real_authorized":
         raise OpenAIFineTuningDataError("real sample must not be marked as constructed or another origin")
+    if declared_origin != "real_authorized":
+        raise OpenAIFineTuningDataError("real sample must explicitly declare sample_origin=real_authorized")
+    if metadata.get("candidate_answer_source") != "human":
+        raise OpenAIFineTuningDataError("real sample must declare candidate_answer_source=human")
+    if metadata.get("for_real_sft") is not True:
+        raise OpenAIFineTuningDataError("real sample must declare for_real_sft=true")
     if metadata.get("data_contribution_consent") is not True:
         raise OpenAIFineTuningDataError("real sample is missing data_contribution_consent=true")
     if metadata.get("review_status") != "reviewed":
@@ -284,6 +290,8 @@ def convert_internal_record_to_openai_chat(
         "target_position": metadata.get("target_position") or user_payload.get("target_position") or "未填写岗位",
         "quality_tier": metadata.get("quality_tier"),
         "data_contribution_consent": bool(metadata.get("data_contribution_consent")),
+        "candidate_answer_source": metadata.get("candidate_answer_source"),
+        "for_real_sft": metadata.get("for_real_sft") is True,
         "review_status": metadata.get("review_status") if not is_constructed else "",
         "reviewed_at": metadata.get("reviewed_at") if not is_constructed else "",
         "reviewer_present": bool(metadata.get("reviewer_present")) if not is_constructed else False,
@@ -535,6 +543,10 @@ def _validate_manifest_record(
         return
     if origin != "real_authorized":
         raise OpenAIFineTuningDataError(f"{label} has unsupported sample_origin={origin}")
+    if manifest.get("candidate_answer_source") != "human":
+        raise OpenAIFineTuningDataError(f"{label} real sample must declare candidate_answer_source=human")
+    if manifest.get("for_real_sft") is not True:
+        raise OpenAIFineTuningDataError(f"{label} real sample must declare for_real_sft=true")
     if manifest.get("data_contribution_consent") is not True:
         raise OpenAIFineTuningDataError(f"{label} real sample is missing data_contribution_consent=true")
     if manifest.get("review_status") != "reviewed":
