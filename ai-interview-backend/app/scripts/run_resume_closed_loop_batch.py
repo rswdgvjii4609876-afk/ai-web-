@@ -110,6 +110,15 @@ def _scan_resume_files(resume_dir: Path) -> list[Path]:
     )
 
 
+def _blocked_reason_for_empty_text(file_path: Path) -> str:
+    suffix = file_path.suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png"}:
+        return "image_ocr_unavailable_or_disabled"
+    if suffix == ".pdf" and "converted_image" in file_path.name.lower():
+        return "image_pdf_ocr_unavailable"
+    return "text_extraction_empty"
+
+
 def recommend_target_position(text: str, file_name: str, override: str | None = None) -> dict[str, Any]:
     if override:
         return {"target_position": override, "score": None, "matched_terms": [], "source": "override"}
@@ -274,10 +283,8 @@ def dry_run(resume_dir: Path, out_dir: Path, *, target_position: str | None, lim
         recommendation = recommend_target_position(text, file_path.name, override=target_position)
         suffix = file_path.suffix.lower()
         blocked_reason = None
-        if suffix in {".jpg", ".jpeg", ".png"} and not text.strip():
-            blocked_reason = "image_ocr_unavailable_or_disabled"
-        elif not text.strip():
-            blocked_reason = "text_extraction_empty"
+        if not text.strip():
+            blocked_reason = _blocked_reason_for_empty_text(file_path)
         manifest.append(
             {
                 "file_name": file_path.name,
@@ -372,7 +379,7 @@ async def run_actual(args: argparse.Namespace, out_dir: Path) -> dict[str, Any]:
                 "status": "started",
             }
             if not resume_text.strip():
-                item.update({"status": "blocked", "blocked_reason": "text_extraction_empty"})
+                item.update({"status": "blocked", "blocked_reason": _blocked_reason_for_empty_text(file_path)})
                 results.append(item)
                 continue
             try:

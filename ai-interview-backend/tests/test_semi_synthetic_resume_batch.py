@@ -98,6 +98,23 @@ def test_dry_run_extracts_docx_and_blocks_image(tmp_path):
     assert docx_item["metadata"]["candidate_answer_source"] == "ai_simulated"
     assert docx_item["metadata"]["for_real_sft"] is False
     assert image_item["status"] == "blocked"
+    assert image_item["blocked_reason"] == "image_ocr_unavailable_or_disabled"
+
+
+@pytest.mark.unit
+def test_dry_run_marks_converted_image_pdf_as_ocr_blocked(tmp_path):
+    resume_dir = tmp_path / "resumes"
+    out_dir = tmp_path / "out"
+    resume_dir.mkdir()
+    (resume_dir / "scan.converted_image.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+
+    result = dry_run(resume_dir, out_dir, target_position=None, limit=None)
+
+    assert result["summary"]["total_files"] == 1
+    assert result["summary"]["blocked_files"] == 1
+    manifest = json.loads((out_dir / "manifest.preview.json").read_text(encoding="utf-8"))
+    assert manifest[0]["status"] == "blocked"
+    assert manifest[0]["blocked_reason"] == "image_pdf_ocr_unavailable"
 
 
 @pytest.mark.unit
