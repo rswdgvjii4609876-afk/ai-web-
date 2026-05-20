@@ -26,6 +26,32 @@ def test_answer_submit_requires_question_index():
 
 
 @pytest.mark.unit
+def test_deterministic_question_fallback_generates_normalizable_questions():
+    question_plan = InterviewService._build_question_plan(total_questions=3, difficulty="medium")
+    parsed_resume = {
+        "projects": [{"title": "Career-AgentOS", "evidence": "multi-agent interview workflow"}],
+        "skills": [{"skill": "Python"}],
+    }
+
+    raw_questions = InterviewService._build_deterministic_question_fallback(
+        question_plan=question_plan,
+        parsed_resume=parsed_resume,
+        target_position="产品助理/产品经理实习生",
+        total_questions=3,
+    )
+    normalized = InterviewService._normalize_questions(
+        raw_questions=raw_questions,
+        question_plan=question_plan,
+        interview_mode="single",
+    )
+
+    assert len(raw_questions) == 3
+    assert len(normalized) == 3
+    assert "Career-AgentOS" in raw_questions[1]["question"]
+    assert normalized[0]["panel_context"]["metadata"]["fallback_reason"] == "question_generation_failed"
+
+
+@pytest.mark.unit
 def test_merge_report_defaults_diagnoses_non_object_report_payload():
     report = InterviewService._merge_report_defaults(
         report=["bad"],

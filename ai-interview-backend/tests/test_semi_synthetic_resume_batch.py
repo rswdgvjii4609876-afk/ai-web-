@@ -5,6 +5,7 @@ import sys
 import pytest
 
 from app.scripts.run_resume_closed_loop_batch import (
+    _build_runtime_config_from_env,
     build_preview_record,
     dry_run,
     recommend_target_position,
@@ -47,6 +48,24 @@ def test_semi_synthetic_metadata_is_blocked_from_real_sft(tmp_path):
     assert metadata["data_contribution_consent"] is False
     assert metadata["semi_synthetic_data_contribution"] is False
     assert metadata["for_competition_demo"] is True
+
+
+@pytest.mark.unit
+def test_runtime_config_reads_deepseek_env_overrides(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("DEEPSEEK_THINKING", "disabled")
+    monkeypatch.setenv("DEEPSEEK_REASONING_EFFORT", "low")
+
+    config = _build_runtime_config_from_env()
+
+    assert config is not None
+    assert config["source"] == "env_deepseek"
+    assert config["model"] == "deepseek-v4-pro"
+    assert config["base_url"] == "https://api.deepseek.com"
+    assert config["thinking"] == "disabled"
+    assert config["reasoning_effort"] == "low"
 
 
 @pytest.mark.unit

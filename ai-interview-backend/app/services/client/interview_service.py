@@ -974,6 +974,98 @@ class InterviewService:
         return routed
 
     @staticmethod
+    def _first_resume_label(values: Any, keys: Sequence[str]) -> str:
+        if not isinstance(values, list):
+            values = [values] if values else []
+        for item in values:
+            if isinstance(item, dict):
+                for key in keys:
+                    value = str(item.get(key) or "").strip()
+                    if value:
+                        return value
+            else:
+                value = str(item or "").strip()
+                if value:
+                    return value
+        return ""
+
+    @staticmethod
+    def _build_deterministic_question_fallback(
+        *,
+        question_plan: Sequence[Dict],
+        parsed_resume: Dict,
+        target_position: str,
+        total_questions: int,
+        fallback_reason: str = "question_generation_failed",
+    ) -> List[Dict]:
+        count = max(len(question_plan), int(total_questions or 0), 3)
+        project_label = InterviewService._first_resume_label(
+            parsed_resume.get("projects") or parsed_resume.get("project_experience"),
+            ("title", "name", "project_name", "project", "description"),
+        )
+        experience_label = InterviewService._first_resume_label(
+            parsed_resume.get("experience") or parsed_resume.get("work_experience"),
+            ("company", "role", "position", "title", "description"),
+        )
+        skill_label = InterviewService._first_resume_label(
+            parsed_resume.get("skills"),
+            ("skill", "name", "label", "description"),
+        )
+        evidence_hint = project_label or experience_label or skill_label or "简历中最相关的一段经历"
+        position_label = target_position or "目标岗位"
+
+        templates = [
+            (
+                "self-intro",
+                f"请先做一个简短自我介绍，说明你为什么匹配{position_label}，并指出简历里最能支撑这个岗位的一段经历。",
+            ),
+            (
+                "project",
+                f"请围绕“{evidence_hint}”展开说明：当时的场景是什么，你具体做了什么，最后形成了什么结果？",
+            ),
+            (
+                "gap",
+                f"结合{position_label}的要求，你认为自己当前最需要补强的能力是什么？接下来会如何学习和验证？",
+            ),
+        ]
+
+        questions: List[Dict] = []
+        for index in range(count):
+            plan = dict(question_plan[index]) if index < len(question_plan) else {}
+            if index < len(templates):
+                category, text = templates[index]
+            else:
+                intent = str(plan.get("intent") or plan.get("category") or "岗位能力验证").strip()
+                category = str(plan.get("category") or "followup")
+                text = (
+                    f"围绕{position_label}的“{intent}”，请补充一个具体例子，说明你的行动、判断依据和复盘改进。"
+                )
+            questions.append(
+                {
+                    "index": index,
+                    "question": text,
+                    "category": category,
+                    "stage": plan.get("stage"),
+                    "lead_role": plan.get("lead_role"),
+                    "support_roles": plan.get("support_roles") or [],
+                    "intent": plan.get("intent") or category,
+                    "evaluation_focus": plan.get("evaluation_focus") or [],
+                    "panel_context": {
+                        "metadata": {
+                            "fallback_generated": True,
+                            "fallback_reason": fallback_reason,
+                        }
+                    },
+                }
+            )
+        return questions
+
+    @staticmethod
+    def _is_question_generation_validation_error(exc: ValidationError) -> bool:
+        detail = str(getattr(exc, "detail", "") or getattr(exc, "message", "") or "")
+        return "题目生成" in detail or "Question payload" in detail
+
+    @staticmethod
     def _normalize_questions(
         raw_questions: List[Dict],
         question_plan: List[Dict],
@@ -2981,9 +3073,30 @@ class InterviewService:
                     interview_mode="single",
                 )
         except ValidationError as exc:
-            raise ValidationError(
-                message=InterviewService._format_start_interview_error(exc.detail)
-            ) from exc
+            if not InterviewService._is_question_generation_validation_error(exc):
+                raise ValidationError(
+                    message=InterviewService._format_start_interview_error(exc.detail)
+                ) from exc
+            logger.warning("Question generation returned invalid payload, using deterministic fallback: %s", exc)
+            raw_questions = InterviewService._build_deterministic_question_fallback(
+                question_plan=question_plan,
+                parsed_resume=parsed_resume,
+                target_position=target_position,
+                total_questions=total_questions,
+            )
+            questions = InterviewService._normalize_questions(
+                raw_questions=raw_questions,
+                question_plan=question_plan,
+                interview_mode="single",
+            )
+            panel_snapshot = InterviewService._build_panel_snapshot(
+                mode="single",
+                requested_panel=interview_mode == "panel",
+                fallback_reason="question_generation_failed",
+            )
+            if interview_blueprint:
+                panel_snapshot["interview_blueprint"] = interview_blueprint
+            interview_mode = "single"
         except Exception as exc:
             if interview_mode == "panel":
                 logger.warning("Panel question generation failed, fallback to single mode: %s", exc)
@@ -3012,17 +3125,75 @@ class InterviewService:
                     if interview_blueprint:
                         panel_snapshot["interview_blueprint"] = interview_blueprint
                 except ValidationError as inner_exc:
-                    raise ValidationError(
-                        message=InterviewService._format_start_interview_error(inner_exc.detail)
-                    ) from inner_exc
+                    if not InterviewService._is_question_generation_validation_error(inner_exc):
+                        raise ValidationError(
+                            message=InterviewService._format_start_interview_error(inner_exc.detail)
+                        ) from inner_exc
+                    logger.warning(
+                        "Single question fallback returned invalid payload, using deterministic fallback: %s",
+                        inner_exc,
+                    )
+                    raw_questions = InterviewService._build_deterministic_question_fallback(
+                        question_plan=question_plan,
+                        parsed_resume=parsed_resume,
+                        target_position=target_position,
+                        total_questions=total_questions,
+                    )
+                    questions = InterviewService._normalize_questions(
+                        raw_questions=raw_questions,
+                        question_plan=question_plan,
+                        interview_mode="single",
+                    )
+                    interview_mode = "single"
+                    panel_snapshot = InterviewService._build_panel_snapshot(
+                        mode="single",
+                        requested_panel=True,
+                        fallback_reason="question_generation_failed",
+                    )
+                    if interview_blueprint:
+                        panel_snapshot["interview_blueprint"] = interview_blueprint
                 except Exception as inner_exc:
-                    logger.exception("Single question fallback failed: %s", inner_exc)
-                    raise ValidationError(
-                        message="开始面试失败：题目生成服务异常，请稍后重试"
-                    ) from inner_exc
+                    logger.exception("Single question fallback failed, using deterministic fallback: %s", inner_exc)
+                    raw_questions = InterviewService._build_deterministic_question_fallback(
+                        question_plan=question_plan,
+                        parsed_resume=parsed_resume,
+                        target_position=target_position,
+                        total_questions=total_questions,
+                    )
+                    questions = InterviewService._normalize_questions(
+                        raw_questions=raw_questions,
+                        question_plan=question_plan,
+                        interview_mode="single",
+                    )
+                    interview_mode = "single"
+                    panel_snapshot = InterviewService._build_panel_snapshot(
+                        mode="single",
+                        requested_panel=True,
+                        fallback_reason="question_generation_failed",
+                    )
+                    if interview_blueprint:
+                        panel_snapshot["interview_blueprint"] = interview_blueprint
             else:
-                logger.exception("Question generation failed: %s", exc)
-                raise ValidationError(message="开始面试失败：题目生成服务异常，请稍后重试") from exc
+                logger.exception("Question generation failed, using deterministic fallback: %s", exc)
+                raw_questions = InterviewService._build_deterministic_question_fallback(
+                    question_plan=question_plan,
+                    parsed_resume=parsed_resume,
+                    target_position=target_position,
+                    total_questions=total_questions,
+                )
+                questions = InterviewService._normalize_questions(
+                    raw_questions=raw_questions,
+                    question_plan=question_plan,
+                    interview_mode="single",
+                )
+                panel_snapshot = InterviewService._build_panel_snapshot(
+                    mode="single",
+                    requested_panel=False,
+                    fallback_reason="question_generation_failed",
+                )
+                if interview_blueprint:
+                    panel_snapshot["interview_blueprint"] = interview_blueprint
+                interview_mode = "single"
 
         questions = InterviewService._serialize_questions(questions)
         interview = Interview(

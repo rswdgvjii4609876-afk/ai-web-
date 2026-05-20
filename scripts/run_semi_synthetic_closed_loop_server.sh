@@ -9,6 +9,10 @@ OUT_DIR="/app/logs/semi_synthetic_resume_runs/${RUN_ID}"
 MODE="actual"
 LIMIT=""
 ROUNDS="${ROUNDS:-3}"
+DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-v4-pro}"
+DEEPSEEK_BASE_URL="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
+DEEPSEEK_THINKING="${DEEPSEEK_THINKING:-disabled}"
+DEEPSEEK_REASONING_EFFORT="${DEEPSEEK_REASONING_EFFORT:-low}"
 
 usage() {
   cat <<'USAGE'
@@ -17,6 +21,10 @@ Usage:
 
 Environment:
   DEEPSEEK_API_KEY   Optional. If set, passed only to the app container process.
+  DEEPSEEK_MODEL     Optional. Defaults to deepseek-v4-pro for batch stability.
+  DEEPSEEK_BASE_URL  Optional. Defaults to https://api.deepseek.com.
+  DEEPSEEK_THINKING  Optional. Defaults to disabled.
+  DEEPSEEK_REASONING_EFFORT Optional. Defaults to low.
   RESUME_DIR         Optional. Defaults to docs/competition/datasets/raw-data-resume.
   ROUNDS             Optional. Defaults to 3.
 
@@ -84,7 +92,18 @@ else
   ARGS+=(--confirm-api-cost)
 fi
 
-EXEC_ARGS=(exec -T)
+echo "ai_runtime_model=$DEEPSEEK_MODEL"
+echo "ai_runtime_base_url=$DEEPSEEK_BASE_URL"
+echo "ai_runtime_thinking=$DEEPSEEK_THINKING"
+echo "ai_runtime_reasoning_effort=$DEEPSEEK_REASONING_EFFORT"
+
+EXEC_ARGS=(
+  exec -T
+  -e DEEPSEEK_MODEL
+  -e DEEPSEEK_BASE_URL
+  -e DEEPSEEK_THINKING
+  -e DEEPSEEK_REASONING_EFFORT
+)
 if [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
   EXEC_ARGS+=(-e DEEPSEEK_API_KEY)
 fi

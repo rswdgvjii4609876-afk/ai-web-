@@ -186,8 +186,11 @@ def _build_runtime_config_from_env() -> dict[str, Any] | None:
         "api_key": api_key,
         "base_url": os.environ.get("DEEPSEEK_BASE_URL") or settings.DEEPSEEK_BASE_URL,
         "model": os.environ.get("DEEPSEEK_MODEL") or settings.DEEPSEEK_MODEL,
-        "thinking": settings.DEEPSEEK_THINKING,
-        "reasoning_effort": settings.DEEPSEEK_REASONING_EFFORT,
+        "thinking": os.environ.get("DEEPSEEK_THINKING") or settings.DEEPSEEK_THINKING,
+        "reasoning_effort": (
+            os.environ.get("DEEPSEEK_REASONING_EFFORT")
+            or settings.DEEPSEEK_REASONING_EFFORT
+        ),
     }
 
 
