@@ -3,12 +3,14 @@ import json
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.client.deps import get_current_user, require_base_privacy_consent
 from app.db.session import get_db
-from app.exceptions.http_exceptions import ValidationError
+from app.exceptions.http_exceptions import NotFoundError, ValidationError
+from app.models.interview import Interview
 from app.models.user import User
 from app.constants.privacy import BASE_PRIVACY_CONSENT_ERROR
 from app.schemas.client.interview import (
@@ -48,7 +50,48 @@ def _build_interview_runtime_config(
     )
     model = (ai_model or "").strip()
     if model:
-        ai_config["model"] = model
+        ai_config["model"] = deepseek_config_service.normalize_model(
+            ai_config.get("provider"),
+            model,
+        )
+    return ai_config
+
+
+async def _build_answer_runtime_config(
+    db: AsyncSession,
+    current_user: User,
+    interview_id: int,
+) -> dict:
+    result = await db.execute(
+        select(Interview).where(
+            Interview.id == interview_id,
+            Interview.user_id == current_user.id,
+        )
+    )
+    interview = result.scalar_one_or_none()
+    if not interview:
+        raise NotFoundError(message="面试记录不存在")
+
+    runtime = {}
+    panel_snapshot = interview.panel_snapshot if isinstance(interview.panel_snapshot, dict) else {}
+    if isinstance(panel_snapshot.get("ai_runtime"), dict):
+        runtime = panel_snapshot["ai_runtime"]
+
+    ai_config = deepseek_config_service.build_runtime_config(
+        current_user,
+        require_personal_key=True,
+        provider=runtime.get("provider"),
+    )
+    for key in ("base_url", "thinking", "reasoning_effort"):
+        value = runtime.get(key)
+        if value:
+            ai_config[key] = value
+    model = runtime.get("model")
+    if model:
+        ai_config["model"] = deepseek_config_service.normalize_model(
+            ai_config.get("provider"),
+            model,
+        )
     return ai_config
 
 
@@ -74,6 +117,11 @@ async def start_interview(
     )
 
     try:
+        ai_config = _build_interview_runtime_config(
+            current_user,
+            data.ai_provider,
+            data.ai_model,
+        )
         result = await interview_service.start_interview(
             db=db,
             user_id=current_user.id,
@@ -83,11 +131,7 @@ async def start_interview(
             difficulty=data.difficulty,
             total_questions=data.total_questions,
             multi_interviewer_enabled=data.multi_interviewer_enabled,
-            ai_config=_build_interview_runtime_config(
-                current_user,
-                data.ai_provider,
-                data.ai_model,
-            ),
+            ai_config=ai_config,
             data_contribution_consent=effective_data_consent,
             privacy_consent_snapshot=privacy_snapshot,
         )
@@ -118,10 +162,7 @@ async def submit_answer(
             interview_id=interview_id,
             answer=data.answer,
             question_index=data.question_index,
-            ai_config=deepseek_config_service.build_runtime_config(
-                current_user,
-                require_personal_key=True,
-            ),
+            ai_config=await _build_answer_runtime_config(db, current_user, interview_id),
         )
     except (ValueError, json.JSONDecodeError) as exc:
         await db.rollback()
@@ -143,10 +184,7 @@ async def submit_answer_stream(
         interview_id=interview_id,
         answer=data.answer,
         question_index=data.question_index,
-        ai_config=deepseek_config_service.build_runtime_config(
-            current_user,
-            require_personal_key=True,
-        ),
+        ai_config=await _build_answer_runtime_config(db, current_user, interview_id),
     )
     return StreamingResponse(
         generator,

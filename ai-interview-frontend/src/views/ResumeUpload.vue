@@ -463,15 +463,13 @@ const aiProviderLabels = {
   openai: 'ChatGPT / OpenAI'
 }
 const aiProviderDefaults = {
-  deepseek: { model: 'deepseek-v4-flash' },
+  deepseek: { model: 'deepseek-v4-pro' },
   openai: { model: 'gpt-5.2-chat-latest' }
 }
 const aiProviderModelOptions = {
   deepseek: [
-    { value: 'deepseek-v4-flash', label: 'deepseek-v4-flash（推荐）' },
-    { value: 'deepseek-v4-pro', label: 'deepseek-v4-pro' },
-    { value: 'deepseek-chat', label: 'deepseek-chat（旧版兼容，2026-07-24 停用）' },
-    { value: 'deepseek-reasoner', label: 'deepseek-reasoner（旧版兼容，2026-07-24 停用）' }
+    { value: 'deepseek-v4-pro', label: 'deepseek-v4-pro (recommended)' },
+    { value: 'deepseek-v4-flash', label: 'deepseek-v4-flash (fast / low cost)' }
   ],
   openai: [
     { value: 'gpt-5.2-chat-latest', label: 'gpt-5.2-chat-latest' },

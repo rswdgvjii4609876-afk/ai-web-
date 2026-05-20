@@ -647,22 +647,21 @@ def test_build_interview_blueprint_fallback_returns_grounded_structure():
 def test_deepseek_v4_model_request_defaults_to_non_thinking_mode():
     model, kwargs = AIService._normalize_model_request(
         provider="deepseek",
+        model="deepseek-v4-pro",
+        ai_config={},
+    )
+
+    assert model == "deepseek-v4-pro"
+    assert kwargs == {"extra_body": {"thinking": {"type": "disabled"}}}
+
+
+@pytest.mark.unit
+def test_deepseek_v4_flash_uses_non_thinking_mode():
+    model, kwargs = AIService._normalize_model_request(
+        provider="deepseek",
         model="deepseek-v4-flash",
         ai_config={},
     )
 
     assert model == "deepseek-v4-flash"
     assert kwargs == {"extra_body": {"thinking": {"type": "disabled"}}}
-
-
-@pytest.mark.unit
-def test_deepseek_legacy_reasoner_maps_to_v4_thinking_mode():
-    model, kwargs = AIService._normalize_model_request(
-        provider="deepseek",
-        model="deepseek-reasoner",
-        ai_config={},
-    )
-
-    assert model == "deepseek-v4-flash"
-    assert kwargs["extra_body"] == {"thinking": {"type": "enabled"}}
-    assert kwargs["reasoning_effort"] in {"high", "max"}

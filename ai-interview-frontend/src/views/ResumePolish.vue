@@ -29,6 +29,27 @@
             <option value="ats_keywords">关键词对齐</option>
           </select>
         </label>
+        <label>
+          AI 服务商
+          <select v-model="aiProvider" @change="handleAiProviderChange">
+            <option v-for="option in aiProviderOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </label>
+        <label>
+          使用模型
+          <input v-model="aiModel" :placeholder="aiModelPlaceholder" :list="aiModelDatalistId" />
+          <datalist :id="aiModelDatalistId">
+            <option
+              v-for="option in activeAiModelOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </datalist>
+        </label>
         <label class="full">
           补充说明
           <textarea
@@ -145,10 +166,16 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { getProfile } from '../api/user'
 import { getResume, polishResume, uploadResume } from '../api/resume'
 import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
+import {
+  aiProviderDefaults,
+  aiProviderModelOptions,
+  aiProviderOptions
+} from '../utils/aiRuntimeOptions'
 
 const selectedFile = ref(null)
 const targetPosition = ref('Python后端开发工程师')
@@ -163,6 +190,10 @@ const currentStep = ref('')
 const error = ref('')
 const privacyBaseAgreed = ref(true)
 const dataContributionConsent = ref(true)
+const aiProvider = ref('deepseek')
+const aiModel = ref('')
+const aiSavedModels = ref({ deepseek: '', openai: '' })
+const aiModelDatalistId = 'resume-polish-ai-model-options'
 
 const analysis = computed(() => currentResume.value?.analysis || {})
 const resumeEvaluation = computed(() => normalizeResumeEvaluation(analysis.value || {}))
@@ -171,10 +202,32 @@ const abilityProfile = computed(() => resumeEvaluation.value.abilityProfile || n
 const suggestions = computed(() => polishResult.value?.section_suggestions || [])
 const missingEvidence = computed(() => polishResult.value?.missing_evidence_to_prepare || [])
 const knowledgeSources = computed(() => polishResult.value?.knowledge_sources || [])
+const activeAiModelOptions = computed(() => aiProviderModelOptions[aiProvider.value] || [])
+const aiModelPlaceholder = computed(() => aiProviderDefaults[aiProvider.value]?.model || '')
+const currentAiModel = computed(() => aiModel.value?.trim() || aiModelPlaceholder.value || '')
 
 watch(polishResult, value => {
   editableMarkdown.value = value?.polished_resume_markdown || ''
 })
+
+onMounted(async () => {
+  try {
+    const data = await getProfile()
+    aiSavedModels.value = {
+      deepseek: data?.deepseek_model || '',
+      openai: data?.openai_model || ''
+    }
+    aiProvider.value = data?.ai_provider || 'deepseek'
+    aiModel.value = aiSavedModels.value[aiProvider.value] || aiProviderDefaults[aiProvider.value]?.model || ''
+  } catch (err) {
+    console.error('Failed to load AI profile for resume polish', err)
+    aiModel.value = aiProviderDefaults.deepseek.model
+  }
+})
+
+function handleAiProviderChange() {
+  aiModel.value = aiSavedModels.value[aiProvider.value] || aiProviderDefaults[aiProvider.value]?.model || ''
+}
 
 function handleFileChange(event) {
   selectedFile.value = event.target.files?.[0] || null
@@ -234,6 +287,8 @@ async function runPolish() {
   try {
     currentStep.value = '上传并解析中...'
     const upload = await uploadResume(selectedFile.value, targetPosition.value.trim(), {
+      provider: aiProvider.value,
+      model: currentAiModel.value,
       privacyAgreed: privacyBaseAgreed.value,
       dataContributionConsent: dataContributionConsent.value
     })
@@ -245,6 +300,9 @@ async function runPolish() {
       polish_mode: polishMode.value,
       target_position: targetPosition.value.trim(),
       user_notes: userNotes.value.trim()
+    }, {
+      provider: aiProvider.value,
+      model: currentAiModel.value
     })
     currentStep.value = '完成'
   } catch (err) {

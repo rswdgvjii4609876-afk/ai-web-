@@ -11,6 +11,7 @@ from app.models.user import User
 
 class DeepSeekConfigService:
     SUPPORTED_PROVIDERS = {"deepseek", "openai"}
+    DEEPSEEK_CHAT_MODELS = {"deepseek-v4-pro", "deepseek-v4-flash"}
 
     @staticmethod
     def _normalized_secret() -> str:
@@ -82,6 +83,18 @@ class DeepSeekConfigService:
         return settings.DEEPSEEK_MODEL
 
     @staticmethod
+    def normalize_model(provider: Optional[str], model: Optional[str]) -> str:
+        normalized = DeepSeekConfigService.normalize_provider(provider)
+        cleaned = (model or "").strip()
+        if normalized == "openai":
+            return cleaned or settings.OPENAI_MODEL
+        if not cleaned:
+            return settings.DEEPSEEK_MODEL
+        if cleaned not in DeepSeekConfigService.DEEPSEEK_CHAT_MODELS:
+            return settings.DEEPSEEK_MODEL
+        return cleaned
+
+    @staticmethod
     def summarize_for_profile(user: User) -> Dict:
         selected_provider = DeepSeekConfigService.normalize_provider(
             getattr(user, "ai_provider", None)
@@ -93,10 +106,16 @@ class DeepSeekConfigService:
             "deepseek_use_personal_api": selected_provider == "deepseek" and has_deepseek_key,
             "deepseek_has_personal_api_key": has_deepseek_key,
             "deepseek_base_url": getattr(user, "deepseek_base_url", None) or settings.DEEPSEEK_BASE_URL,
-            "deepseek_model": getattr(user, "deepseek_model", None) or settings.DEEPSEEK_MODEL,
+            "deepseek_model": DeepSeekConfigService.normalize_model(
+                "deepseek",
+                getattr(user, "deepseek_model", None),
+            ),
             "openai_has_personal_api_key": has_openai_key,
             "openai_base_url": getattr(user, "openai_base_url", None) or settings.OPENAI_BASE_URL,
-            "openai_model": getattr(user, "openai_model", None) or settings.OPENAI_MODEL,
+            "openai_model": DeepSeekConfigService.normalize_model(
+                "openai",
+                getattr(user, "openai_model", None),
+            ),
         }
 
     @staticmethod
@@ -136,8 +155,10 @@ class DeepSeekConfigService:
             "api_key": api_key,
             "base_url": getattr(user, field_names["base_url"], None)
             or DeepSeekConfigService.default_base_url(provider),
-            "model": getattr(user, field_names["model"], None)
-            or DeepSeekConfigService.default_model(provider),
+            "model": DeepSeekConfigService.normalize_model(
+                provider,
+                getattr(user, field_names["model"], None),
+            ),
             "thinking": settings.DEEPSEEK_THINKING if provider == "deepseek" else None,
             "reasoning_effort": settings.DEEPSEEK_REASONING_EFFORT if provider == "deepseek" else None,
         }

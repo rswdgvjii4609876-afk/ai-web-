@@ -387,6 +387,17 @@ class InterviewService:
         return snapshot
 
     @staticmethod
+    def _sanitize_ai_runtime_config(ai_config: Optional[Dict]) -> Dict:
+        if not isinstance(ai_config, dict):
+            return {}
+        allowed_keys = ("provider", "provider_label", "base_url", "model", "source", "thinking", "reasoning_effort")
+        return {
+            key: ai_config.get(key)
+            for key in allowed_keys
+            if ai_config.get(key) not in (None, "")
+        }
+
+    @staticmethod
     def _blueprint_claim_strings(interview_blueprint: Optional[Dict], limit: int = 4) -> List[str]:
         claims: List[str] = []
         for item in (interview_blueprint or {}).get("high_risk_claims") or []:
@@ -3194,6 +3205,10 @@ class InterviewService:
                 if interview_blueprint:
                     panel_snapshot["interview_blueprint"] = interview_blueprint
                 interview_mode = "single"
+
+        runtime_snapshot = InterviewService._sanitize_ai_runtime_config(ai_config)
+        if runtime_snapshot:
+            panel_snapshot["ai_runtime"] = runtime_snapshot
 
         questions = InterviewService._serialize_questions(questions)
         interview = Interview(

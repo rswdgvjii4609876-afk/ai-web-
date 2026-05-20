@@ -42,7 +42,10 @@ def _build_resume_runtime_config(
     )
     model = (ai_model or "").strip()
     if model:
-        ai_config["model"] = model
+        ai_config["model"] = deepseek_config_service.normalize_model(
+            ai_config.get("provider"),
+            model,
+        )
     return ai_config
 
 

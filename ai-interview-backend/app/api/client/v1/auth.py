@@ -282,9 +282,14 @@ async def update_profile(
             else None
         )
     if "deepseek_model" in update_data:
-        update_data["deepseek_model"] = (
-            update_data["deepseek_model"].strip() or None
+        cleaned_model = (
+            update_data["deepseek_model"].strip()
             if update_data["deepseek_model"] is not None
+            else ""
+        )
+        update_data["deepseek_model"] = (
+            deepseek_config_service.normalize_model("deepseek", cleaned_model)
+            if cleaned_model
             else None
         )
     if "openai_base_url" in update_data:

@@ -58,10 +58,6 @@ DEFAULT_PANEL_ROLES = [
     },
 ]
 DEEPSEEK_V4_MODELS = {"deepseek-v4-flash", "deepseek-v4-pro"}
-DEEPSEEK_LEGACY_MODEL_ALIASES = {
-    "deepseek-chat": ("deepseek-v4-flash", "disabled"),
-    "deepseek-reasoner": ("deepseek-v4-flash", "enabled"),
-}
 RESUME_EVIDENCE_DOMAIN_TERMS = [
     "电商", "支付", "金融", "风控", "营销", "广告", "SaaS", "CRM", "ERP",
     "物流", "供应链", "教育", "医疗", "零售", "客服", "中台", "平台", "数据中台",
@@ -142,16 +138,11 @@ class AIService:
         if normalized_provider != "deepseek":
             return normalized_model, {}
 
-        legacy_thinking = None
-        if normalized_model in DEEPSEEK_LEGACY_MODEL_ALIASES:
-            normalized_model, legacy_thinking = DEEPSEEK_LEGACY_MODEL_ALIASES[normalized_model]
-
         if normalized_model not in DEEPSEEK_V4_MODELS:
             return normalized_model, {}
 
         configured_thinking = (
             (ai_config or {}).get("thinking")
-            or legacy_thinking
             or settings.DEEPSEEK_THINKING
             or "disabled"
         )

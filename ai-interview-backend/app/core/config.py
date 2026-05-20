@@ -110,7 +110,7 @@ class Settings(BaseSettings):
     # DeepSeek
     DEEPSEEK_API_KEY: str = "your-deepseek-api-key"
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
-    DEEPSEEK_MODEL: str = "deepseek-v4-flash"
+    DEEPSEEK_MODEL: str = "deepseek-v4-pro"
     DEEPSEEK_EMBEDDING_MODEL: str = ""
     DEEPSEEK_THINKING: str = "disabled"
     DEEPSEEK_REASONING_EFFORT: str = "high"
