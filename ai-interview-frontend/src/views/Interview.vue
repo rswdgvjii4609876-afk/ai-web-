@@ -88,85 +88,6 @@
       </details>
     </div>
 
-    <div v-if="!preparing && latestRoundSummary" class="round-loop-card">
-      <div class="round-loop-top">
-        <div>
-          <strong>本轮证据闭环</strong>
-          <p class="round-loop-note">
-            当前轮会明确记录这道题在验证什么证据、暴露了什么缺口，以及下一步最值得追问的方向。
-          </p>
-        </div>
-        <span class="round-loop-chip">{{ latestRoundSummary.modeLabel }}</span>
-      </div>
-      <p v-if="latestRoundSummary.questionReason" class="round-loop-feedback">
-        {{ latestRoundSummary.questionReason }}
-      </p>
-      <div class="round-loop-grid">
-        <div v-if="latestRoundSummary.questionTargetGap" class="round-loop-block">
-          <p class="round-loop-title">当前验证缺口</p>
-          <p class="round-loop-text">{{ latestRoundSummary.questionTargetGap }}</p>
-        </div>
-        <div v-if="latestRoundSummary.questionTargetEvidence.length" class="round-loop-block">
-          <p class="round-loop-title">当前证据目标</p>
-          <ul class="round-loop-list">
-            <li
-              v-for="(item, index) in latestRoundSummary.questionTargetEvidence"
-              :key="`question-target-${item}-${index}`"
-            >
-              {{ item }}
-            </li>
-          </ul>
-        </div>
-        <div v-if="latestRoundSummary.unresolvedGaps.length" class="round-loop-block">
-          <p class="round-loop-title">仍待澄清</p>
-          <ul class="round-loop-list">
-            <li v-for="(item, index) in latestRoundSummary.unresolvedGaps" :key="`gap-${item}-${index}`">
-              {{ item }}
-            </li>
-          </ul>
-        </div>
-        <div v-if="latestRoundSummary.evidenceStrengthDelta.length" class="round-loop-block">
-          <p class="round-loop-title">证据强度变化</p>
-          <ul class="round-loop-list">
-            <li
-              v-for="(item, index) in latestRoundSummary.evidenceStrengthDelta"
-              :key="`delta-${index}`"
-            >
-              {{ item.evidence }}：{{ formatDeltaLabel(item.delta) }}
-              <span v-if="item.reason" class="round-loop-inline-note">（{{ item.reason }}）</span>
-            </li>
-          </ul>
-        </div>
-        <div v-if="latestRoundSummary.claimConfidenceChange.length" class="round-loop-block">
-          <p class="round-loop-title">高风险表述置信度</p>
-          <ul class="round-loop-list">
-            <li
-              v-for="(item, index) in latestRoundSummary.claimConfidenceChange"
-              :key="`claim-${index}`"
-            >
-              {{ item.claim }}：{{ item.from_level || 'unknown' }} -> {{ item.to_level || 'unknown' }}
-            </li>
-          </ul>
-        </div>
-        <div v-if="latestRoundSummary.nextBestFollowup" class="round-loop-block">
-          <p class="round-loop-title">下一步最佳追问</p>
-          <p class="round-loop-text">{{ latestRoundSummary.nextBestFollowup.question }}</p>
-          <p v-if="latestRoundSummary.nextBestFollowup.reason" class="round-loop-inline-note">
-            {{ latestRoundSummary.nextBestFollowup.reason }}
-          </p>
-          <p
-            v-if="latestRoundSummary.nextBestFollowup.evidenceSourceSummary?.length"
-            class="round-loop-inline-note"
-          >
-            证据来源：{{ latestRoundSummary.nextBestFollowup.evidenceSourceSummary.join('；') }}
-          </p>
-        </div>
-      </div>
-      <ul v-if="latestRoundSummary.points.length" class="round-summary-list compact">
-        <li v-for="(item, index) in latestRoundSummary.points" :key="`round-point-${index}`">{{ item }}</li>
-      </ul>
-    </div>
-
     <div v-if="!preparing" ref="chatArea" class="chat-area">
       <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
         <div v-if="msg.role === 'interviewer'" class="avatar-col">
@@ -230,6 +151,100 @@
       </div>
     </div>
 
+    <div
+      v-if="!preparing && latestRoundSummary && !roundSummaryDismissed"
+      class="round-feedback-panel"
+    >
+      <div class="round-feedback-bar">
+        <div class="round-feedback-main">
+          <strong>上一题评分 {{ roundSummaryScoreText }}</strong>
+          <span>{{ latestRoundSummary.questionTargetGap || latestRoundSummary.feedback || '本轮评估已完成，可以继续回答下一题。' }}</span>
+        </div>
+        <div class="round-feedback-actions">
+          <button
+            class="round-feedback-btn"
+            type="button"
+            :aria-expanded="roundSummaryExpanded"
+            @click="roundSummaryExpanded = !roundSummaryExpanded"
+          >
+            {{ roundSummaryExpanded ? '收起详情' : '查看详情' }}
+          </button>
+          <button class="round-feedback-close" type="button" aria-label="关闭本轮评分反馈" @click="roundSummaryDismissed = true">
+            ×
+          </button>
+        </div>
+      </div>
+      <div v-if="roundSummaryExpanded" class="round-feedback-detail">
+        <p v-if="latestRoundSummary.questionReason" class="round-loop-feedback">
+          {{ latestRoundSummary.questionReason }}
+        </p>
+        <div class="round-loop-grid">
+          <div v-if="latestRoundSummary.questionTargetGap" class="round-loop-block">
+            <p class="round-loop-title">当前验证缺口</p>
+            <p class="round-loop-text">{{ latestRoundSummary.questionTargetGap }}</p>
+          </div>
+          <div v-if="latestRoundSummary.questionTargetEvidence.length" class="round-loop-block">
+            <p class="round-loop-title">当前证据目标</p>
+            <ul class="round-loop-list">
+              <li
+                v-for="(item, index) in latestRoundSummary.questionTargetEvidence"
+                :key="`question-target-${item}-${index}`"
+              >
+                {{ item }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="latestRoundSummary.unresolvedGaps.length" class="round-loop-block">
+            <p class="round-loop-title">仍待澄清</p>
+            <ul class="round-loop-list">
+              <li v-for="(item, index) in latestRoundSummary.unresolvedGaps" :key="`gap-${item}-${index}`">
+                {{ item }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="latestRoundSummary.evidenceStrengthDelta.length" class="round-loop-block">
+            <p class="round-loop-title">证据强度变化</p>
+            <ul class="round-loop-list">
+              <li
+                v-for="(item, index) in latestRoundSummary.evidenceStrengthDelta"
+                :key="`delta-${index}`"
+              >
+                {{ item.evidence }}：{{ formatDeltaLabel(item.delta) }}
+                <span v-if="item.reason" class="round-loop-inline-note">（{{ item.reason }}）</span>
+              </li>
+            </ul>
+          </div>
+          <div v-if="latestRoundSummary.claimConfidenceChange.length" class="round-loop-block">
+            <p class="round-loop-title">高风险表述置信度</p>
+            <ul class="round-loop-list">
+              <li
+                v-for="(item, index) in latestRoundSummary.claimConfidenceChange"
+                :key="`claim-${index}`"
+              >
+                {{ item.claim }}：{{ item.from_level || 'unknown' }} -> {{ item.to_level || 'unknown' }}
+              </li>
+            </ul>
+          </div>
+          <div v-if="latestRoundSummary.nextBestFollowup" class="round-loop-block">
+            <p class="round-loop-title">下一步最佳追问</p>
+            <p class="round-loop-text">{{ latestRoundSummary.nextBestFollowup.question }}</p>
+            <p v-if="latestRoundSummary.nextBestFollowup.reason" class="round-loop-inline-note">
+              {{ latestRoundSummary.nextBestFollowup.reason }}
+            </p>
+            <p
+              v-if="latestRoundSummary.nextBestFollowup.evidenceSourceSummary?.length"
+              class="round-loop-inline-note"
+            >
+              证据来源：{{ latestRoundSummary.nextBestFollowup.evidenceSourceSummary.join('；') }}
+            </p>
+          </div>
+        </div>
+        <ul v-if="latestRoundSummary.points.length" class="round-summary-list compact">
+          <li v-for="(item, index) in latestRoundSummary.points" :key="`round-point-${index}`">{{ item }}</li>
+        </ul>
+      </div>
+    </div>
+
     <AiConfigErrorNotice v-if="!preparing && streamError" :error="streamError" class="interview-error-notice" />
 
     <div v-if="!preparing && !finished" class="input-area">
@@ -280,6 +295,8 @@ const chatArea = ref(null)
 const streamingText = ref('')
 const streamError = ref('')
 const latestRoundSummary = ref(null)
+const roundSummaryExpanded = ref(false)
+const roundSummaryDismissed = ref(true)
 const interviewMeta = ref(null)
 const panelRoleHints = ['岗位匹配', '经历追问', '沟通表达', '证据核查', '改进建议']
 
@@ -318,6 +335,12 @@ const hasBlueprintCard = computed(() => {
 })
 const interviewModeLabel = computed(() => {
   return interviewMode.value === 'panel' ? '多角色协同评估' : '单面试官模式'
+})
+const roundSummaryScoreText = computed(() => {
+  const value = latestRoundSummary.value?.score
+  if (value === null || value === undefined || value === '') return '-/10'
+  const score = Number(value)
+  return Number.isFinite(score) ? `${score.toFixed(1)}/10` : `${value}/10`
 })
 
 function loadInterviewMeta() {
@@ -413,6 +436,7 @@ function normalizeRoundSummary(data) {
 
   return {
     feedback: data.feedback || moderator.reasoning_summary || '',
+    score: data.score ?? null,
     modeLabel: isPanelMode.value ? '证据追问闭环' : '单面试官闭环',
     questionTargetGap: data.question_target_gap || '',
     questionTargetEvidence: questionTargetEvidence.slice(0, 4),
@@ -500,6 +524,8 @@ async function handleSubmit() {
   thinking.value = true
   streamingText.value = ''
   streamError.value = ''
+  roundSummaryExpanded.value = false
+  roundSummaryDismissed.value = true
   let rawStreamText = ''
 
   try {
@@ -521,6 +547,8 @@ async function handleSubmit() {
       },
       data => {
         latestRoundSummary.value = normalizeRoundSummary(data)
+        roundSummaryExpanded.value = false
+        roundSummaryDismissed.value = false
 
         if (rawStreamText.trim()) {
           const displayText = rawStreamText
@@ -826,40 +854,8 @@ async function handleSubmit() {
   margin-top: 14px;
 }
 
-.round-loop-card {
-  margin: 16px 20px 0;
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(79, 70, 229, 0.06));
-  border: 1px solid rgba(14, 165, 233, 0.16);
-}
-
-.round-loop-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.round-loop-note {
-  margin-top: 6px;
-  font-size: 13px;
-  line-height: 1.7;
-  color: #4b5563;
-}
-
-.round-loop-chip {
-  flex-shrink: 0;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .round-loop-feedback {
-  margin-top: 12px;
+  margin: 0 0 10px;
   font-size: 13px;
   line-height: 1.7;
   color: #1f2937;
@@ -911,11 +907,90 @@ async function handleSubmit() {
 
 .chat-area {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.round-feedback-panel {
+  flex-shrink: 0;
+  margin: 0 20px 10px;
+  border: 1px solid rgba(14, 165, 233, 0.16);
+  border-radius: 12px;
+  background: #f8fbff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.round-feedback-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.round-feedback-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.round-feedback-main strong {
+  flex-shrink: 0;
+  color: #0f172a;
+}
+
+.round-feedback-main span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #4b5563;
+}
+
+.round-feedback-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.round-feedback-btn,
+.round-feedback-close {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.round-feedback-btn {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #075985;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.round-feedback-close {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #eef2ff;
+  color: #4b5563;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.round-feedback-detail {
+  max-height: 30vh;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+  border-top: 1px solid rgba(14, 165, 233, 0.12);
 }
 
 .message {
@@ -1100,6 +1175,38 @@ async function handleSubmit() {
   .input-area {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .round-feedback-panel {
+    margin: 0 12px 8px;
+  }
+
+  .round-feedback-bar,
+  .round-feedback-main {
+    align-items: flex-start;
+  }
+
+  .round-feedback-bar {
+    flex-direction: column;
+  }
+
+  .round-feedback-main {
+    width: 100%;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .round-feedback-main span {
+    white-space: normal;
+  }
+
+  .round-feedback-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .round-feedback-detail {
+    max-height: 25vh;
   }
 }
 </style>
