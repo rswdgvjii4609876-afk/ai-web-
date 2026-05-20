@@ -1,5 +1,29 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-20 当前有效状态：阶段 172 DeepSeek V4 模型收口与人工跑数路线确认
+
+当前最新有效提交为 `27f57a9 fix: force DeepSeek model selection to v4 options`。本阶段完成的是状态收口和后续执行路线确认，不再继续沿用半自动简历批跑路线。
+
+当前有效结论：
+- DeepSeek 用户端模型选择已收口为 `deepseek-v4-pro` / `deepseek-v4-flash`，默认 `deepseek-v4-pro`。
+- 个人设置、新建面试/简历解析、简历润色页面即使读取到旧值，也会把 `deepseek-chat`、`deepseek-reasoner`、空值或未知值归一化为 `deepseek-v4-pro`。
+- Docker Compose 的 `HOSTNAME` warn 已通过 Celery healthcheck 中的 `$${HOSTNAME:-...}` 转义修复。
+- 半自动简历闭环跑批最新结论是失败，不作为成果使用；临时简历数据、图片转 PDF、半自动跑批脚本和相关测试已从仓库移除。
+- 当前数据路线切换为：在服务器用户端人工上传简历，人工完成解析、润色、面试、报告、训练复盘，再进入后台人工标注。
+- `docs/competition/README_当前必看.md` 是当前 competition 目录的阅读入口和项目文件索引，本轮应纳入 Git。
+
+当前下一步：
+1. 服务器执行 `git pull`、`docker compose up -d --build`、`docker compose exec -T app alembic upgrade head`。
+2. 浏览器强刷或无痕登录，确认 DeepSeek 模型下拉只显示 V4 Pro / V4 Flash。
+3. 人工上传简历并跑完整闭环：解析 -> 简历润色 -> 面试 -> 报告 -> 训练复盘。
+4. 后台在“案例标注”中只标注人工跑出的有效案例，不标注历史半自动失败记录。
+
+仍不得宣称：
+- 半自动简历跑批已经成功。
+- C1/C2/C3 真实闭环已通过。
+- 真实 OpenAI SFT 已完成或已有 `fine_tuned_model`。
+- demo、constructed、simulated 或 AI 模拟回答样本是真实用户完整面试数据。
+
 ## 2026-05-19 当前有效状态：阶段 167-171 全链条代码审查修复收口
 
 当前最高优先级是代码级质量收口，而不是继续扩展新页面或启动真实微调。六个子 agent 的审查结果已归并；与用户强制要求冲突的项（例如个人模式下基础隐私与数据贡献默认开启、简历润色页不展示隐私块）不反向修改，其余 P0 风险已尽量收口。
