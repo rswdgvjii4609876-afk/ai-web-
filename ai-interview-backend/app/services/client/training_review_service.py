@@ -32,6 +32,8 @@ class TrainingReviewService:
         interview = result.scalar_one_or_none()
         if not interview:
             raise NotFoundError(message="面试记录不存在")
+        if getattr(interview, "user_deleted_at", None):
+            raise NotFoundError(message="面试记录不存在")
         if require_completed and interview.status != "completed":
             raise ValidationError(message="面试尚未完成，暂不能保存训练复盘")
         return interview
@@ -59,7 +61,12 @@ class TrainingReviewService:
 
     @staticmethod
     async def get_review(db: AsyncSession, user_id: int, interview_id: int) -> Dict[str, Any]:
-        await TrainingReviewService._ensure_interview_owner(db, user_id, interview_id)
+        await TrainingReviewService._ensure_interview_owner(
+            db,
+            user_id,
+            interview_id,
+            require_completed=True,
+        )
         result = await db.execute(
             select(TrainingReview).where(
                 TrainingReview.user_id == user_id,

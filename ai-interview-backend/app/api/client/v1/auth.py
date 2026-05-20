@@ -345,7 +345,10 @@ async def test_ai_connection(
         provider=data.provider,
     )
     if data.model is not None and data.model.strip():
-        runtime_config["model"] = data.model.strip()
+        runtime_config["model"] = deepseek_config_service.normalize_model(
+            runtime_config.get("provider"),
+            data.model.strip(),
+        )
     result = await AIService.test_runtime_connection(runtime_config)
     return ApiResponse.success(data=result)
 

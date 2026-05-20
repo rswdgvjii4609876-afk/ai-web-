@@ -1,7 +1,10 @@
 import asyncio
+import json
 
 import pytest
 
+from app.core.config import settings
+from app.services.common.deepseek_config_service import DeepSeekConfigService
 from app.services.client.ai_service import AIService, PANEL_OUTPUT_VERSION
 
 
@@ -665,3 +668,132 @@ def test_deepseek_v4_flash_uses_non_thinking_mode():
 
     assert model == "deepseek-v4-flash"
     assert kwargs == {"extra_body": {"thinking": {"type": "disabled"}}}
+
+
+@pytest.mark.unit
+def test_deepseek_unknown_model_falls_back_to_v4_pro():
+    model, kwargs = AIService._normalize_model_request(
+        provider="deepseek",
+        model="deepseek-reasoner",
+        ai_config={},
+    )
+
+    assert model == "deepseek-v4-pro"
+    assert kwargs == {"extra_body": {"thinking": {"type": "disabled"}}}
+
+
+@pytest.mark.unit
+def test_deepseek_config_default_model_rejects_legacy_env_value(monkeypatch):
+    monkeypatch.setattr(settings, "DEEPSEEK_MODEL", "deepseek-reasoner")
+
+    assert DeepSeekConfigService.default_model("deepseek") == "deepseek-v4-pro"
+    assert DeepSeekConfigService.normalize_model("deepseek", None) == "deepseek-v4-pro"
+    assert DeepSeekConfigService.normalize_model("deepseek", "deepseek-chat") == "deepseek-v4-pro"
+
+
+@pytest.mark.unit
+def test_evaluate_answer_uses_json_repair_contract(monkeypatch):
+    calls = []
+
+    async def fake_chat(_messages, temperature=0.3, ai_config=None):
+        calls.append({"temperature": temperature, "ai_config": ai_config})
+        if len(calls) == 1:
+            return '{"score": 8.0, "feedback": "回答包含"未转义引号"}'
+        return json.dumps(
+            {
+                "score": 8.0,
+                "feedback": "回答具体，继续补充量化结果。",
+                "strengths": ["有项目证据"],
+                "gaps": ["量化结果不足"],
+                "unresolved_gaps": [],
+                "evidence_strength_delta": [],
+                "claim_confidence_change": [],
+                "next_best_followup": {
+                    "question": "你如何验证效果？",
+                    "reason": "补充指标",
+                    "target_gap": "量化结果",
+                    "target_evidence": [],
+                    "evidence_source_ids": [],
+                    "evidence_source_summary": [],
+                },
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(AIService, "_chat", fake_chat)
+
+    async def _run():
+        result = await AIService.evaluate_answer(
+            question="介绍项目。",
+            answer="我负责需求拆解和上线。",
+            resume_context={"projects": [{"name": "demo"}]},
+            chat_history=[],
+            question_meta={},
+        )
+        assert result["score"] == 8.0
+        assert "量化" in result["feedback"]
+        assert len(calls) == 2
+        assert calls[1]["temperature"] == 0
+
+    asyncio.run(_run())
+
+
+@pytest.mark.unit
+def test_generate_panel_questions_uses_json_repair_contract(monkeypatch):
+    calls = []
+
+    async def fake_chat(_messages, temperature=0.5, ai_config=None):
+        calls.append({"messages": _messages, "temperature": temperature, "ai_config": ai_config})
+        if len(calls) == 1:
+            return '{"panel":[{"role":"technical","focus":"坏 JSON "引号"}],"moderator":{}'
+        return json.dumps(
+            {
+                "panel": [
+                    {
+                        "role": "technical",
+                        "role_key": "technical_deep_dive",
+                        "focus": "技术深挖",
+                        "question_candidates": ["请介绍项目架构。"],
+                        "followup_candidates": ["为什么这么设计？"],
+                        "evaluation_points": ["技术权衡"],
+                    }
+                ],
+                "moderator": {
+                    "selected_questions": [
+                        {
+                            "index": 0,
+                            "selected_question": "请介绍你最有代表性的项目，以及你具体负责的部分。",
+                            "selected_followups": ["如何验证效果？"],
+                            "reasoning_summary": "先确认职责边界。",
+                            "lead_role": "project_follow_up",
+                            "support_roles": ["technical_deep_dive"],
+                            "evaluation_points": ["职责边界"],
+                            "used_slice_ids": [],
+                        }
+                    ],
+                    "reasoning_summary": "ok",
+                    "feedback_style": "direct",
+                    "difficulty_hint": "medium",
+                },
+                "metadata": {"mode": "panel", "version": "panel_structured_v1"},
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(AIService, "_chat", fake_chat)
+
+    async def _run():
+        result = await AIService.generate_panel_questions(
+            parsed_resume={"projects": [{"name": "demo"}]},
+            target_position="产品助理",
+            difficulty="medium",
+            count=1,
+            question_plan=[{}],
+            panel_snapshot=_panel_snapshot(),
+        )
+        assert result["questions"][0]["question"].startswith("请介绍")
+        assert len(calls) == 2
+        assert calls[1]["temperature"] == 0
+        assert "moderator.selected_questions" in calls[1]["messages"][1]["content"]
+
+    asyncio.run(_run())

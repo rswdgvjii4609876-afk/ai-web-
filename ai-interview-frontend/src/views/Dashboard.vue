@@ -64,7 +64,7 @@
           <router-link v-else :to="`/interview/${item.interview_id}/report`" class="btn-secondary" style="padding:6px 16px;font-size:13px;display:inline-block;border-radius:6px">
             查看面试报告
           </router-link>
-          <button class="btn-danger" style="padding:6px 16px;font-size:13px;border-radius:6px" @click="handleDelete(item.interview_id)">
+          <button class="btn-danger" style="padding:6px 16px;font-size:13px;border-radius:6px" @click="handleDelete(item)">
             删除
           </button>
         </div>
@@ -97,8 +97,12 @@ onMounted(async () => {
   }
 })
 
-async function handleDelete(interviewId) {
-  if (!confirm('确定要删除这条面试记录吗？删除后无法恢复。')) return
+async function handleDelete(item) {
+  const interviewId = item.interview_id
+  const message = item.status === 'completed'
+    ? '确定从用户端删除这条已完成面试吗？删除后你在工作台将看不到它，后台仍会保留用于人工复核和案例标注。'
+    : '确定删除这条未完成面试记录吗？未完成记录删除后无法恢复。'
+  if (!confirm(message)) return
   try {
     await deleteInterview(interviewId)
     interviews.value = interviews.value.filter(i => i.interview_id !== interviewId)

@@ -1,5 +1,54 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-20 当前有效状态：阶段 179 工程师 Skills 全链路复审与优化收口
+
+本阶段按 `plan-skill-router` 路由使用工程向复审视角：Code Reviewer、Backend Architect、Frontend Developer、AI Engineer、Security Engineer。复审结论无 Must-fix；已吸收高价值 should-fix 做代码级收口。
+
+当前有效结论：
+- 后台管理员补授权继续作为“最终确认入口”，可写入 `real_authorized`、`candidate_answer_source=human`、`for_real_sft=true`，但必须保留管理员、时间、原因审计；该行为仍不得表述为用户主动授权。
+- 后台案例标注的补授权入口已从 `window.prompt` 升级为结构化确认弹窗，支持原因填写、Esc 关闭、Tab 焦点约束和焦点恢复。
+- 用户端面试消息不再使用 `v-html`，改为纯文本渲染并用 CSS 保留换行，降低模型输出 HTML 注入风险。
+- DeepSeek 默认模型兜底继续强制为 V4：即使服务器环境变量误设成旧模型，服务层也会回落到 `deepseek-v4-pro`。
+- LLM JSON repair 测试已从“合法 JSON 冒烟”升级为真实触发 malformed -> repair 的回归测试。
+- 面试加载失败页增加“重试”，并且只有 AI 配置类错误才显示“检查 AI 调用设置”。
+- 单条导出接口改用公开导出门禁 wrapper，继续与批量导出保持一致门禁。
+
+验证结果：
+- `python -m compileall app migrations` 通过。
+- `python -m pytest tests/test_ai_service_panel_structure.py tests/test_interview_service_round_flow.py -q` 通过：59 passed, 1 skipped。
+- `python -m pytest -q` 全量通过：213 passed, 1 skipped。
+- `cd ai-interview-frontend && npm run build` 通过。
+- `cd ai-interview-admin && npm run build` 通过。
+- 静态扫描运行代码无 `v-html`、`window.prompt`、`deepseek-chat`、`deepseek-reasoner` 命中。
+
+当前下一步：
+1. 本地提交阶段 179 改动。
+2. 服务器 `git pull` 后执行 `docker compose up -d --build` 和 `docker compose exec -T app alembic upgrade head`。
+3. 浏览器实测：个人设置 V4 Pro、面试连续答题、后台案例补授权弹窗、单条训练样本导出门禁。
+
+## 2026-05-20 当前有效状态：阶段 175-178 全链路审查后稳定性与门禁修复
+
+本阶段基于 5 个子 agent 只读审查结果执行代码级收口。按最新用户决策，后台管理员补授权保留为“最终确认入口”：管理员可对 completed 案例补录授权，并按当前逻辑写入 `real_authorized`、`candidate_answer_source=human`、`for_real_sft=true`，但必须保留管理员、时间、原因等审计信息。
+
+当前有效结论：
+- 修复 LLM 答题评分和 panel 问题生成中 `_extract_or_repair_json` 参数调用错误，避免 `/answer/stream` 因参数签名错误中断评分反馈。
+- DeepSeek 底层调用继续强制只允许 `deepseek-v4-pro` / `deepseek-v4-flash`；旧值、空值和未知值最终归一为 `deepseek-v4-pro`。
+- 单条训练样本导出和批量导出使用一致门禁，仍要求 completed、已授权/管理员补授权、人工复核 reviewed、PII/样本边界检查通过。
+- 训练复盘接口过滤用户已软删除面试，未完成面试不允许生成/读取正式复盘。
+- 用户端面试页增加加载失败态，避免无效面试仍能输入；页面高度改为扣除顶部导航，降低输入框被挤出视口的风险。
+- 用户端删除文案已区分未完成硬删除和已完成用户端隐藏/后台保留。
+
+当前下一步：
+1. 服务器拉取后重建并执行 Alembic：`docker compose up -d --build`、`docker compose exec -T app alembic upgrade head`。
+2. 浏览器实测：配置 V4 Pro -> 上传简历 -> 解析 -> 润色 -> 面试答题 -> 报告 -> 训练复盘。
+3. 后台案例标注中仅处理 completed 案例；管理员补授权作为后台最终确认入口使用。
+
+仍不得宣称：
+- 半自动简历跑批已经成功。
+- 真实 OpenAI SFT 已完成或已有 `fine_tuned_model`。
+- C1/C2/C3 真实闭环已全部通过。
+- 管理员补授权等同于用户主动授权。
+
 ## 2026-05-20 当前有效状态：阶段 174 面试评分反馈不阻塞答题
 
 本阶段修复用户端面试页回答后评分/证据闭环详情占满屏幕的问题。
@@ -38,9 +87,9 @@
 - 半自动简历跑批已经成功。
 - 真实 OpenAI SFT 已完成或已有 `fine_tuned_model`。
 
-## 2026-05-20 当前有效状态：阶段 172 DeepSeek V4 模型收口与人工跑数路线确认
+## 2026-05-20 历史阶段：阶段 172 DeepSeek V4 模型收口与人工跑数路线确认
 
-当前最新有效提交为 `27f57a9 fix: force DeepSeek model selection to v4 options`。本阶段完成的是状态收口和后续执行路线确认，不再继续沿用半自动简历批跑路线。
+阶段 172 完成的是 DeepSeek V4 模型选择收口和后续执行路线确认，不再继续沿用半自动简历批跑路线。当前最新有效状态以后续阶段记录为准。
 
 当前有效结论：
 - DeepSeek 用户端模型选择已收口为 `deepseek-v4-pro` / `deepseek-v4-flash`，默认 `deepseek-v4-pro`。

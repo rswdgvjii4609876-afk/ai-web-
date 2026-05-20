@@ -2030,6 +2030,10 @@ class InterviewService:
         )
 
     @staticmethod
+    def is_export_ready_training_sample(sample: Dict[str, Any]) -> bool:
+        return InterviewService._is_export_ready_training_sample(sample)
+
+    @staticmethod
     def _normalize_training_sample_review(review: Any) -> Dict[str, Any]:
         raw = review if isinstance(review, dict) else {}
         quality_tier = str(raw.get("quality_tier") or "needs_review").strip().lower()
@@ -3738,6 +3742,9 @@ class InterviewService:
         consent = bool(data_contribution_consent)
         if consent and interview.status != "completed":
             raise ValidationError(message="只有已完成面试才能由后台补录数据贡献授权")
+        cleaned_reason = (reason or "").strip()
+        if consent and not cleaned_reason:
+            raise ValidationError(message="管理员补授权必须填写原因")
 
         now = datetime.now(timezone.utc)
         existing_snapshot = interview.privacy_consent_snapshot if isinstance(interview.privacy_consent_snapshot, dict) else {}
@@ -3747,7 +3754,7 @@ class InterviewService:
             "admin_override": True,
             "admin_email": admin_email,
             "admin_override_at": now.isoformat(),
-            "admin_override_reason": (reason or "").strip() or "后台案例标注补授权",
+            "admin_override_reason": cleaned_reason or "后台案例标注授权撤回",
             "interview_id": interview.id,
             "resume_id": interview.resume_id,
             "target_position": interview.target_position,

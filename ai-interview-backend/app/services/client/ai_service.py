@@ -16,6 +16,7 @@ from openai import (
 from app.core.config import settings
 from app.exceptions.http_exceptions import ValidationError
 from app.services.client.resume_evaluation_snapshot import snapshot_from_payload
+from app.services.common.deepseek_config_service import DeepSeekConfigService
 logger = logging.getLogger(__name__)
 PANEL_OUTPUT_VERSION = "panel_structured_v1"
 PANEL_ROLE_ALIAS = {
@@ -57,7 +58,7 @@ DEFAULT_PANEL_ROLES = [
         "focus": "Test stress handling, risk awareness, and difficult trade-offs.",
     },
 ]
-DEEPSEEK_V4_MODELS = {"deepseek-v4-flash", "deepseek-v4-pro"}
+DEEPSEEK_V4_MODELS = DeepSeekConfigService.DEEPSEEK_CHAT_MODELS
 RESUME_EVIDENCE_DOMAIN_TERMS = [
     "电商", "支付", "金融", "风控", "营销", "广告", "SaaS", "CRM", "ERP",
     "物流", "供应链", "教育", "医疗", "零售", "客服", "中台", "平台", "数据中台",
@@ -139,7 +140,11 @@ class AIService:
             return normalized_model, {}
 
         if normalized_model not in DEEPSEEK_V4_MODELS:
-            return normalized_model, {}
+            normalized_model = (
+                settings.DEEPSEEK_MODEL
+                if settings.DEEPSEEK_MODEL in DEEPSEEK_V4_MODELS
+                else "deepseek-v4-pro"
+            )
 
         configured_thinking = (
             (ai_config or {}).get("thinking")
@@ -2832,8 +2837,7 @@ class AIService:
         result = await AIService._chat(messages, temperature=0.5, ai_config=ai_config)
         payload = await AIService._extract_or_repair_json(
             result,
-            messages,
-            "JSON object with panel, moderator, metadata, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
+            "JSON object with panel array, moderator.selected_questions array, moderator.reasoning_summary, metadata object",
             ai_config=ai_config,
         )
         normalized = AIService._normalize_panel_question_payload(
@@ -2894,7 +2898,6 @@ class AIService:
         result = await AIService._chat(messages, temperature=0.35, ai_config=ai_config)
         payload = await AIService._extract_or_repair_json(
             result,
-            messages,
             "JSON object with score, feedback, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
             ai_config=ai_config,
         )
@@ -2959,7 +2962,11 @@ class AIService:
             },
         ]
         result = await AIService._chat(messages, temperature=0.3, ai_config=ai_config)
-        payload = AIService._extract_json(result)
+        payload = await AIService._extract_or_repair_json(
+            result,
+            "JSON object with panel, moderator, metadata, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
+            ai_config=ai_config,
+        )
         normalized = AIService._normalize_panel_evaluation_payload(
             payload=payload,
             question_meta=question_meta,

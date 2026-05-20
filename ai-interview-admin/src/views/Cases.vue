@@ -171,14 +171,14 @@
               </div>
             </div>
             <p v-if="!selectedCaseAuthorized" class="consent-warning">
-              该已完成面试未获得本次案例去标识化数据贡献授权。可以查看详情；如已确认这是前期测试实例，可由管理员补授权后再保存人工评分。
+              该已完成面试未获得本次案例去标识化数据贡献授权。可以查看详情；如管理员已确认这是可进入人工复核的历史已完成案例，可补授权后再保存人工评分。
             </p>
             <button
               v-if="canBackfillConsent"
               class="btn-secondary consent-action"
               type="button"
               :disabled="consentSaving"
-              @click="backfillConsent"
+              @click="openConsentDialog"
             >
               {{ consentSaving ? '补授权中...' : '补授权' }}
             </button>
@@ -269,11 +269,51 @@
         </template>
       </aside>
     </div>
+
+    <div v-if="consentDialogOpen" class="modal-mask" @click.self="closeConsentDialog" @keydown.esc.prevent="closeConsentDialog">
+      <section
+        ref="consentDialogRef"
+        class="consent-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="consent-dialog-title"
+        aria-describedby="consent-dialog-desc"
+        tabindex="-1"
+        @keydown.tab="trapConsentDialogFocus"
+      >
+        <h2 id="consent-dialog-title">确认管理员补授权</h2>
+        <p id="consent-dialog-desc" class="helper-text">
+          该操作会把当前已完成案例作为后台最终确认样本，记录管理员、时间和原因；授权结果不会伪装成用户主动授权。
+        </p>
+        <div class="modal-case-summary">
+          <span>案例 #{{ selectedCase?.id }}</span>
+          <strong>{{ selectedCase?.target_position || '-' }}</strong>
+        </div>
+        <label class="reason-field">
+          补授权原因
+          <textarea
+            ref="consentReasonInput"
+            v-model="consentReason"
+            rows="4"
+            maxlength="300"
+            placeholder="例如：前期真实实例后台补授权，已确认可用于人工复核"
+          ></textarea>
+        </label>
+        <p class="helper-text">保存后该案例可进入人工标注和后续导出门禁；导出仍需已完成、已复核、PII 检查通过。</p>
+        <p v-if="consentDialogError" class="modal-error">{{ consentDialogError }}</p>
+        <div class="modal-actions">
+          <button class="btn-secondary" type="button" :disabled="consentSaving" @click="closeConsentDialog">取消</button>
+          <button class="btn-primary" type="button" :disabled="consentSaving || !consentReason.trim()" @click="backfillConsent">
+            {{ consentSaving ? '补授权中...' : '确认补授权' }}
+          </button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 
 import { interviewApi } from '../api'
 import { useAuthStore } from '../stores/auth'
@@ -289,6 +329,13 @@ const errorMessage = ref('')
 const noticeMessage = ref('')
 const noticeType = ref('success')
 const drawerOpen = ref(false)
+const consentDialogOpen = ref(false)
+const consentDialogRef = ref(null)
+const consentReasonInput = ref(null)
+const consentTriggerElement = ref(null)
+const consentDialogError = ref('')
+const defaultConsentReason = '前期真实实例后台补授权，已确认可用于人工复核'
+const consentReason = ref(defaultConsentReason)
 const selectedCase = ref(null)
 const selectedDetail = ref(null)
 
@@ -436,20 +483,63 @@ async function openCase(item) {
 
 function closeDrawer() {
   drawerOpen.value = false
+  consentDialogOpen.value = false
   selectedCase.value = null
   selectedDetail.value = null
   noticeMessage.value = ''
 }
 
+function openConsentDialog() {
+  if (!canBackfillConsent.value) return
+  consentTriggerElement.value = document.activeElement
+  consentReason.value = defaultConsentReason
+  consentDialogError.value = ''
+  noticeMessage.value = ''
+  consentDialogOpen.value = true
+  nextTick(() => {
+    consentReasonInput.value?.focus()
+  })
+}
+
+function closeConsentDialog() {
+  if (consentSaving.value) return
+  consentDialogOpen.value = false
+  consentDialogError.value = ''
+  restoreConsentTriggerFocus()
+}
+
+function restoreConsentTriggerFocus() {
+  nextTick(() => {
+    consentTriggerElement.value?.focus?.()
+    consentTriggerElement.value = null
+  })
+}
+
+function trapConsentDialogFocus(event) {
+  const root = consentDialogRef.value
+  if (!root) return
+  const focusable = Array.from(root.querySelectorAll(
+    'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+  ))
+  if (!focusable.length) return
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
 async function backfillConsent() {
   if (!selectedCase.value || !canBackfillConsent.value) return
-  const reason = window.prompt(
-    '请输入补授权原因。该操作会记录管理员、时间和原因，不会伪装成用户主动授权。',
-    '前期真实实例后台补授权，已确认可用于人工复核'
-  )
-  if (!reason || !reason.trim()) return
+  const reason = consentReason.value.trim()
+  if (!reason) return
 
   consentSaving.value = true
+  consentDialogError.value = ''
   noticeMessage.value = ''
   try {
     const result = await interviewApi.updateDataContributionConsent(selectedCase.value.id, {
@@ -467,11 +557,13 @@ async function backfillConsent() {
     if (selectedDetail.value) selectedDetail.value = { ...selectedDetail.value, ...patch }
     selectedCase.value = { ...selectedCase.value, ...patch }
     cases.value = cases.value.map((item) => (item.id === selectedCase.value.id ? { ...item, ...patch } : item))
+    consentDialogOpen.value = false
+    restoreConsentTriggerFocus()
     noticeType.value = 'success'
     noticeMessage.value = '管理员补授权已记录，现在可以保存人工标注'
   } catch (error) {
     noticeType.value = 'error'
-    noticeMessage.value = error.message || '补授权失败'
+    consentDialogError.value = error.message || '补授权失败'
   } finally {
     consentSaving.value = false
   }
@@ -772,6 +864,73 @@ onMounted(loadCases)
 }
 .consent-action {
   margin-top: 10px;
+}
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.42);
+}
+.consent-modal {
+  width: min(520px, 100%);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 22px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+}
+.consent-modal h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: #111827;
+}
+.modal-case-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 13px;
+}
+.reason-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
+}
+.reason-field textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 10px;
+  color: #111827;
+  font: inherit;
+  line-height: 1.6;
+}
+.modal-error {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
 }
 .drawer-actions {
   display: flex;

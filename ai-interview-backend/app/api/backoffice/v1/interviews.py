@@ -446,6 +446,12 @@ async def get_interview_training_sample(
         user_email=email,
         include_user_email=include_user_email,
     )
+    if not interview_service.is_export_ready_training_sample(sample):
+        return ApiResponse.failed(
+            message="该面试未满足训练样本导出门禁，不能导出训练样本",
+            body_code=400,
+            http_code=400,
+        )
     return ApiResponse.success(data=sample)
 
 

@@ -2,7 +2,7 @@ import asyncio
 import io
 import json
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -10,10 +10,11 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.exceptions.http_exceptions import ValidationError
+from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.schemas.client.interview import AnswerSubmit
 from app.services.client.ai_service import AIService
 from app.services.client.interview_service import InterviewService
+from app.services.client.training_review_service import TrainingReviewService
 
 
 @pytest.mark.unit
@@ -680,6 +681,66 @@ class _FakeAdminConsentDb:
         self.rolled_back = True
 
 
+class _FakeTrainingReviewDb:
+    def __init__(self, interview, review=None):
+        self.results = [_FakeScalarResult(interview), _FakeScalarResult(review)]
+
+    async def execute(self, _statement):
+        return self.results.pop(0)
+
+    async def commit(self):
+        self.committed = True
+
+    async def refresh(self, _item):
+        self.refreshed = True
+
+
+@pytest.mark.unit
+def test_training_review_rejects_user_deleted_and_incomplete_interviews():
+    deleted_completed = SimpleNamespace(
+        id=1,
+        user_id=7,
+        status="completed",
+        user_deleted_at=datetime.now(timezone.utc),
+    )
+    in_progress = SimpleNamespace(
+        id=2,
+        user_id=7,
+        status="in_progress",
+        user_deleted_at=None,
+    )
+    completed = SimpleNamespace(
+        id=3,
+        user_id=7,
+        status="completed",
+        user_deleted_at=None,
+    )
+
+    async def _run():
+        with pytest.raises(NotFoundError):
+            await TrainingReviewService.get_review(
+                db=_FakeTrainingReviewDb(deleted_completed),
+                user_id=7,
+                interview_id=1,
+            )
+
+        with pytest.raises(ValidationError, match="尚未完成"):
+            await TrainingReviewService.get_review(
+                db=_FakeTrainingReviewDb(in_progress),
+                user_id=7,
+                interview_id=2,
+            )
+
+        review = await TrainingReviewService.get_review(
+            db=_FakeTrainingReviewDb(completed),
+            user_id=7,
+            interview_id=3,
+        )
+        assert review["interview_id"] == 3
+
+    asyncio.run(_run())
+
+
 @pytest.mark.unit
 def test_user_delete_completed_interview_soft_deletes_for_admin_review():
     interview = SimpleNamespace(
@@ -764,6 +825,17 @@ def test_admin_backfill_consent_requires_completed_case_and_writes_audit_snapsho
                 interview_id=22,
                 data_contribution_consent=True,
                 reason="不应允许",
+                admin_email="admin@example.com",
+            )
+
+        completed.data_contribution_consent = False
+        completed.privacy_consent_snapshot = {}
+        with pytest.raises(ValidationError, match="必须填写原因"):
+            await InterviewService.set_case_data_contribution_consent_admin(
+                db=_FakeAdminConsentDb(completed),
+                interview_id=21,
+                data_contribution_consent=True,
+                reason="",
                 admin_email="admin@example.com",
             )
 
@@ -1212,6 +1284,7 @@ def test_build_training_sample_export_keeps_evidence_loop_and_hides_pii_by_defau
     assert sample["rounds"][0]["evaluation"]["next_best_followup"]["target_gap"] == "ownership clarity"
     assert sample["rounds"][0]["sample_flags"]["has_followup_loop"] is True
     assert sample["report_summary"]["common_gaps"] == ["ownership clarity"]
+    assert InterviewService.is_export_ready_training_sample(sample) is True
 
     sample_with_pii = InterviewService.build_training_sample(
         interview=interview,
@@ -1263,7 +1336,7 @@ def test_build_fine_tuning_record_rejects_semi_synthetic_even_if_reviewed():
         "export_notes": {"data_contribution_consent": True},
     }
 
-    assert InterviewService._is_export_ready_training_sample(sample) is False
+    assert InterviewService.is_export_ready_training_sample(sample) is False
     assert InterviewService._build_fine_tuning_record(sample) is None
 
 

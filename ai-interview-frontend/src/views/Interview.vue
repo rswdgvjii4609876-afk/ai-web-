@@ -42,7 +42,17 @@
       </router-link>
     </div>
 
-    <div v-if="!preparing && hasBlueprintCard" class="blueprint-card">
+    <div v-if="!preparing && loadError" class="interview-load-error card">
+      <h2>面试记录暂时无法打开</h2>
+      <p>{{ loadError }}</p>
+      <div class="load-error-actions">
+        <button type="button" class="btn-secondary" @click="reloadMessages">重试</button>
+        <router-link to="/dashboard" class="btn-secondary">返回工作台</router-link>
+        <router-link v-if="loadErrorIsAiConfig" to="/profile" class="btn-primary">检查 AI 调用设置</router-link>
+      </div>
+    </div>
+
+    <div v-if="!preparing && !loadError && hasBlueprintCard" class="blueprint-card">
       <div class="blueprint-card-top">
         <div>
           <strong>当前训练重点</strong>
@@ -64,7 +74,7 @@
       </p>
     </div>
 
-    <div v-if="!preparing && isPanelMode" class="panel-status-card">
+    <div v-if="!preparing && !loadError && isPanelMode" class="panel-status-card">
       <div class="panel-status-top">
         <div>
           <strong>当前模式：多角色协同评估</strong>
@@ -88,7 +98,7 @@
       </details>
     </div>
 
-    <div v-if="!preparing" ref="chatArea" class="chat-area">
+    <div v-if="!preparing && !loadError" ref="chatArea" class="chat-area">
       <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
         <div v-if="msg.role === 'interviewer'" class="avatar-col">
           <svg viewBox="0 0 40 40" width="36" height="36" class="ai-avatar">
@@ -99,7 +109,7 @@
         </div>
 
         <div class="bubble">
-          <div class="bubble-content" v-html="renderContent(msg.content)"></div>
+          <div class="bubble-content" v-text="renderContent(msg.content)"></div>
           <div v-if="msg.score" class="bubble-score">评分 {{ msg.score }}/10</div>
         </div>
 
@@ -128,7 +138,7 @@
           </svg>
         </div>
         <div class="bubble">
-          <div class="bubble-content streaming-content" v-html="renderContent(streamingText)"></div>
+          <div class="bubble-content streaming-content" v-text="renderContent(streamingText)"></div>
           <span class="cursor-blink">▌</span>
         </div>
       </div>
@@ -152,7 +162,7 @@
     </div>
 
     <div
-      v-if="!preparing && latestRoundSummary && !roundSummaryDismissed"
+      v-if="!preparing && !loadError && latestRoundSummary && !roundSummaryDismissed"
       class="round-feedback-panel"
     >
       <div class="round-feedback-bar">
@@ -245,9 +255,9 @@
       </div>
     </div>
 
-    <AiConfigErrorNotice v-if="!preparing && streamError" :error="streamError" class="interview-error-notice" />
+    <AiConfigErrorNotice v-if="!preparing && !loadError && streamError" :error="streamError" class="interview-error-notice" />
 
-    <div v-if="!preparing && !finished" class="input-area">
+    <div v-if="!preparing && !loadError && !finished" class="input-area">
       <textarea
         v-model="answer"
         placeholder="输入你的回答..."
@@ -261,7 +271,7 @@
       </button>
     </div>
 
-    <div v-if="!preparing && finished" class="input-area finished">
+    <div v-if="!preparing && !loadError && finished" class="input-area finished">
       <p>面试已结束</p>
       <router-link
         :to="`/interview/${interviewId}/report`"
@@ -280,6 +290,7 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { getMessages, submitAnswerStream } from '../api/interview'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
+import { isAiConfigError } from '../utils/aiConfigError'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -294,10 +305,12 @@ const totalQuestions = ref(5)
 const chatArea = ref(null)
 const streamingText = ref('')
 const streamError = ref('')
+const loadError = ref('')
 const latestRoundSummary = ref(null)
 const roundSummaryExpanded = ref(false)
 const roundSummaryDismissed = ref(true)
 const interviewMeta = ref(null)
+const loadErrorIsAiConfig = computed(() => isAiConfigError(loadError.value))
 const panelRoleHints = ['岗位匹配', '经历追问', '沟通表达', '证据核查', '改进建议']
 
 const preparing = ref(true)
@@ -385,6 +398,26 @@ function hydrateMessages(data) {
     score: item.score,
     feedback: item.feedback
   }))
+  const latestScored = [...safeList]
+    .reverse()
+    .find(item => item.role === 'candidate' && ((item.score !== null && item.score !== undefined) || item.feedback))
+  if (latestScored) {
+    latestRoundSummary.value = normalizeRoundSummary({
+      score: latestScored.score,
+      feedback: latestScored.feedback || '上一轮回答已有评分反馈。',
+      evidence_summary: [],
+      unresolved_gaps: [],
+      evidence_strength_delta: [],
+      claim_confidence_change: [],
+      question_target_evidence: []
+    })
+    roundSummaryExpanded.value = false
+    roundSummaryDismissed.value = false
+  } else {
+    latestRoundSummary.value = null
+    roundSummaryExpanded.value = false
+    roundSummaryDismissed.value = true
+  }
   const indices = safeList.map(item => item.question_index).filter(index => index != null)
   if (indices.length && !finished.value) {
     currentIndex.value = Math.max(...indices)
@@ -463,17 +496,10 @@ function formatDeltaLabel(delta) {
 
 function renderContent(text) {
   if (!text) return ''
-  const cleaned = String(text)
+  return String(text)
     .replace(/```json\s*\{[\s\S]*?\}\s*```/g, '')
     .replace(/\{[^{}]*"score"\s*:\s*[\d.]+[^{}]*\}/g, '')
     .trim()
-  return cleaned
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/\n/g, '<br>')
 }
 
 function scrollToBottom() {
@@ -482,6 +508,18 @@ function scrollToBottom() {
       chatArea.value.scrollTop = chatArea.value.scrollHeight
     }
   })
+}
+
+async function reloadMessages() {
+  try {
+    const data = await getMessages(interviewId)
+    loadError.value = ''
+    hydrateMessages(data)
+    nextTick(scrollToBottom)
+  } catch (e) {
+    console.error('加载消息失败:', e)
+    loadError.value = e.message || '面试记录不存在、已被删除，或当前账号无权访问。'
+  }
 }
 
 onMounted(async () => {
@@ -497,12 +535,7 @@ onMounted(async () => {
     if (preparePercent.value < 90) preparePercent.value += 2
   }, 100)
 
-  try {
-    const data = await getMessages(interviewId)
-    hydrateMessages(data)
-  } catch (e) {
-    console.error('加载消息失败:', e)
-  }
+  await reloadMessages()
 
   preparePercent.value = 100
   clearInterval(barTimer)
@@ -602,9 +635,33 @@ async function handleSubmit() {
 .interview-page {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100dvh - 73px);
+  min-height: 520px;
   max-width: 800px;
   margin: 0 auto;
+}
+
+.interview-load-error {
+  margin: 18px 20px;
+  padding: 24px;
+}
+
+.interview-load-error h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+  color: #111827;
+}
+
+.interview-load-error p {
+  color: #6b7280;
+  line-height: 1.7;
+}
+
+.load-error-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
 }
 
 .interview-error-notice {
@@ -1071,6 +1128,11 @@ async function handleSubmit() {
   border-bottom-right-radius: 4px;
 }
 
+.bubble-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .thinking-bubble {
   color: #6b7280;
   font-style: italic;
@@ -1159,6 +1221,11 @@ async function handleSubmit() {
 }
 
 @media (max-width: 768px) {
+  .interview-page {
+    height: calc(100dvh - 122px);
+    min-height: 460px;
+  }
+
   .interview-header {
     gap: 10px;
     flex-wrap: wrap;

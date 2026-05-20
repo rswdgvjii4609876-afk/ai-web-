@@ -80,7 +80,14 @@ class DeepSeekConfigService:
         normalized = DeepSeekConfigService.normalize_provider(provider)
         if normalized == "openai":
             return settings.OPENAI_MODEL
-        return settings.DEEPSEEK_MODEL
+        return DeepSeekConfigService.default_deepseek_model()
+
+    @staticmethod
+    def default_deepseek_model() -> str:
+        configured = (settings.DEEPSEEK_MODEL or "").strip()
+        if configured in DeepSeekConfigService.DEEPSEEK_CHAT_MODELS:
+            return configured
+        return "deepseek-v4-pro"
 
     @staticmethod
     def normalize_model(provider: Optional[str], model: Optional[str]) -> str:
@@ -89,9 +96,9 @@ class DeepSeekConfigService:
         if normalized == "openai":
             return cleaned or settings.OPENAI_MODEL
         if not cleaned:
-            return settings.DEEPSEEK_MODEL
+            return DeepSeekConfigService.default_deepseek_model()
         if cleaned not in DeepSeekConfigService.DEEPSEEK_CHAT_MODELS:
-            return settings.DEEPSEEK_MODEL
+            return DeepSeekConfigService.default_deepseek_model()
         return cleaned
 
     @staticmethod

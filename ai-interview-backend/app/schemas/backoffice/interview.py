@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from ..base import BaseSchema
 
@@ -26,3 +26,9 @@ class TrainingSampleReviewUpdate(BaseSchema):
 class CaseDataContributionConsentUpdate(BaseSchema):
     data_contribution_consent: bool = True
     reason: Optional[str] = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def validate_reason_for_consent(self):
+        if self.data_contribution_consent and not (self.reason or "").strip():
+            raise ValueError("管理员补授权必须填写原因")
+        return self
