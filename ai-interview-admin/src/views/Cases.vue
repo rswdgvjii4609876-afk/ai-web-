@@ -6,6 +6,9 @@
         <p class="helper-text">
           集中维护 R1-R5 真实案例、人工评分、AI 输出核查和数据集归档信号。这里复用面试记录与评测样本标注，不新增单独案例表。
         </p>
+        <p class="helper-text strong-hint">
+          仅已完成面试进入案例标注池；用户端删除的已完成面试会在这里保留，未完成面试不纳入样本沉淀。
+        </p>
       </div>
       <button class="btn-secondary" type="button" @click="loadCases">刷新</button>
     </div>
@@ -36,9 +39,7 @@
     <div class="card filters-card">
       <label>状态
         <select v-model="filters.status" @change="loadCases">
-          <option value="">全部</option>
           <option value="completed">已完成</option>
-          <option value="in_progress">进行中</option>
         </select>
       </label>
       <label>标注
@@ -103,6 +104,7 @@
             <td>
               <div class="case-id">{{ reviewOf(item).case_id || '待补' }}</div>
               <div class="case-source">{{ reviewOf(item).resume_source || `面试 #${item.id}` }}</div>
+              <span v-if="item.user_deleted_at" class="mini-badge">用户已删除</span>
             </td>
             <td>{{ item.user_email }}</td>
             <td>{{ item.target_position || '-' }}</td>
@@ -116,7 +118,7 @@
             <td><span :class="['badge', item.status === 'completed' ? 'badge-green' : 'badge-yellow']">{{ item.status === 'completed' ? '已完成' : '进行中' }}</span></td>
             <td>
               <span :class="['badge', caseConsent(item) ? 'badge-green' : 'badge-blue']">
-                {{ caseConsent(item) ? '已授权' : '未授权' }}
+                {{ caseConsentLabel(item) }}
               </span>
             </td>
             <td>
@@ -161,13 +163,25 @@
               <div>
                 <span>数据授权</span>
                 <strong :class="selectedCaseAuthorized ? 'success-text' : 'warn-text'">
-                  {{ selectedCaseReviewable ? '已授权，可人工标注' : selectedCaseAuthorized ? '无评分权限或未完成' : '未授权，不能沉淀评分' }}
+                  {{ selectedCaseAuthorized ? `${caseConsentLabel(selectedDetail || selectedCase)}，可人工标注` : '未授权，不能沉淀评分' }}
                 </strong>
+              </div>
+              <div v-if="selectedDetail?.user_deleted_at || selectedCase?.user_deleted_at">
+                <span>用户端状态</span><strong class="warn-text">用户已删除，后台保留</strong>
               </div>
             </div>
             <p v-if="!selectedCaseAuthorized" class="consent-warning">
-              该面试未获得本次案例去标识化数据贡献授权。可以查看详情，但不能保存人工评分或进入评测样本导出。
+              该已完成面试未获得本次案例去标识化数据贡献授权。可以查看详情；如已确认这是前期测试实例，可由管理员补授权后再保存人工评分。
             </p>
+            <button
+              v-if="canBackfillConsent"
+              class="btn-secondary consent-action"
+              type="button"
+              :disabled="consentSaving"
+              @click="backfillConsent"
+            >
+              {{ consentSaving ? '补授权中...' : '补授权' }}
+            </button>
           </section>
 
           <section class="drawer-section" v-if="selectedDetail?.report?.summary || selectedDetail?.report?.strengths?.length || selectedDetail?.report?.weaknesses?.length">
@@ -270,6 +284,7 @@ const total = ref(0)
 const loading = ref(false)
 const detailLoading = ref(false)
 const saving = ref(false)
+const consentSaving = ref(false)
 const errorMessage = ref('')
 const noticeMessage = ref('')
 const noticeType = ref('success')
@@ -278,7 +293,7 @@ const selectedCase = ref(null)
 const selectedDetail = ref(null)
 
 const filters = ref({
-  status: '',
+  status: 'completed',
   review_status: '',
   quality: '',
   consent: '',
@@ -308,11 +323,23 @@ const reviewForm = ref(defaultReview())
 
 const reviewOf = (item) => ({ ...defaultReview(), ...(item?.training_sample_review || {}) })
 const caseConsent = (item) => Boolean(item?.data_contribution_consent)
+const caseConsentLabel = (item) => {
+  if (!caseConsent(item)) return '未授权'
+  return item?.admin_override || item?.consent_source === 'admin_case_consent_override'
+    ? '管理员补授权'
+    : '已授权'
+}
 const selectedCaseAuthorized = computed(() => caseConsent(selectedDetail.value || selectedCase.value))
 const selectedCaseReviewable = computed(() => (
   selectedCaseAuthorized.value &&
   authStore.canReviewCases &&
   (selectedDetail.value?.status || selectedCase.value?.status) === 'completed'
+))
+const canBackfillConsent = computed(() => (
+  Boolean(selectedCase.value) &&
+  authStore.canReviewCases &&
+  (selectedDetail.value?.status || selectedCase.value?.status) === 'completed' &&
+  !selectedCaseAuthorized.value
 ))
 
 const filteredCases = computed(() => {
@@ -377,7 +404,7 @@ async function loadCases() {
     const data = await interviewApi.list({
       page: 1,
       per_page: 100,
-      status: filters.value.status || undefined
+      status: filters.value.status || 'completed'
     })
     cases.value = data.items || []
     total.value = data.total || 0
@@ -412,6 +439,42 @@ function closeDrawer() {
   selectedCase.value = null
   selectedDetail.value = null
   noticeMessage.value = ''
+}
+
+async function backfillConsent() {
+  if (!selectedCase.value || !canBackfillConsent.value) return
+  const reason = window.prompt(
+    '请输入补授权原因。该操作会记录管理员、时间和原因，不会伪装成用户主动授权。',
+    '前期真实实例后台补授权，已确认可用于人工复核'
+  )
+  if (!reason || !reason.trim()) return
+
+  consentSaving.value = true
+  noticeMessage.value = ''
+  try {
+    const result = await interviewApi.updateDataContributionConsent(selectedCase.value.id, {
+      data_contribution_consent: true,
+      reason: reason.trim()
+    })
+    const patch = {
+      data_contribution_consent: true,
+      privacy_consent_snapshot: result.privacy_consent_snapshot,
+      consent_source: result.consent_source,
+      admin_override: result.admin_override,
+      admin_override_at: result.admin_override_at,
+      admin_override_reason: result.admin_override_reason
+    }
+    if (selectedDetail.value) selectedDetail.value = { ...selectedDetail.value, ...patch }
+    selectedCase.value = { ...selectedCase.value, ...patch }
+    cases.value = cases.value.map((item) => (item.id === selectedCase.value.id ? { ...item, ...patch } : item))
+    noticeType.value = 'success'
+    noticeMessage.value = '管理员补授权已记录，现在可以保存人工标注'
+  } catch (error) {
+    noticeType.value = 'error'
+    noticeMessage.value = error.message || '补授权失败'
+  } finally {
+    consentSaving.value = false
+  }
 }
 
 async function saveReview() {
@@ -463,6 +526,11 @@ onMounted(loadCases)
   color: #6b7280;
   font-size: 13px;
   line-height: 1.7;
+}
+.strong-hint {
+  margin-top: 4px;
+  color: #374151;
+  font-weight: 600;
 }
 .stats-grid {
   display: grid;
@@ -528,6 +596,16 @@ onMounted(loadCases)
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.mini-badge {
+  display: inline-flex;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
 }
 .row-actions {
   display: flex;
@@ -691,6 +769,9 @@ onMounted(loadCases)
   color: #92400e;
   font-size: 13px;
   line-height: 1.7;
+}
+.consent-action {
+  margin-top: 10px;
 }
 .drawer-actions {
   display: flex;

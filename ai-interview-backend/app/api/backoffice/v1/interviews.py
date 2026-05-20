@@ -14,16 +14,32 @@ from app.api.backoffice.deps import (
     require_record_delete_admin,
 )
 from app.db.session import get_db
+from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.models.admin import Admin
 from app.models.interview import Interview
 from app.models.interview_message import InterviewMessage
 from app.models.user import User
-from app.schemas.backoffice.interview import TrainingSampleReviewUpdate
+from app.schemas.backoffice.interview import (
+    CaseDataContributionConsentUpdate,
+    TrainingSampleReviewUpdate,
+)
 from app.schemas.response import ApiResponse
 from app.services.client.interview_service import interview_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _consent_meta(interview: Interview) -> dict:
+    snapshot = interview.privacy_consent_snapshot if isinstance(interview.privacy_consent_snapshot, dict) else {}
+    return {
+        "consent_source": snapshot.get("source"),
+        "admin_override": bool(snapshot.get("admin_override")),
+        "admin_override_at": snapshot.get("admin_override_at"),
+        "admin_override_reason": snapshot.get("admin_override_reason"),
+        "user_deleted_at": interview.user_deleted_at.isoformat() if interview.user_deleted_at else None,
+        "user_deleted_reason": interview.user_deleted_reason,
+    }
 
 
 def _build_empty_evaluation_dataset_bundle(
@@ -49,7 +65,7 @@ def _build_empty_evaluation_dataset_bundle(
 async def list_interviews(
     page: int = 1,
     per_page: int = 20,
-    status: Optional[str] = None,
+    status: Optional[str] = "completed",
     db: AsyncSession = Depends(get_db),
     current_admin: Admin = Depends(require_case_reviewer_admin),
 ):
@@ -61,7 +77,7 @@ async def list_interviews(
     )
     count_query = select(func.count()).select_from(Interview)
 
-    if status:
+    if status and status != "all":
         query = query.where(Interview.status == status)
         count_query = count_query.where(Interview.status == status)
 
@@ -82,6 +98,7 @@ async def list_interviews(
             "data_contribution_consent": bool(interview.data_contribution_consent),
             "training_sample_review": interview_service.get_training_sample_review(interview.panel_snapshot),
             "created_at": interview.created_at.isoformat() if interview.created_at else None,
+            **_consent_meta(interview),
         }
         for interview, email in rows
     ]
@@ -308,6 +325,7 @@ async def get_interview_detail(
             "privacy_consent_snapshot": interview.privacy_consent_snapshot,
             "report": report,
             "training_sample_review": training_sample_review,
+            **_consent_meta(interview),
             "messages": [
                 {
                     "id": m.id,
@@ -322,6 +340,29 @@ async def get_interview_detail(
             "created_at": interview.created_at.isoformat() if interview.created_at else None,
         }
     )
+
+
+@router.put("/{interview_id}/data-contribution-consent")
+async def update_interview_data_contribution_consent(
+    interview_id: int,
+    payload: CaseDataContributionConsentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: Admin = Depends(require_case_reviewer_admin),
+):
+    """Backfill or revoke data contribution consent for completed legacy cases."""
+    try:
+        result = await interview_service.set_case_data_contribution_consent_admin(
+            db=db,
+            interview_id=interview_id,
+            data_contribution_consent=payload.data_contribution_consent,
+            reason=payload.reason or "",
+            admin_email=current_admin.email,
+        )
+    except NotFoundError as exc:
+        return ApiResponse.failed(message=str(exc.detail), body_code=404, http_code=404)
+    except ValidationError as exc:
+        return ApiResponse.failed(message=str(exc.detail), body_code=400, http_code=400)
+    return ApiResponse.success(message="案例授权状态已更新", data=result)
 
 
 @router.put("/{interview_id}/training-sample-review")

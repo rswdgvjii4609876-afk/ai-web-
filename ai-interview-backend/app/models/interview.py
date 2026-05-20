@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DECIMAL, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DECIMAL, ForeignKey, Integer, String, Text, TIMESTAMP
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
@@ -29,6 +29,8 @@ class Interview(BaseModel):
     report = Column(Text, nullable=True)
     data_contribution_consent = Column(Boolean, nullable=False, default=False)
     privacy_consent_snapshot = Column(JSONB, nullable=True)
+    user_deleted_at = Column(TIMESTAMP(timezone=True), nullable=True, index=True)
+    user_deleted_reason = Column(String(255), nullable=True)
 
     user = relationship("User", backref="interviews")
     resume = relationship("Resume", back_populates="interviews")

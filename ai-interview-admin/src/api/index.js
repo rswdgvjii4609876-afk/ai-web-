@@ -24,6 +24,7 @@ export const interviewApi = {
   detail: (id) => api.get(`/interviews/${id}`),
   trainingSample: (id, params) => api.get(`/interviews/${id}/training-sample`, { params }),
   updateTrainingReview: (id, data) => api.put(`/interviews/${id}/training-sample-review`, data),
+  updateDataContributionConsent: (id, data) => api.put(`/interviews/${id}/data-contribution-consent`, data),
   evaluationDatasetPreview: (params) => api.get('/interviews/evaluation-datasets/preview', { params }),
   exportEvaluationDatasets: (params) => downloadApi.get('/interviews/evaluation-datasets/export', { params }),
   exportFineTuningSamples: (params) => downloadApi.get('/interviews/evaluation-datasets/fine-tuning/export', { params }),

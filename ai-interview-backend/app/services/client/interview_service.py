@@ -14,6 +14,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants.privacy import DATA_CONTRIBUTION_CONSENT_VERSION
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.models.interview import Interview
 from app.models.interview_message import InterviewMessage
@@ -38,6 +39,7 @@ TRAINING_SAMPLE_DATASET_SPLITS = {"", "train", "validation", "test", "holdout", 
 EVALUATION_DATASET_SCHEMA_VERSION = "ai-interview.evaluation-dataset.v1"
 FINE_TUNING_SAMPLE_SCHEMA_VERSION = "ai-interview.fine-tuning-sample.v1"
 FINE_TUNING_READINESS_REPORT_VERSION = "ai-interview.fine-tuning-readiness-report.v1"
+USER_DELETED_COMPLETED_INTERVIEW_REASON = "user_deleted_completed_interview_retained_for_review"
 DIRECT_IDENTIFIER_REPLACEMENTS = (
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[REDACTED_EMAIL]"),
     (re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}(?!\d)"), "[REDACTED_PHONE]"),
@@ -1951,6 +1953,7 @@ class InterviewService:
         sample_origin = str(raw.get("sample_origin") or "").strip()
         candidate_answer_source = str(raw.get("candidate_answer_source") or "").strip()
         for_real_sft = raw.get("for_real_sft")
+        is_admin_override = bool(raw.get("admin_override")) and raw.get("source") == "admin_case_consent_override"
 
         if (
             (sample_origin and sample_origin != "real_authorized")
@@ -1967,7 +1970,7 @@ class InterviewService:
                 or "半合成样本只用于流程压测、演示和 SFT Preview，不能进入真实 SFT。",
             }
 
-        if data_contribution_consent:
+        if data_contribution_consent or is_admin_override:
             return {
                 "sample_origin": "real_authorized",
                 "candidate_answer_source": candidate_answer_source or "human",
@@ -3300,6 +3303,7 @@ class InterviewService:
             select(Interview).where(
                 Interview.id == interview_id,
                 Interview.user_id == user_id,
+                Interview.user_deleted_at.is_(None),
             ).with_for_update()
         )
         interview = result.scalar_one_or_none()
@@ -3609,6 +3613,7 @@ class InterviewService:
             select(Interview).where(
                 Interview.id == interview_id,
                 Interview.user_id == user_id,
+                Interview.user_deleted_at.is_(None),
             )
         )
         interview = result.scalar_one_or_none()
@@ -3676,6 +3681,7 @@ class InterviewService:
             select(Interview).where(
                 Interview.id == interview_id,
                 Interview.user_id == current_user.id,
+                Interview.user_deleted_at.is_(None),
             )
         )
         interview = result.scalar_one_or_none()
@@ -3718,13 +3724,77 @@ class InterviewService:
         }
 
     @staticmethod
+    async def set_case_data_contribution_consent_admin(
+        db: AsyncSession,
+        interview_id: int,
+        data_contribution_consent: bool,
+        reason: str,
+        admin_email: str,
+    ) -> Dict[str, Any]:
+        interview = await db.get(Interview, interview_id)
+        if not interview:
+            raise NotFoundError(message="面试记录不存在")
+
+        consent = bool(data_contribution_consent)
+        if consent and interview.status != "completed":
+            raise ValidationError(message="只有已完成面试才能由后台补录数据贡献授权")
+
+        now = datetime.now(timezone.utc)
+        existing_snapshot = interview.privacy_consent_snapshot if isinstance(interview.privacy_consent_snapshot, dict) else {}
+        snapshot = {
+            **existing_snapshot,
+            "source": "admin_case_consent_override",
+            "admin_override": True,
+            "admin_email": admin_email,
+            "admin_override_at": now.isoformat(),
+            "admin_override_reason": (reason or "").strip() or "后台案例标注补授权",
+            "interview_id": interview.id,
+            "resume_id": interview.resume_id,
+            "target_position": interview.target_position,
+            "data_contribution_consent": consent,
+            "data_contribution_consent_version": DATA_CONTRIBUTION_CONSENT_VERSION if consent else None,
+            "sample_origin": "real_authorized" if consent else "not_authorized",
+            "candidate_answer_source": "human" if consent else "unknown",
+            "for_real_sft": consent,
+            "for_training": consent,
+            "for_competition_demo": False,
+            "claim_boundary": (
+                "管理员补录授权的已完成案例；可进入人工复核沉淀流程，但必须保留补授权审计来源。"
+                if consent
+                else "后台已撤回本案例数据贡献授权，不能进入训练/评测样本。"
+            ),
+        }
+        interview.data_contribution_consent = consent
+        interview.privacy_consent_snapshot = snapshot
+        try:
+            await db.commit()
+            await db.refresh(interview)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            logger.exception("Admin update case data contribution consent failed: %s", exc)
+            raise ValidationError(message="后台更新案例授权状态失败，请稍后重试") from exc
+
+        return {
+            "interview_id": interview.id,
+            "data_contribution_consent": bool(interview.data_contribution_consent),
+            "privacy_consent_snapshot": interview.privacy_consent_snapshot,
+            "consent_source": "admin_case_consent_override",
+            "admin_override": True,
+            "admin_override_at": snapshot["admin_override_at"],
+            "admin_override_reason": snapshot["admin_override_reason"],
+        }
+
+    @staticmethod
     async def get_interviews(
         db: AsyncSession,
         user_id: int,
     ) -> Dict:
         result = await db.execute(
             select(Interview)
-            .where(Interview.user_id == user_id)
+            .where(
+                Interview.user_id == user_id,
+                Interview.user_deleted_at.is_(None),
+            )
             .order_by(Interview.created_at.desc())
         )
         interviews = result.scalars().all()
@@ -3755,6 +3825,7 @@ class InterviewService:
             select(Interview).where(
                 Interview.id == interview_id,
                 Interview.user_id == user_id,
+                Interview.user_deleted_at.is_(None),
             )
         )
         interview = interview_result.scalar_one_or_none()
@@ -3796,11 +3867,21 @@ class InterviewService:
             select(Interview).where(
                 Interview.id == interview_id,
                 Interview.user_id == user_id,
+                Interview.user_deleted_at.is_(None),
             )
         )
         interview = result.scalar_one_or_none()
         if not interview:
             raise NotFoundError(message="面试记录不存在")
+
+        if interview.status == "completed":
+            interview.user_deleted_at = datetime.now(timezone.utc)
+            interview.user_deleted_reason = USER_DELETED_COMPLETED_INTERVIEW_REASON
+            await db.commit()
+            return {
+                "message": "面试记录已从用户端删除，后台保留用于人工复核",
+                "retained_for_review": True,
+            }
 
         await db.execute(
             sql_delete(InterviewMessage).where(InterviewMessage.interview_id == interview_id)

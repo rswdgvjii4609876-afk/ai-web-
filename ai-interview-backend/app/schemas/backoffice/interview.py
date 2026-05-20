@@ -21,3 +21,8 @@ class TrainingSampleReviewUpdate(BaseSchema):
     learning_task_actionability_score: Optional[float] = Field(default=None, ge=0, le=10)
     human_score_notes: Optional[str] = Field(default="", max_length=2000)
     dataset_split: Optional[str] = Field(default="", max_length=32)
+
+
+class CaseDataContributionConsentUpdate(BaseSchema):
+    data_contribution_consent: bool = True
+    reason: Optional[str] = Field(default="", max_length=500)

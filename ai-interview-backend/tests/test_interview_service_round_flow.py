@@ -641,6 +641,135 @@ class _FakeSubmitAnswerDb:
         self.committed = True
 
 
+class _FakeDeleteInterviewDb:
+    def __init__(self, interview):
+        self.interview = interview
+        self.execute_calls = 0
+        self.deleted = []
+        self.committed = False
+
+    async def execute(self, _statement):
+        self.execute_calls += 1
+        if self.execute_calls == 1:
+            return _FakeScalarResult(self.interview)
+        return _FakeListResult([])
+
+    async def delete(self, item):
+        self.deleted.append(item)
+
+    async def commit(self):
+        self.committed = True
+
+
+class _FakeAdminConsentDb:
+    def __init__(self, interview):
+        self.interview = interview
+        self.committed = False
+        self.refreshed = False
+
+    async def get(self, _model, _item_id):
+        return self.interview
+
+    async def commit(self):
+        self.committed = True
+
+    async def refresh(self, _item):
+        self.refreshed = True
+
+    async def rollback(self):
+        self.rolled_back = True
+
+
+@pytest.mark.unit
+def test_user_delete_completed_interview_soft_deletes_for_admin_review():
+    interview = SimpleNamespace(
+        id=12,
+        user_id=7,
+        status="completed",
+        user_deleted_at=None,
+        user_deleted_reason=None,
+    )
+    db = _FakeDeleteInterviewDb(interview)
+
+    async def _run():
+        result = await InterviewService.delete_interview(db=db, user_id=7, interview_id=12)
+        assert result["retained_for_review"] is True
+        assert interview.user_deleted_at is not None
+        assert interview.user_deleted_reason == "user_deleted_completed_interview_retained_for_review"
+        assert db.deleted == []
+        assert db.committed is True
+
+    asyncio.run(_run())
+
+
+@pytest.mark.unit
+def test_user_delete_in_progress_interview_hard_deletes():
+    interview = SimpleNamespace(
+        id=13,
+        user_id=7,
+        status="in_progress",
+        user_deleted_at=None,
+        user_deleted_reason=None,
+    )
+    db = _FakeDeleteInterviewDb(interview)
+
+    async def _run():
+        result = await InterviewService.delete_interview(db=db, user_id=7, interview_id=13)
+        assert result["message"] == "面试记录已删除"
+        assert db.deleted == [interview]
+        assert db.committed is True
+
+    asyncio.run(_run())
+
+
+@pytest.mark.unit
+def test_admin_backfill_consent_requires_completed_case_and_writes_audit_snapshot():
+    completed = SimpleNamespace(
+        id=21,
+        resume_id=31,
+        target_position="Python后端开发工程师",
+        status="completed",
+        data_contribution_consent=False,
+        privacy_consent_snapshot={},
+    )
+    in_progress = SimpleNamespace(
+        id=22,
+        resume_id=32,
+        target_position="产品助理",
+        status="in_progress",
+        data_contribution_consent=False,
+        privacy_consent_snapshot={},
+    )
+
+    async def _run():
+        result = await InterviewService.set_case_data_contribution_consent_admin(
+            db=_FakeAdminConsentDb(completed),
+            interview_id=21,
+            data_contribution_consent=True,
+            reason="前期实例补授权",
+            admin_email="admin@example.com",
+        )
+        assert result["data_contribution_consent"] is True
+        assert completed.data_contribution_consent is True
+        snapshot = completed.privacy_consent_snapshot
+        assert snapshot["source"] == "admin_case_consent_override"
+        assert snapshot["admin_override"] is True
+        assert snapshot["admin_email"] == "admin@example.com"
+        assert snapshot["sample_origin"] == "real_authorized"
+        assert snapshot["candidate_answer_source"] == "human"
+
+        with pytest.raises(ValidationError, match="已完成"):
+            await InterviewService.set_case_data_contribution_consent_admin(
+                db=_FakeAdminConsentDb(in_progress),
+                interview_id=22,
+                data_contribution_consent=True,
+                reason="不应允许",
+                admin_email="admin@example.com",
+            )
+
+    asyncio.run(_run())
+
+
 @pytest.mark.unit
 def test_submit_answer_requires_index_and_handles_dirty_total_questions(monkeypatch):
     interview = SimpleNamespace(
