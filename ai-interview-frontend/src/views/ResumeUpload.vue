@@ -43,7 +43,17 @@
             </div>
             <div class="form-group">
               <label>使用模型</label>
+              <select v-if="aiTestProvider === 'deepseek'" v-model="aiTestModel">
+                <option
+                  v-for="option in activeAiModelOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
               <input
+                v-else
                 v-model="aiTestModel"
                 :placeholder="aiTestModelPlaceholder"
                 :list="aiModelDatalistId"
@@ -428,6 +438,7 @@ import { taskFromLearningPlan, upsertLearningTasksToServer } from '../utils/lear
 import PrivacyConsentNotice from '../components/PrivacyConsentNotice.vue'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import { buildAiConfigErrorTips } from '../utils/aiConfigError'
+import { normalizeAiModel } from '../utils/aiRuntimeOptions'
 
 const router = useRouter()
 const route = useRoute()
@@ -494,7 +505,11 @@ const dataContributionConsent = ref(true)
 const activeAiProviderLabel = computed(() => aiProviderLabels[aiTestProvider.value] || 'AI')
 const activeAiModelOptions = computed(() => aiProviderModelOptions[aiTestProvider.value] || [])
 const aiTestModelPlaceholder = computed(() => aiProviderDefaults[aiTestProvider.value]?.model || '')
-const currentAiModelDisplay = computed(() => aiTestModel.value?.trim() || aiTestModelPlaceholder.value || '未选择模型')
+const currentAiModel = computed(() => normalizeAiModel(
+  aiTestProvider.value,
+  aiTestModel.value || aiTestModelPlaceholder.value
+))
+const currentAiModelDisplay = computed(() => currentAiModel.value || '未选择模型')
 const startErrorTips = computed(() => buildStartErrorTips(error.value))
 const hasEvidenceCard = computed(() => {
   if (evidenceSummary.value.length) return true
@@ -662,11 +677,14 @@ function stopAnimations() {
 
 function applyAiProfile(data) {
   aiSavedModels.value = {
-    deepseek: data?.deepseek_model || '',
+    deepseek: normalizeAiModel('deepseek', data?.deepseek_model),
     openai: data?.openai_model || ''
   }
   aiTestProvider.value = data?.ai_provider || 'deepseek'
-  aiTestModel.value = aiSavedModels.value[aiTestProvider.value] || aiProviderDefaults[aiTestProvider.value]?.model || ''
+  aiTestModel.value = normalizeAiModel(
+    aiTestProvider.value,
+    aiSavedModels.value[aiTestProvider.value] || aiProviderDefaults[aiTestProvider.value]?.model || ''
+  )
 }
 
 function applyPrivacyProfile(data) {
@@ -678,7 +696,10 @@ function applyPrivacyProfile(data) {
 function handleAiProviderChange() {
   aiTestMessage.value = ''
   aiTestSuccess.value = false
-  aiTestModel.value = aiSavedModels.value[aiTestProvider.value] || aiProviderDefaults[aiTestProvider.value]?.model || ''
+  aiTestModel.value = normalizeAiModel(
+    aiTestProvider.value,
+    aiSavedModels.value[aiTestProvider.value] || aiProviderDefaults[aiTestProvider.value]?.model || ''
+  )
 }
 
 onMounted(async () => {
@@ -768,7 +789,7 @@ async function handleTestAiConnection() {
   try {
     const result = await testAiConnection({
       provider: aiTestProvider.value,
-      model: aiTestModel.value?.trim() || undefined
+      model: currentAiModel.value || undefined
     })
     aiTestSuccess.value = true
     aiTestMessage.value = result?.message || `${activeAiProviderLabel.value} API 连接测试成功`
@@ -796,7 +817,7 @@ async function handleUpload() {
 
     const data = await uploadResume(file.value, targetPosition.value, {
       provider: aiTestProvider.value,
-      model: aiTestModel.value?.trim() || '',
+      model: currentAiModel.value || '',
       privacyAgreed: privacyBaseAgreed.value,
       dataContributionConsent: dataContributionConsent.value
     })
@@ -1093,7 +1114,7 @@ async function handleStart() {
       target_position: targetPosition.value,
       knowledge_base_id: selectedKnowledgeBaseId.value ? Number(selectedKnowledgeBaseId.value) : null,
       ai_provider: aiTestProvider.value,
-      ai_model: aiTestModel.value?.trim() || aiTestModelPlaceholder.value || null,
+      ai_model: currentAiModel.value || null,
       difficulty: difficulty.value,
       total_questions: totalQuestions.value,
       multi_interviewer_enabled: multiInterviewerEnabled.value,

@@ -30,3 +30,13 @@ export const aiProviderModelOptions = {
     { value: 'gpt-5-mini', label: 'gpt-5-mini' }
   ]
 }
+
+export function normalizeAiModel(provider, model) {
+  const normalizedProvider = provider || 'deepseek'
+  const cleaned = (model || '').trim()
+  if (normalizedProvider !== 'deepseek') {
+    return cleaned || aiProviderDefaults.openai.model
+  }
+  const allowed = aiProviderModelOptions.deepseek.map(option => option.value)
+  return allowed.includes(cleaned) ? cleaned : aiProviderDefaults.deepseek.model
+}

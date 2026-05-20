@@ -39,7 +39,16 @@
         </label>
         <label>
           使用模型
-          <input v-model="aiModel" :placeholder="aiModelPlaceholder" :list="aiModelDatalistId" />
+          <select v-if="aiProvider === 'deepseek'" v-model="aiModel">
+            <option
+              v-for="option in activeAiModelOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+          <input v-else v-model="aiModel" :placeholder="aiModelPlaceholder" :list="aiModelDatalistId" />
           <datalist :id="aiModelDatalistId">
             <option
               v-for="option in activeAiModelOptions"
@@ -174,7 +183,8 @@ import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import {
   aiProviderDefaults,
   aiProviderModelOptions,
-  aiProviderOptions
+  aiProviderOptions,
+  normalizeAiModel
 } from '../utils/aiRuntimeOptions'
 
 const selectedFile = ref(null)
@@ -204,7 +214,10 @@ const missingEvidence = computed(() => polishResult.value?.missing_evidence_to_p
 const knowledgeSources = computed(() => polishResult.value?.knowledge_sources || [])
 const activeAiModelOptions = computed(() => aiProviderModelOptions[aiProvider.value] || [])
 const aiModelPlaceholder = computed(() => aiProviderDefaults[aiProvider.value]?.model || '')
-const currentAiModel = computed(() => aiModel.value?.trim() || aiModelPlaceholder.value || '')
+const currentAiModel = computed(() => normalizeAiModel(
+  aiProvider.value,
+  aiModel.value || aiModelPlaceholder.value
+))
 
 watch(polishResult, value => {
   editableMarkdown.value = value?.polished_resume_markdown || ''
@@ -214,11 +227,14 @@ onMounted(async () => {
   try {
     const data = await getProfile()
     aiSavedModels.value = {
-      deepseek: data?.deepseek_model || '',
+      deepseek: normalizeAiModel('deepseek', data?.deepseek_model),
       openai: data?.openai_model || ''
     }
     aiProvider.value = data?.ai_provider || 'deepseek'
-    aiModel.value = aiSavedModels.value[aiProvider.value] || aiProviderDefaults[aiProvider.value]?.model || ''
+    aiModel.value = normalizeAiModel(
+      aiProvider.value,
+      aiSavedModels.value[aiProvider.value] || aiProviderDefaults[aiProvider.value]?.model || ''
+    )
   } catch (err) {
     console.error('Failed to load AI profile for resume polish', err)
     aiModel.value = aiProviderDefaults.deepseek.model
@@ -226,7 +242,10 @@ onMounted(async () => {
 })
 
 function handleAiProviderChange() {
-  aiModel.value = aiSavedModels.value[aiProvider.value] || aiProviderDefaults[aiProvider.value]?.model || ''
+  aiModel.value = normalizeAiModel(
+    aiProvider.value,
+    aiSavedModels.value[aiProvider.value] || aiProviderDefaults[aiProvider.value]?.model || ''
+  )
 }
 
 function handleFileChange(event) {

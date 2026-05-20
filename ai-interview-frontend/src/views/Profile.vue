@@ -98,7 +98,17 @@
           </div>
           <div class="form-group">
             <label>模型</label>
+            <select v-if="activeProvider === 'deepseek'" v-model="activeModelValue">
+              <option
+                v-for="option in activeModelOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
             <input
+              v-else
               v-model="activeModelValue"
               :placeholder="activeModelPlaceholder"
               :list="modelDatalistId"
@@ -197,6 +207,7 @@ import { computed, onMounted, ref } from 'vue'
 
 import { useAuthStore } from '../stores/auth'
 import { changePassword, getProfile, testAiConnection, updateProfile, uploadAvatar } from '../api/user'
+import { normalizeAiModel } from '../utils/aiRuntimeOptions'
 
 const authStore = useAuthStore()
 
@@ -301,13 +312,13 @@ const activeModelValue = computed({
     if (activeProvider.value === 'openai') {
       return form.value.openai_model
     }
-    return form.value.deepseek_model
+    return normalizeAiModel('deepseek', form.value.deepseek_model)
   },
   set(value) {
     if (activeProvider.value === 'openai') {
       form.value.openai_model = value
     } else {
-      form.value.deepseek_model = value
+      form.value.deepseek_model = normalizeAiModel('deepseek', value)
     }
   }
 })
@@ -344,7 +355,7 @@ function applyProfile(data) {
     location: data.location || '',
     ai_provider: data.ai_provider || 'deepseek',
     deepseek_base_url: data.deepseek_base_url || '',
-    deepseek_model: data.deepseek_model || '',
+    deepseek_model: normalizeAiModel('deepseek', data.deepseek_model),
     openai_base_url: data.openai_base_url || '',
     openai_model: data.openai_model || ''
   }
@@ -416,7 +427,7 @@ async function handleSaveProfile() {
       gender: form.value.gender,
       ai_provider: form.value.ai_provider,
       deepseek_base_url: form.value.deepseek_base_url.trim(),
-      deepseek_model: form.value.deepseek_model.trim(),
+      deepseek_model: normalizeAiModel('deepseek', form.value.deepseek_model),
       openai_base_url: form.value.openai_base_url.trim(),
       openai_model: form.value.openai_model.trim()
     }
