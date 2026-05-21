@@ -853,10 +853,19 @@ def test_declared_resume_skill_terms_splits_compound_skill_lines():
 def test_evaluate_answer_uses_json_repair_contract(monkeypatch):
     calls = []
 
+    async def fake_chat_json(_messages, temperature=0.3, ai_config=None, max_tokens=2200):
+        calls.append(
+            {
+                "kind": "json",
+                "temperature": temperature,
+                "ai_config": ai_config,
+                "max_tokens": max_tokens,
+            }
+        )
+        return '{"score": 8.0, "feedback": "回答包含"未转义引号"}', "json_mode"
+
     async def fake_chat(_messages, temperature=0.3, ai_config=None):
-        calls.append({"temperature": temperature, "ai_config": ai_config})
-        if len(calls) == 1:
-            return '{"score": 8.0, "feedback": "回答包含"未转义引号"}'
+        calls.append({"kind": "repair", "temperature": temperature, "ai_config": ai_config})
         return json.dumps(
             {
                 "score": 8.0,
@@ -878,6 +887,7 @@ def test_evaluate_answer_uses_json_repair_contract(monkeypatch):
             ensure_ascii=False,
         )
 
+    monkeypatch.setattr(AIService, "_chat_json", fake_chat_json)
     monkeypatch.setattr(AIService, "_chat", fake_chat)
 
     async def _run():
@@ -892,6 +902,7 @@ def test_evaluate_answer_uses_json_repair_contract(monkeypatch):
         assert "量化" in result["feedback"]
         assert len(calls) == 2
         assert calls[1]["temperature"] == 0
+        assert calls[1]["kind"] == "repair"
 
     asyncio.run(_run())
 

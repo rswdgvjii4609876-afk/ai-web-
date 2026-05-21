@@ -1298,6 +1298,219 @@ def test_runtime_client_uses_explicit_http_timeout(monkeypatch):
 
 
 @pytest.mark.unit
+def test_chat_json_requests_json_object_response_format(monkeypatch):
+    captured = {}
+
+    class _Message:
+        content = '{"score": 8, "feedback": "ok"}'
+
+    class _Choice:
+        message = _Message()
+
+    class _Response:
+        choices = [_Choice()]
+
+    class _Completions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            return _Response()
+
+    class _Chat:
+        completions = _Completions()
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = _Chat()
+
+    monkeypatch.setattr(ai_service_module, "AsyncOpenAI", _FakeAsyncOpenAI)
+
+    async def _run():
+        return await AIService._chat_json(
+            [{"role": "system", "content": "Return JSON."}],
+            ai_config={
+                "api_key": "test-key",
+                "provider": "deepseek",
+                "model": "deepseek-v4-pro",
+                "base_url": "https://api.deepseek.com",
+            },
+        )
+
+    content, status = asyncio.run(_run())
+
+    assert json.loads(content)["score"] == 8
+    assert status == "json_mode"
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.unit
+def test_answer_memory_preserves_long_answer_signals_without_full_history():
+    answer = (
+        "我主导了 FastAPI OCR 解析链路，负责 Python 接口设计和 PDF fallback。"
+        "上线后通过日志排查扫描件误判，处理效率提升 30%。"
+    )
+
+    answer_memory = InterviewService._build_answer_memory(
+        question_index=1,
+        question="How did you build OCR fallback?",
+        answer=answer,
+        question_meta={"question_target_gap": "OCR fallback evidence"},
+        evaluation={
+            "score": 8.0,
+            "gaps": ["production validation"],
+            "unresolved_gaps": ["more metrics"],
+        },
+        evaluation_mode="llm_json",
+        evaluation_quality="high",
+    )
+    snapshot = InterviewService._update_interview_memory({}, answer_memory, {"gaps": ["production validation"]})
+    memory = snapshot["interview_memory"]
+    context = AIService._build_interview_memory_context({"interview_memory": memory})
+
+    assert memory["version"] == "interview_memory_v1"
+    assert answer_memory["answer_char_count"] == len(answer)
+    assert "FastAPI" in answer_memory["tech_terms"]
+    assert memory["recent_rounds"][0]["evaluation_quality"] == "high"
+    assert "已验证证据" in context
+    assert "production validation" in context
+
+
+@pytest.mark.unit
+def test_reevaluate_answer_rebuilds_memory_and_refreshes_completed_report(monkeypatch):
+    q0_memory = {
+        "question_index": 0,
+        "answer_summary": "Q0 summary",
+        "candidate_role_claims": ["owned api design"],
+        "result_or_metric_claims": [],
+        "pending_verification": ["metrics"],
+        "evaluation_quality": "high",
+        "score": 6.0,
+    }
+    interview = SimpleNamespace(
+        id=77,
+        user_id=7,
+        resume_id=3,
+        target_position="Python Backend Engineer",
+        knowledge_base_snapshot=None,
+        status="completed",
+        current_question_index=2,
+        total_questions=2,
+        interview_mode="single",
+        difficulty="medium",
+        panel_snapshot={
+            "interview_memory": {
+                "version": "interview_memory_v1",
+                "recent_rounds": [
+                    {"question_index": 0, "answer_summary": "old q0"},
+                    {"question_index": 1, "answer_summary": "old q1"},
+                ],
+            }
+        },
+        questions_data=[
+            {
+                "index": 0,
+                "question": "Q0?",
+                "answer": "A0",
+                "score": 6.0,
+                "feedback": "old",
+                "evaluation": {"score": 6.0, "gaps": ["metrics"]},
+                "answer_memory": q0_memory,
+            },
+            {
+                "index": 1,
+                "question": "Q1?",
+                "answer": "A1 FastAPI improved latency by 20%",
+                "score": 5.0,
+                "feedback": "fallback",
+                "evaluation": {"score": 5.0, "gaps": ["detail"]},
+            },
+        ],
+        overall_score=Decimal("5.5"),
+        report=json.dumps(
+            {
+                "summary": "old report",
+                "strengths": [],
+                "weaknesses": [],
+                "suggestions": [],
+                "question_scores": [{"question_index": 1, "score": 5.0}],
+                "report_status": "ready",
+            },
+            ensure_ascii=False,
+        ),
+        user_deleted_at=None,
+    )
+    resume = SimpleNamespace(id=3, user_id=7)
+    messages = [
+        SimpleNamespace(id=1, role="interviewer", content="Q0?", question_index=0, score=None, feedback=None),
+        SimpleNamespace(id=2, role="candidate", content="A0", question_index=0, score=Decimal("6.0"), feedback="old"),
+        SimpleNamespace(id=3, role="interviewer", content="Q1?", question_index=1, score=None, feedback=None),
+        SimpleNamespace(
+            id=4,
+            role="candidate",
+            content="A1 FastAPI improved latency by 20%",
+            question_index=1,
+            score=Decimal("5.0"),
+            feedback="fallback",
+        ),
+    ]
+
+    class _Db:
+        def __init__(self):
+            self.results = [
+                _FakeScalarResult(interview),
+                _FakeListResult(messages),
+                _FakeScalarResult(resume),
+                _FakeScalarResult(interview),
+                _FakeListResult(messages),
+            ]
+            self.committed = False
+
+        async def execute(self, _statement):
+            return self.results.pop(0)
+
+        async def rollback(self):
+            return None
+
+        async def commit(self):
+            self.committed = True
+
+    async def fake_evaluate_round(**kwargs):
+        memory = kwargs["question_meta"].get("interview_memory") or {}
+        recent = memory.get("recent_rounds") or []
+        assert [item.get("question_index") for item in recent] == [0]
+        return "llm_json", {
+            "score": 9.0,
+            "feedback": "High quality score.",
+            "gaps": ["production proof"],
+            "metadata": {"llm_output_status": "json_valid"},
+        }
+
+    monkeypatch.setattr(InterviewService, "_load_resume_payload", staticmethod(lambda _resume: {"skills": ["Python"]}))
+    monkeypatch.setattr(InterviewService, "_evaluate_round", staticmethod(fake_evaluate_round))
+
+    db = _Db()
+    result = asyncio.run(
+        InterviewService.reevaluate_answer(
+            db=db,
+            user_id=7,
+            interview_id=77,
+            question_index=1,
+            ai_config={"api_key": "test"},
+        )
+    )
+
+    assert db.committed is True
+    assert "evaluation" not in result
+    assert result["evaluation_quality"] == "high"
+    assert messages[-1].score == Decimal("9.0")
+    assert interview.overall_score == Decimal("7.5")
+    report = json.loads(interview.report)
+    assert report["report_status"] == "score_updated_after_reevaluation"
+    assert report["question_scores"][1]["score"] == 9.0
+    recent_rounds = interview.panel_snapshot["interview_memory"]["recent_rounds"]
+    assert [item["question_index"] for item in recent_rounds] == [0, 1]
+
+
+@pytest.mark.unit
 def test_submit_answer_stream_emits_version_status_and_heartbeat(monkeypatch):
     class _PrecheckResult:
         def first(self):

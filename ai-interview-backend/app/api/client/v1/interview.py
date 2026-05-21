@@ -197,6 +197,23 @@ async def submit_answer_stream(
     )
 
 
+@router.post("/{interview_id}/questions/{question_index}/reevaluate")
+async def reevaluate_answer(
+    interview_id: int,
+    question_index: int,
+    current_user: User = Depends(require_base_privacy_consent),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await interview_service.reevaluate_answer(
+        db=db,
+        user_id=current_user.id,
+        interview_id=interview_id,
+        question_index=question_index,
+        ai_config=await _build_answer_runtime_config(db, current_user, interview_id),
+    )
+    return ApiResponse.success(data=result)
+
+
 @router.put("/{interview_id}/case-data-contribution-consent")
 async def update_case_data_contribution_consent(
     interview_id: int,

@@ -264,6 +264,67 @@ class AIService:
             if translated is exc:
                 raise
             raise translated from exc
+
+    @staticmethod
+    async def _chat_json(
+        messages: list,
+        temperature: float = 0.2,
+        ai_config: Optional[Dict] = None,
+        max_tokens: int = 2200,
+    ) -> tuple[str, str]:
+        client, model, source, provider_label, request_kwargs = AIService._resolve_runtime(ai_config)
+        json_kwargs = dict(request_kwargs or {})
+        json_kwargs["response_format"] = {"type": "json_object"}
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                **json_kwargs,
+            )
+            return (response.choices[0].message.content or "").strip(), "json_mode"
+        except BadRequestError as exc:
+            message = str(exc).lower()
+            if "response_format" not in message and "json" not in message:
+                translated = AIService._translate_runtime_error(
+                    exc,
+                    source=source,
+                    provider_label=provider_label,
+                )
+                if translated is exc:
+                    raise
+                raise translated from exc
+            logger.warning("AI JSON mode unsupported, retrying without response_format (%s): %s", source, exc)
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **(request_kwargs or {}),
+                )
+                return (response.choices[0].message.content or "").strip(), "json_mode_unsupported"
+            except Exception as retry_exc:
+                logger.exception("AI provider JSON retry failed (%s): %s", source, retry_exc)
+                translated = AIService._translate_runtime_error(
+                    retry_exc,
+                    source=source,
+                    provider_label=provider_label,
+                )
+                if translated is retry_exc:
+                    raise
+                raise translated from retry_exc
+        except Exception as exc:
+            logger.exception("AI provider JSON call failed (%s): %s", source, exc)
+            translated = AIService._translate_runtime_error(
+                exc,
+                source=source,
+                provider_label=provider_label,
+            )
+            if translated is exc:
+                raise
+            raise translated from exc
     @staticmethod
     async def _chat_stream(
         messages: list,
@@ -440,17 +501,19 @@ class AIService:
         required_keys: Optional[Sequence[str]] = None,
         max_repair_rounds: int = 1,
         parser_label: str = "structured_output",
+        return_status: bool = False,
     ) -> Any:
         last_error: Optional[json.JSONDecodeError] = None
         current_text = raw_text
         try:
             payload = AIService._extract_json(current_text)
-            return AIService._validate_structured_json_payload(
+            validated = AIService._validate_structured_json_payload(
                 payload,
                 expected_type=expected_type,
                 required_keys=required_keys,
                 parser_label=parser_label,
             )
+            return (validated, "parsed") if return_status else validated
         except json.JSONDecodeError as exc:
             last_error = exc
             if not allow_repair or max_repair_rounds <= 0:
@@ -494,12 +557,13 @@ class AIService:
             )
             try:
                 payload = AIService._extract_json(current_text)
-                return AIService._validate_structured_json_payload(
+                validated = AIService._validate_structured_json_payload(
                     payload,
                     expected_type=expected_type,
                     required_keys=required_keys,
                     parser_label=parser_label,
                 )
+                return (validated, "repaired") if return_status else validated
             except json.JSONDecodeError as exc:
                 last_error = exc
                 continue
@@ -2093,6 +2157,37 @@ class AIService:
                 content = AIService._trim_text(content, LLM_HISTORY_MESSAGE_BUDGET)
             lines.append(f"{role}: {content}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _build_interview_memory_context(question_meta: Optional[Dict]) -> str:
+        memory = (question_meta or {}).get("interview_memory")
+        if not isinstance(memory, dict) or not memory:
+            return "-"
+        lines: List[str] = []
+
+        def add_list(label: str, values: Any, limit: int = 5) -> None:
+            items = AIService._string_list(values, limit=limit)
+            if items:
+                lines.append(f"{label}: " + "；".join(items))
+
+        add_list("已验证证据", memory.get("verified_evidence"), limit=5)
+        add_list("待验证主张", memory.get("pending_claims"), limit=5)
+        add_list("反复短板", memory.get("recurring_gaps"), limit=4)
+        add_list("下一轮追问目标", memory.get("next_targets"), limit=4)
+        recent_rounds = memory.get("recent_rounds") or []
+        if isinstance(recent_rounds, list) and recent_rounds:
+            compact_rounds = []
+            for item in recent_rounds[-2:]:
+                if not isinstance(item, dict):
+                    continue
+                index = item.get("question_index")
+                summary = AIService._trim_text(item.get("answer_summary") or item.get("question") or "", 220)
+                score = item.get("score")
+                if summary:
+                    compact_rounds.append(f"Q{index if index is not None else '-'}: {summary}（score={score if score is not None else '-'}）")
+            if compact_rounds:
+                lines.append("最近轮次摘要: " + "；".join(compact_rounds))
+        return "\n".join(lines) if lines else "-"
     @staticmethod
     def _slice_line(item: Dict, limit: int = 220) -> str:
         stage = "/".join((item.get("stage_tags") or [])[:2]) or "-"
@@ -3431,7 +3526,8 @@ class AIService:
                 "role": "user",
                 "content": (
                     f"Resume JSON: {AIService._resume_snapshot(resume_context)}\n"
-                    f"Chat history:\n{AIService._history_text(chat_history)}\n"
+                    f"Interview rolling memory:\n{AIService._build_interview_memory_context(question_meta)}\n"
+                    f"Recent chat excerpt:\n{AIService._history_text(chat_history, limit=2)}\n"
                     f"Question: {question}\n"
                     f"Candidate answer for evaluation: {compact_answer}\n"
                     f"Question intent: {(question_meta or {}).get('intent') or '-'}\n"
@@ -3442,20 +3538,34 @@ class AIService:
                 ),
             },
         ]
-        result = await AIService._chat(messages, temperature=0.35, ai_config=ai_config)
-        payload = await AIService._extract_or_repair_json(
+        result, json_mode_status = await AIService._chat_json(
+            messages,
+            temperature=0.25,
+            ai_config=ai_config,
+            max_tokens=2200,
+        )
+        payload, parse_status = await AIService._extract_or_repair_json(
             result,
             "JSON object with score, feedback, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
             ai_config=ai_config,
             expected_type="object",
             required_keys=["score", "feedback"],
             parser_label="single_answer_evaluation",
+            return_status=True,
         )
-        return AIService._normalize_single_evaluation_payload(
+        normalized = AIService._normalize_single_evaluation_payload(
             payload=payload,
             question_meta=question_meta,
             knowledge_base=knowledge_base,
         )
+        normalized.setdefault("metadata", {})
+        normalized["metadata"].update(
+            {
+                "llm_output_status": "json_repaired" if parse_status == "repaired" else "json_valid",
+                "json_mode_status": json_mode_status,
+            }
+        )
+        return normalized
     @staticmethod
     async def evaluate_answer_with_panel(
         question: str,
@@ -3501,7 +3611,8 @@ class AIService:
                 "role": "user",
                 "content": (
                     f"Resume JSON: {AIService._resume_snapshot(resume_context)}\n"
-                    f"Chat history:\n{AIService._history_text(chat_history)}\n"
+                    f"Interview rolling memory:\n{AIService._build_interview_memory_context(question_meta)}\n"
+                    f"Recent chat excerpt:\n{AIService._history_text(chat_history, limit=2)}\n"
                     f"Current question: {question}\n"
                     f"Candidate answer for evaluation: {compact_answer}\n"
                     f"Lead role: {(question_meta or {}).get('lead_role') or '-'}\n"
@@ -3514,20 +3625,33 @@ class AIService:
                 ),
             },
         ]
-        result = await AIService._chat(messages, temperature=0.3, ai_config=ai_config)
-        payload = await AIService._extract_or_repair_json(
+        result, json_mode_status = await AIService._chat_json(
+            messages,
+            temperature=0.2,
+            ai_config=ai_config,
+            max_tokens=2600,
+        )
+        payload, parse_status = await AIService._extract_or_repair_json(
             result,
             "JSON object with panel, moderator, metadata, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
             ai_config=ai_config,
             expected_type="object",
             required_keys=["panel", "moderator", "metadata"],
             parser_label="panel_answer_evaluation",
+            return_status=True,
         )
         normalized = AIService._normalize_panel_evaluation_payload(
             payload=payload,
             question_meta=question_meta,
             knowledge_base=knowledge_base,
             panel_snapshot=panel_snapshot,
+        )
+        normalized.setdefault("metadata", {})
+        normalized["metadata"].update(
+            {
+                "llm_output_status": "json_repaired" if parse_status == "repaired" else "json_valid",
+                "json_mode_status": json_mode_status,
+            }
         )
         logger.info(
             "Panel structured evaluation succeeded: lead_role=%s",
@@ -3666,8 +3790,24 @@ class AIService:
                 ),
             },
         ]
-        result = await AIService._chat(messages, temperature=0.35, ai_config=ai_config)
-        return AIService._extract_json(result)
+        result, json_mode_status = await AIService._chat_json(
+            messages,
+            temperature=0.25,
+            ai_config=ai_config,
+            max_tokens=2600,
+        )
+        report = await AIService._extract_or_repair_json(
+            result,
+            "JSON object with summary, strengths, weaknesses, suggestions, hire_recommendation, training_priorities, common_gaps, common_strengths, evidence_summary",
+            ai_config=ai_config,
+            expected_type="object",
+            required_keys=["summary", "strengths", "weaknesses", "suggestions"],
+            parser_label="interview_report",
+            max_repair_rounds=1,
+        )
+        if isinstance(report, dict):
+            report["json_mode_status"] = json_mode_status
+        return report
     @staticmethod
     async def generate_panel_report(
         parsed_resume: dict,
@@ -3706,5 +3846,21 @@ class AIService:
                 ),
             },
         ]
-        result = await AIService._chat(messages, temperature=0.3, ai_config=ai_config)
-        return AIService._extract_json(result)
+        result, json_mode_status = await AIService._chat_json(
+            messages,
+            temperature=0.2,
+            ai_config=ai_config,
+            max_tokens=2800,
+        )
+        report = await AIService._extract_or_repair_json(
+            result,
+            "JSON object with summary, strengths, weaknesses, suggestions, hire_recommendation, training_priorities, common_gaps, common_strengths, evidence_summary, panel_summary",
+            ai_config=ai_config,
+            expected_type="object",
+            required_keys=["summary", "strengths", "weaknesses", "suggestions"],
+            parser_label="panel_interview_report",
+            max_repair_rounds=1,
+        )
+        if isinstance(report, dict):
+            report["json_mode_status"] = json_mode_status
+        return report

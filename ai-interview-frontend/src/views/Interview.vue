@@ -186,6 +186,21 @@
           <span>按{{ difficultyProfile.public_label }}档位：{{ safeText(latestRoundSummary.questionTargetGap || latestRoundSummary.feedback || '本轮评估已完成，可以继续回答下一题。') }}</span>
         </div>
         <div class="round-feedback-actions">
+          <span
+            class="score-quality-badge"
+            :class="`quality-${latestRoundSummary.evaluationQuality || 'unknown'}`"
+          >
+            {{ evaluationQualityLabel(latestRoundSummary.evaluationQuality) }}
+          </span>
+          <button
+            v-if="canRetryRound(latestRoundSummary)"
+            class="score-retry-btn"
+            type="button"
+            :disabled="!!reevaluatingScoreIds[latestRoundSummary.id]"
+            @click="handleReevaluateScore(latestRoundSummary)"
+          >
+            {{ reevaluatingScoreIds[latestRoundSummary.id] ? '重评中...' : '重试评分' }}
+          </button>
           <button
             class="round-feedback-btn"
             type="button"
@@ -329,6 +344,20 @@
                 <span>{{ item.label }}</span>
                 <strong>{{ formatScoreText(item.score) }}</strong>
               </button>
+              <div class="score-quality-row">
+                <span class="score-quality-badge" :class="`quality-${item.evaluationQuality || 'unknown'}`">
+                  {{ evaluationQualityLabel(item.evaluationQuality) }}
+                </span>
+                <button
+                  v-if="canRetryRound(item)"
+                  class="score-retry-btn"
+                  type="button"
+                  :disabled="!!reevaluatingScoreIds[item.id]"
+                  @click="handleReevaluateScore(item)"
+                >
+                  {{ reevaluatingScoreIds[item.id] ? '重评中...' : '重试高质量评分' }}
+                </button>
+              </div>
               <p v-if="item.feedback" class="score-history-feedback">{{ safeText(item.feedback) }}</p>
               <div v-if="expandedScoreItems[item.id]" class="score-history-detail">
                 <p v-if="item.questionTargetGap">
@@ -357,7 +386,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { getMessages, submitAnswerStream } from '../api/interview'
+import { getMessages, reevaluateAnswer, submitAnswerStream } from '../api/interview'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import { isAiConfigError } from '../utils/aiConfigError'
 import { getInterviewDifficultyProfile } from '../utils/interviewDifficulty'
@@ -385,6 +414,7 @@ const roundSummaryDismissed = ref(true)
 const roundScoreHistory = ref([])
 const scorePanelCollapsed = ref(false)
 const expandedScoreItems = ref({})
+const reevaluatingScoreIds = ref({})
 const interviewMeta = ref(null)
 const loadErrorIsAiConfig = computed(() => isAiConfigError(loadError.value))
 const answerLength = computed(() => answer.value.length)
@@ -452,13 +482,26 @@ function formatScoreText(value) {
   return Number.isFinite(score) ? `${score.toFixed(1)}/10` : `${value}/10`
 }
 
+function evaluationQualityLabel(value) {
+  const map = {
+    high: '高质量评分',
+    repaired: 'JSON 修复后评分',
+    degraded: '保守兜底评分'
+  }
+  return map[value] || '评分状态待确认'
+}
+
+function canRetryRound(item) {
+  return item?.evaluationQuality === 'degraded' && Number.isInteger(Number(item.questionIndex))
+}
+
 function scoreSummaryId(summary) {
   const index = Number(summary?.questionIndex)
   if (Number.isInteger(index) && index >= 0) return `round-${index + 1}`
   return `round-${roundScoreHistory.value.length + 1}`
 }
 
-function upsertRoundSummary(summary) {
+function upsertRoundSummary(summary, options = {}) {
   if (!summary) return
   const id = scoreSummaryId(summary)
   const index = Number(summary.questionIndex)
@@ -470,13 +513,48 @@ function upsertRoundSummary(summary) {
   } else {
     roundScoreHistory.value.push(item)
   }
-  latestRoundSummary.value = item
+  if (options.setLatest !== false || latestRoundSummary.value?.id === id) {
+    latestRoundSummary.value = item
+  }
+  return item
 }
 
 function toggleScoreItem(id) {
   expandedScoreItems.value = {
     ...expandedScoreItems.value,
     [id]: !expandedScoreItems.value[id]
+  }
+}
+
+async function handleReevaluateScore(item) {
+  const questionIndex = Number(item?.questionIndex)
+  if (!Number.isInteger(questionIndex) || questionIndex < 0) return
+  streamError.value = ''
+  reevaluatingScoreIds.value = {
+    ...reevaluatingScoreIds.value,
+    [item.id]: true
+  }
+  try {
+    const result = await reevaluateAnswer(interviewId, questionIndex)
+    const nextSummary = normalizeRoundSummary(result)
+    const updatedSummary = upsertRoundSummary(nextSummary, { setLatest: false })
+    const candidate = [...messages.value]
+      .reverse()
+      .find(msg => msg.role === 'candidate' && Number(msg.question_index ?? msg.questionIndex) === questionIndex)
+    if (candidate) {
+      candidate.score = result.score
+      candidate.feedback = result.feedback
+    }
+    if (latestRoundSummary.value?.id === updatedSummary?.id) {
+      latestRoundSummary.value = updatedSummary
+      roundSummaryDismissed.value = false
+    }
+  } catch (error) {
+    streamError.value = error?.message || '重新评分失败，请稍后重试。'
+  } finally {
+    const next = { ...reevaluatingScoreIds.value }
+    delete next[item.id]
+    reevaluatingScoreIds.value = next
   }
 }
 
@@ -534,8 +612,12 @@ function hydrateMessages(data) {
   messages.value = safeList.map(item => ({
     role: item.role,
     content: item.content,
+    question_index: item.question_index,
     score: item.score,
-    feedback: item.feedback
+    feedback: item.feedback,
+    evaluation_quality: item.evaluation_quality,
+    evaluation_mode: item.evaluation_mode,
+    fallback_reason: item.fallback_reason
   }))
   const latestScored = [...safeList]
     .reverse()
@@ -544,6 +626,10 @@ function hydrateMessages(data) {
     latestRoundSummary.value = normalizeRoundSummary({
       score: latestScored.score,
       feedback: latestScored.feedback || '上一轮回答已有评分反馈。',
+      evaluation_quality: latestScored.evaluation_quality,
+      evaluation_mode: latestScored.evaluation_mode,
+      fallback_reason: latestScored.fallback_reason,
+      answer_memory_summary: latestScored.answer_memory_summary,
       evidence_summary: [],
       unresolved_gaps: [],
       evidence_strength_delta: [],
@@ -565,6 +651,10 @@ function hydrateMessages(data) {
         question_index: item.question_index,
         score: item.score,
         feedback: item.feedback || '上一轮回答已有评分反馈。',
+        evaluation_quality: item.evaluation_quality,
+        evaluation_mode: item.evaluation_mode,
+        fallback_reason: item.fallback_reason,
+        answer_memory_summary: item.answer_memory_summary,
         evidence_summary: [],
         unresolved_gaps: [],
         evidence_strength_delta: [],
@@ -628,6 +718,15 @@ function normalizeRoundSummary(data) {
     questionIndex: data.question_index ?? data.questionIndex ?? null,
     feedback: data.feedback || moderator.reasoning_summary || '',
     score: data.score ?? null,
+    evaluationMode: data.evaluation_mode || data.evaluationMode || data.evaluation?.evaluation_mode || '',
+    evaluationQuality:
+      data.evaluation_quality ||
+      data.evaluationQuality ||
+      data.evaluation?.evaluation_quality ||
+      metadata.evaluation_quality ||
+      (data.fallback_reason ? 'degraded' : ''),
+    fallbackReason: data.fallback_reason || metadata.fallback_reason || '',
+    answerMemorySummary: data.answer_memory_summary || data.answerMemorySummary || '',
     modeLabel: isPanelMode.value ? '证据追问闭环' : '单面试官闭环',
     questionTargetGap: data.question_target_gap || '',
     questionTargetEvidence: questionTargetEvidence.slice(0, 4),
@@ -752,7 +851,7 @@ async function handleSubmit() {
 
   const myAnswer = answer.value.trim()
   answer.value = ''
-  const optimisticMessage = { role: 'candidate', content: myAnswer, pending: true }
+  const optimisticMessage = { role: 'candidate', content: myAnswer, question_index: currentIndex.value, pending: true }
   messages.value.push(optimisticMessage)
   scrollToBottom()
   thinking.value = true
@@ -1436,6 +1535,57 @@ function withTimeout(promise, timeoutMs, message) {
   color: #475569;
   font-size: 12px;
   line-height: 1.7;
+}
+
+.score-quality-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.score-quality-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.score-quality-badge.quality-high {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.score-quality-badge.quality-repaired {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.score-quality-badge.quality-degraded {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.score-retry-btn {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #0f172a;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.score-retry-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .score-history-detail {

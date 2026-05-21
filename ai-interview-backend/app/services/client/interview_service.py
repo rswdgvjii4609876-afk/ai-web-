@@ -2379,6 +2379,173 @@ class InterviewService:
         return default
 
     @staticmethod
+    def _round_evaluation_quality(evaluation_mode: str, evaluation: Optional[Dict[str, Any]]) -> str:
+        metadata = (evaluation or {}).get("metadata") or {}
+        if evaluation_mode == "deterministic_fallback" or metadata.get("evaluation_fallback"):
+            return "degraded"
+        if metadata.get("llm_output_status") == "json_repaired":
+            return "repaired"
+        return "high"
+
+    @staticmethod
+    def _build_answer_memory(
+        *,
+        question_index: int,
+        question: str,
+        answer: str,
+        question_meta: Optional[Dict[str, Any]],
+        evaluation: Optional[Dict[str, Any]] = None,
+        evaluation_mode: str = "",
+        evaluation_quality: str = "",
+    ) -> Dict[str, Any]:
+        answer_text = str(answer or "").strip()
+        key_sentences = AIService._extract_key_answer_sentences(answer_text, limit=5)
+        if not key_sentences and answer_text:
+            key_sentences = [AIService._trim_text(answer_text, 260)]
+
+        role_sentences = [
+            item for item in key_sentences
+            if re.search(r"(主导|负责|独立|设计|实现|排查|优化|复盘|上线|搭建)", item)
+        ][:4]
+        metric_sentences = [
+            item for item in key_sentences
+            if re.search(r"(\d+|%|百分比|提升|降低|耗时|并发|用户|准确率|效率|成本)", item)
+        ][:4]
+        tech_terms = InterviewService._unique_strings(
+            re.findall(
+                r"\b(?:Python|FastAPI|Flask|Django|SQL|MySQL|PostgreSQL|Redis|Celery|Docker|OCR|RAG|LLM|API|JSON|PDF|DOCX|pypdf|pytesseract|pdf2image|Pillow|Streamlit)\b",
+                answer_text,
+                flags=re.IGNORECASE,
+            ),
+            limit=10,
+        )
+        evaluation = evaluation or {}
+        unresolved_gaps = InterviewService._unique_strings(
+            [
+                *((evaluation or {}).get("unresolved_gaps") or []),
+                *((evaluation or {}).get("gaps") or []),
+                (question_meta or {}).get("question_target_gap"),
+            ],
+            limit=5,
+        )
+        return {
+            "question_index": question_index,
+            "question": InterviewService._safe_visible_text(AIService._trim_text(question, 220)) or "",
+            "answer_char_count": len(answer_text),
+            "answer_summary": AIService._compact_answer_for_llm(answer_text, limit=900),
+            "key_sentences": key_sentences,
+            "candidate_role_claims": role_sentences,
+            "tech_terms": tech_terms,
+            "result_or_metric_claims": metric_sentences,
+            "pending_verification": unresolved_gaps,
+            "score": evaluation.get("score"),
+            "evaluation_mode": evaluation_mode,
+            "evaluation_quality": evaluation_quality,
+        }
+
+    @staticmethod
+    def _update_interview_memory(
+        panel_snapshot: Optional[Dict[str, Any]],
+        answer_memory: Dict[str, Any],
+        evaluation: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        snapshot = dict(panel_snapshot or {})
+        previous = snapshot.get("interview_memory") if isinstance(snapshot.get("interview_memory"), dict) else {}
+        evaluation = evaluation or {}
+
+        verified = [
+            *(previous.get("verified_evidence") or []),
+            *(answer_memory.get("candidate_role_claims") or []),
+            *(answer_memory.get("result_or_metric_claims") or []),
+        ]
+        pending = [
+            *(previous.get("pending_claims") or []),
+            *(answer_memory.get("pending_verification") or []),
+            *((evaluation.get("unresolved_gaps") or [])),
+        ]
+        recurring = [
+            *(previous.get("recurring_gaps") or []),
+            *((evaluation.get("gaps") or [])),
+        ]
+        next_targets = [
+            *(previous.get("next_targets") or []),
+            (evaluation.get("next_best_followup") or {}).get("target_gap")
+            if isinstance(evaluation.get("next_best_followup"), dict)
+            else None,
+            evaluation.get("next_focus"),
+        ]
+        recent_rounds = [*(previous.get("recent_rounds") or []), answer_memory][-2:]
+        memory = {
+            "version": "interview_memory_v1",
+            "verified_evidence": InterviewService._unique_strings(verified, limit=8),
+            "pending_claims": InterviewService._unique_strings(pending, limit=8),
+            "recurring_gaps": InterviewService._unique_strings(recurring, limit=6),
+            "next_targets": InterviewService._unique_strings(next_targets, limit=5),
+            "recent_rounds": recent_rounds,
+        }
+        snapshot["interview_memory"] = memory
+        return snapshot
+
+    @staticmethod
+    def _rebuild_interview_memory_from_questions(
+        panel_snapshot: Optional[Dict[str, Any]],
+        questions: List[Dict[str, Any]],
+        *,
+        before_index: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        snapshot = dict(panel_snapshot or {})
+        snapshot.pop("interview_memory", None)
+        for index, item in enumerate(questions or []):
+            if before_index is not None and index >= before_index:
+                break
+            if not isinstance(item, dict):
+                continue
+            answer_memory = item.get("answer_memory")
+            if not isinstance(answer_memory, dict):
+                continue
+            evaluation = item.get("evaluation") if isinstance(item.get("evaluation"), dict) else {}
+            snapshot = InterviewService._update_interview_memory(snapshot, answer_memory, evaluation)
+        return snapshot
+
+    @staticmethod
+    def _sync_completed_report_scores(interview: Interview, questions: List[Dict[str, Any]]) -> None:
+        scored_values = [
+            float(item.get("score"))
+            for item in questions
+            if isinstance(item, dict) and item.get("score") is not None
+        ]
+        overall = round(sum(scored_values) / len(scored_values), 1) if scored_values else 0
+        interview.overall_score = Decimal(str(overall))
+        report_signals = InterviewService._build_report_signals(questions)
+        report: Dict[str, Any] = {}
+        if interview.report:
+            try:
+                report = json.loads(interview.report)
+            except json.JSONDecodeError:
+                report = InterviewService._fallback_report_from_signals(
+                    report_signals=report_signals,
+                    reason="stored_report_invalid_after_reevaluation",
+                    detail="重评后发现历史报告 JSON 损坏，已基于最新题目分数返回基础报告。",
+                )
+        report = InterviewService._merge_report_defaults(
+            report=report,
+            report_signals=report_signals,
+            interview_mode=interview.interview_mode,
+        )
+        report["question_scores"] = InterviewService._build_question_scores(questions)
+        report["overall_score"] = overall
+        report["report_status"] = "score_updated_after_reevaluation"
+        report["report_refresh_status"] = "score_updated_after_reevaluation"
+        report["report_diagnostics"] = [
+            *(report.get("report_diagnostics") or []),
+            {
+                "reason": "score_updated_after_reevaluation",
+                "detail": "本报告的题目分数和总分已按重评结果同步；文本总结可按需重新生成。",
+            },
+        ]
+        interview.report = json.dumps(report, ensure_ascii=False)
+
+    @staticmethod
     def _build_deterministic_answer_evaluation_fallback(
         *,
         question: str,
@@ -2406,10 +2573,16 @@ class InterviewService:
         followup_question = "请继续补充一个具体例子，按背景、你的职责、采取的行动、最终结果和复盘改进展开。"
         if target_gap:
             followup_question = f"围绕“{target_gap}”，请补充一个具体例子，说明你的职责、行动、结果和复盘。"
-        feedback = (
-            "本轮回答已记录。AI 结构化评分暂不可用，系统已使用保守兜底评分；"
-            "建议继续补充背景、个人职责、行动过程、结果指标和复盘改进。"
-        )
+        if reason == "answer_evaluation_timeout":
+            feedback = (
+                "本轮回答已完整记录。高质量评分超过时间预算，系统先给出保守兜底评分；"
+                "你可以继续答题，也可以稍后在评分记录中重试本轮高质量评分。"
+            )
+        else:
+            feedback = (
+                "本轮回答已完整记录。模型结构化评分结果暂未通过校验，系统先给出保守兜底评分；"
+                "你可以继续答题，也可以稍后在评分记录中重试本轮高质量评分。"
+            )
         return {
             "score": score,
             "feedback": feedback,
@@ -4303,7 +4476,7 @@ class InterviewService:
         chat_history = [{"role": item.role, "content": item.content} for item in messages]
 
         current_index = int(interview.current_question_index or 0)
-        questions = InterviewService._serialize_questions(interview.questions_data or [])
+        questions = InterviewService._serialize_questions(getattr(interview, "questions_data", None) or [])
         if not questions:
             logger.warning("Submit answer failed: empty questions_data interview_id=%s", interview_id)
             raise ValidationError(message="面试题目状态异常，请重新开始面试")
@@ -4333,6 +4506,9 @@ class InterviewService:
         if not current_question:
             logger.warning("Submit answer failed: blank question interview_id=%s index=%s", interview_id, current_index)
             raise ValidationError(message="当前题目内容异常，请重新开始面试")
+        panel_snapshot = interview.panel_snapshot if isinstance(interview.panel_snapshot, dict) else {}
+        if isinstance(panel_snapshot.get("interview_memory"), dict):
+            current_question_meta["interview_memory"] = panel_snapshot["interview_memory"]
 
         candidate_msg = InterviewMessage(
             interview_id=interview_id,
@@ -4366,6 +4542,9 @@ class InterviewService:
 
         candidate_msg.score = Decimal(str(score))
         candidate_msg.feedback = feedback[:500]
+        evaluation_quality = InterviewService._round_evaluation_quality(evaluation_mode, evaluation)
+        evaluation_metadata["evaluation_quality"] = evaluation_quality
+        evaluation["metadata"] = evaluation_metadata
 
         current_question_meta["used_slice_ids"] = (
             (evaluation.get("metadata") or {}).get("retrieved_slice_ids")
@@ -4395,7 +4574,23 @@ class InterviewService:
         current_question_meta["evaluation"] = {
             **evaluation,
             "evaluation_mode": evaluation_mode,
+            "evaluation_quality": evaluation_quality,
         }
+        answer_memory = InterviewService._build_answer_memory(
+            question_index=current_index,
+            question=current_question,
+            answer=answer,
+            question_meta=current_question_meta,
+            evaluation=evaluation,
+            evaluation_mode=evaluation_mode,
+            evaluation_quality=evaluation_quality,
+        )
+        current_question_meta["answer_memory"] = answer_memory
+        interview.panel_snapshot = InterviewService._update_interview_memory(
+            panel_snapshot,
+            answer_memory,
+            evaluation,
+        )
         current_question_meta = InterviewService._sanitize_question_public_fields(current_question_meta)
         questions[current_index] = current_question_meta
 
@@ -4417,7 +4612,12 @@ class InterviewService:
             "unresolved_gaps": evaluation.get("unresolved_gaps") or [],
             "next_best_followup": evaluation.get("next_best_followup"),
             "evaluation_mode": evaluation_mode,
+            "evaluation_quality": evaluation_quality,
             "fallback_reason": evaluation_metadata.get("fallback_reason"),
+            "answer_memory_summary": answer_memory.get("answer_summary"),
+            "interview_memory_version": (
+                (interview.panel_snapshot or {}).get("interview_memory") or {}
+            ).get("version"),
             "report_status": None,
         }
 
@@ -4605,6 +4805,189 @@ class InterviewService:
         return response
 
     @staticmethod
+    async def reevaluate_answer(
+        db: AsyncSession,
+        user_id: int,
+        interview_id: int,
+        question_index: int,
+        ai_config: Optional[Dict] = None,
+    ) -> Dict[str, Any]:
+        result = await db.execute(
+            select(Interview).where(
+                Interview.id == interview_id,
+                Interview.user_id == user_id,
+                Interview.user_deleted_at.is_(None),
+            )
+        )
+        interview = result.scalar_one_or_none()
+        if not interview:
+            raise NotFoundError(message="面试记录不存在")
+
+        questions = InterviewService._serialize_questions(getattr(interview, "questions_data", None) or [])
+        if question_index < 0 or question_index >= len(questions):
+            raise ValidationError(message="题目序号不存在")
+        question_meta = dict(questions[question_index])
+        question = str(question_meta.get("question") or "").strip()
+        if not question:
+            raise ValidationError(message="题目内容异常，不能重新评分")
+
+        messages_result = await db.execute(
+            select(InterviewMessage)
+            .where(InterviewMessage.interview_id == interview_id)
+            .order_by(InterviewMessage.id)
+        )
+        messages = messages_result.scalars().all()
+        candidate_msg = next(
+            (
+                item
+                for item in reversed(messages)
+                if item.role == "candidate" and int(item.question_index or -1) == int(question_index)
+            ),
+            None,
+        )
+        answer = str(question_meta.get("answer") or (candidate_msg.content if candidate_msg else "") or "").strip()
+        if not answer:
+            raise ValidationError(message="该题尚未保存候选人回答，不能重新评分")
+
+        resume_result = await db.execute(
+            select(Resume).where(Resume.id == interview.resume_id, Resume.user_id == user_id)
+        )
+        resume = resume_result.scalar_one_or_none()
+        if not resume:
+            raise ValidationError(message="关联简历不存在，不能重新评分")
+        parsed_resume = InterviewService._load_resume_payload(resume)
+        knowledge_base_context = interview.knowledge_base_snapshot or None
+        interview_mode = interview.interview_mode
+        chat_history = [
+            {"role": item.role, "content": item.content}
+            for item in messages
+            if item.id <= (candidate_msg.id if candidate_msg else 10**18)
+        ]
+        panel_snapshot = interview.panel_snapshot if isinstance(interview.panel_snapshot, dict) else {}
+        prompt_snapshot = InterviewService._rebuild_interview_memory_from_questions(
+            panel_snapshot,
+            questions,
+            before_index=question_index,
+        )
+        if isinstance(prompt_snapshot.get("interview_memory"), dict):
+            question_meta["interview_memory"] = prompt_snapshot["interview_memory"]
+        await db.rollback()
+
+        evaluation_mode, evaluation = await InterviewService._evaluate_round(
+            interview_mode=interview_mode,
+            question=question,
+            answer=answer,
+            resume_context=parsed_resume,
+            chat_history=chat_history,
+            knowledge_base=knowledge_base_context,
+            question_meta=question_meta,
+            panel_snapshot=panel_snapshot,
+            ai_config=ai_config,
+        )
+        evaluation = InterviewService._sanitize_round_evaluation_public_fields(
+            evaluation,
+            fallback_question=question,
+        )
+        evaluation_metadata = evaluation.get("metadata") or {}
+        score = float(evaluation.get("score", 5.0))
+        feedback = (evaluation.get("feedback") or "").strip() or "本轮回答已重新评分。"
+        evaluation_quality = InterviewService._round_evaluation_quality(evaluation_mode, evaluation)
+        evaluation_metadata["evaluation_quality"] = evaluation_quality
+        evaluation["metadata"] = evaluation_metadata
+
+        answer_memory = InterviewService._build_answer_memory(
+            question_index=question_index,
+            question=question,
+            answer=answer,
+            question_meta=question_meta,
+            evaluation=evaluation,
+            evaluation_mode=evaluation_mode,
+            evaluation_quality=evaluation_quality,
+        )
+
+        locked_result = await db.execute(
+            select(Interview).where(
+                Interview.id == interview_id,
+                Interview.user_id == user_id,
+                Interview.user_deleted_at.is_(None),
+            ).with_for_update()
+        )
+        locked_interview = locked_result.scalar_one_or_none()
+        if not locked_interview:
+            raise NotFoundError(message="面试记录不存在")
+        locked_questions = InterviewService._serialize_questions(
+            getattr(locked_interview, "questions_data", None) or []
+        )
+        if question_index < 0 or question_index >= len(locked_questions):
+            raise ValidationError(message="题目序号已变化，请刷新后重试")
+        locked_question_meta = dict(locked_questions[question_index])
+        locked_messages_result = await db.execute(
+            select(InterviewMessage)
+            .where(InterviewMessage.interview_id == interview_id)
+            .order_by(InterviewMessage.id)
+        )
+        locked_messages = locked_messages_result.scalars().all()
+        locked_candidate_msg = next(
+            (
+                item
+                for item in reversed(locked_messages)
+                if item.role == "candidate" and int(item.question_index or -1) == int(question_index)
+            ),
+            None,
+        )
+        locked_answer = str(
+            locked_question_meta.get("answer")
+            or (locked_candidate_msg.content if locked_candidate_msg else "")
+            or ""
+        ).strip()
+        if locked_answer != answer:
+            raise ValidationError(message="该题回答已变化，请刷新面试记录后重新评分")
+
+        if locked_candidate_msg:
+            locked_candidate_msg.score = Decimal(str(score))
+            locked_candidate_msg.feedback = feedback[:500]
+
+        locked_question_meta["score"] = score
+        locked_question_meta["feedback"] = feedback
+        locked_question_meta["evaluation"] = {
+            **evaluation,
+            "evaluation_mode": evaluation_mode,
+            "evaluation_quality": evaluation_quality,
+        }
+        locked_question_meta["answer_memory"] = answer_memory
+        locked_questions[question_index] = InterviewService._sanitize_question_public_fields(locked_question_meta)
+        locked_interview.panel_snapshot = InterviewService._rebuild_interview_memory_from_questions(
+            locked_interview.panel_snapshot if isinstance(locked_interview.panel_snapshot, dict) else {},
+            locked_questions,
+        )
+        locked_interview.questions_data = InterviewService._serialize_questions(locked_questions)
+        if locked_interview.status == "completed":
+            InterviewService._sync_completed_report_scores(locked_interview, locked_questions)
+        await db.commit()
+
+        return {
+            "score": score,
+            "feedback": feedback,
+            "question_index": question_index,
+            "evaluation_mode": evaluation_mode,
+            "evaluation_quality": evaluation_quality,
+            "fallback_reason": evaluation_metadata.get("fallback_reason"),
+            "answer_memory_summary": answer_memory.get("answer_summary"),
+            "interview_memory_version": (
+                (locked_interview.panel_snapshot or {}).get("interview_memory") or {}
+            ).get("version"),
+            "evidence_strength_delta": evaluation.get("evidence_strength_delta") or [],
+            "claim_confidence_change": evaluation.get("claim_confidence_change") or [],
+            "unresolved_gaps": evaluation.get("unresolved_gaps") or [],
+            "next_best_followup": evaluation.get("next_best_followup"),
+            "report_status": (
+                "score_updated_after_reevaluation"
+                if locked_interview.status == "completed"
+                else None
+            ),
+        }
+
+    @staticmethod
     def _format_answer_stream_error(exc: Exception) -> str:
         if isinstance(exc, asyncio.TimeoutError):
             return "本轮评估耗时较长，系统已停止等待。请刷新查看记录；如果回答未保存，可直接重试。"
@@ -4653,8 +5036,8 @@ class InterviewService:
             logger.warning("Submit answer stream precheck failed: %s", precheck_exc)
 
         yield _event({"type": "stream_version", "version": "answer_stream_v2"})
-        yield _event({"type": "status", "stage": "received", "content": "已收到回答，正在准备评分。"})
-        yield _event({"type": "status", "stage": "evaluating", "content": "正在评估本轮回答，请稍候。"})
+        yield _event({"type": "status", "stage": "received", "content": "已收到回答，正在整理本轮记忆。"})
+        yield _event({"type": "status", "stage": "evaluating", "content": "正在结构化评分并生成追问。"})
 
         task = asyncio.create_task(
             InterviewService.submit_answer(
@@ -4683,7 +5066,7 @@ class InterviewService:
                 )
                 if not done:
                     stage = "generating_report" if is_final_round else "evaluating"
-                    content = "正在生成最终报告，若模型较慢会自动保留基础报告。" if is_final_round else "仍在评估本轮回答，系统会在超时前自动兜底。"
+                    content = "正在生成最终报告，若模型较慢会自动保留基础报告。" if is_final_round else "仍在结构化评分，若模型输出异常会先保留回答并给出可重试评分。"
                     yield _event(
                         {
                             "type": "heartbeat",
@@ -4953,6 +5336,12 @@ class InterviewService:
             .order_by(InterviewMessage.id)
         )
         messages = result.scalars().all()
+        questions = InterviewService._serialize_questions(getattr(interview, "questions_data", None) or [])
+        question_by_index = {
+            int(item.get("index") if item.get("index") is not None else index): item
+            for index, item in enumerate(questions)
+            if isinstance(item, dict)
+        }
         items = [
             {
                 "id": item.id,
@@ -4961,6 +5350,29 @@ class InterviewService:
                 "question_index": item.question_index,
                 "score": float(item.score) if item.score else None,
                 "feedback": item.feedback,
+                "evaluation_mode": (
+                    (question_by_index.get(int(item.question_index)) or {}).get("evaluation") or {}
+                ).get("evaluation_mode")
+                if item.question_index is not None and item.role == "candidate"
+                else None,
+                "evaluation_quality": (
+                    (question_by_index.get(int(item.question_index)) or {}).get("evaluation") or {}
+                ).get("evaluation_quality")
+                if item.question_index is not None and item.role == "candidate"
+                else None,
+                "fallback_reason": (
+                    (
+                        ((question_by_index.get(int(item.question_index)) or {}).get("evaluation") or {}).get("metadata")
+                        or {}
+                    ).get("fallback_reason")
+                )
+                if item.question_index is not None and item.role == "candidate"
+                else None,
+                "answer_memory_summary": (
+                    ((question_by_index.get(int(item.question_index)) or {}).get("answer_memory") or {}).get("answer_summary")
+                )
+                if item.question_index is not None and item.role == "candidate"
+                else None,
                 "created_at": item.created_at.isoformat() if item.created_at else None,
             }
             for item in messages

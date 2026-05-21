@@ -80,6 +80,11 @@ class AnswerResponse(BaseSchema):
     claim_confidence_change: Optional[list[Dict[str, Any]]] = None
     unresolved_gaps: Optional[list[str]] = None
     next_best_followup: Optional[Dict[str, Any]] = None
+    evaluation_mode: Optional[str] = None
+    evaluation_quality: Optional[str] = None
+    fallback_reason: Optional[str] = None
+    answer_memory_summary: Optional[str] = None
+    interview_memory_version: Optional[str] = None
 
 
 class QuestionScore(BaseSchema):

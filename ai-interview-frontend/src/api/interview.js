@@ -17,6 +17,10 @@ export function submitAnswer(interviewId, answer, questionIndex) {
   })
 }
 
+export function reevaluateAnswer(interviewId, questionIndex) {
+  return api.post(`/interviews/${interviewId}/questions/${questionIndex}/reevaluate`)
+}
+
 async function readResponseError(response) {
   try {
     const payload = await response.clone().json()
