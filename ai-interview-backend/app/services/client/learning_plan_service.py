@@ -9,11 +9,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
+from app.models.interview import Interview
+from app.models.learning_plan import LearningPlan
+from app.models.learning_task import LearningTask
 from app.models.learning_route_stage import LearningRouteStage
 from app.models.resume import Resume
 from app.models.user import User
 from app.services.backoffice.learning_route_service import learning_route_service
 from app.services.client.ai_service import AIService
+from app.services.client.learning_task_service import LearningTaskService
 from app.services.client.matching_engine import MatchingEngine
 from app.services.client.resume_evaluation_snapshot import (
     ability_profile_from_payload,
@@ -26,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 LEARNING_PLAN_V2 = "learning_plan_v2"
 MAX_SUPPLEMENTAL_CHARS = 6000
+PLAN_STATUSES = {"draft", "active", "reviewed", "archived"}
 
 
 class LearningPlanService:
@@ -161,6 +166,123 @@ class LearningPlanService:
                 target_position=resume.target_position,
             ),
             "parsed_resume": cls._parse_json(resume.parsed_content),
+        }
+
+    @classmethod
+    async def _load_interview_context(
+        cls,
+        db: AsyncSession,
+        user_id: int,
+        interview_id: Optional[int],
+    ) -> Dict[str, Any]:
+        if not interview_id:
+            return {}
+        result = await db.execute(
+            select(Interview).where(
+                Interview.id == interview_id,
+                Interview.user_id == user_id,
+                Interview.user_deleted_at.is_(None),
+            )
+        )
+        interview = result.scalar_one_or_none()
+        if not interview:
+            raise NotFoundError(message="面试记录不存在或不属于当前用户")
+        report = cls._parse_json(interview.report)
+        questions_data = interview.questions_data if isinstance(interview.questions_data, list) else []
+        return {
+            "interview": interview,
+            "report": report,
+            "questions_data": questions_data,
+            "target_position": interview.target_position or "",
+            "resume_id": interview.resume_id,
+        }
+
+    @classmethod
+    def _ability_options_from_report(cls, report: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if not isinstance(report, dict):
+            return []
+        raw_items: List[Any] = []
+        snapshot = report.get("resume_evaluation_snapshot")
+        if isinstance(snapshot, dict):
+            profile = ability_profile_from_payload(snapshot)
+            raw_items.extend(profile.get("top_gaps") or profile.get("items") or [])
+        for key in ("training_priorities", "common_gaps", "weaknesses", "suggestions"):
+            values = report.get(key)
+            if not isinstance(values, list):
+                continue
+            for index, value in enumerate(values[:6], start=1):
+                text = cls._text(value)
+                if text:
+                    raw_items.append(
+                        {
+                            "ability_id": f"{key}_{index}",
+                            "name": text[:80],
+                            "evidence_basis": text,
+                            "priority_score": 70,
+                            "action_type": "learning_gap",
+                            "evidence_status": "missing",
+                        }
+                    )
+        normalized: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for index, item in enumerate(raw_items[:12], start=1):
+            ability = cls._normalize_ability(item, index)
+            name = ability.get("name") or ""
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            normalized.append(
+                {
+                    "ability_id": ability["ability_id"],
+                    "ability_name": name,
+                    "missing_keywords": ability.get("missing_keywords") or [],
+                    "matched_keywords": ability.get("matched_keywords") or [],
+                    "verification_keywords": ability.get("verification_keywords") or [],
+                    "priority_score": ability.get("priority_score") or 70,
+                    "evidence_status": ability.get("evidence_status") or "needs_verification",
+                    "action_type": ability.get("action_type") or "learning_gap",
+                    "recommended_action": (
+                        "interview_verification"
+                        if ability.get("action_type") == "interview_verification"
+                        else "learning_task"
+                    ),
+                    "evidence_basis": ability.get("evidence_basis") or "",
+                }
+            )
+        return normalized
+
+    @classmethod
+    async def build_context_from_report(
+        cls,
+        db: AsyncSession,
+        *,
+        user: User,
+        resume_id: Optional[int] = None,
+        interview_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        interview_context = await cls._load_interview_context(db, user.id, interview_id)
+        effective_resume_id = resume_id or interview_context.get("resume_id")
+        resume_context = await cls._load_resume_analysis(db, user.id, effective_resume_id)
+        analysis = resume_context.get("analysis") or {}
+        report = interview_context.get("report") or {}
+        resume_obj = resume_context.get("resume")
+        target_position = (
+            interview_context.get("target_position")
+            or analysis.get("target_position")
+            or cls._text(resume_obj.target_position if resume_obj else "")
+        )
+        ability_options = cls._ability_options_from_analysis(analysis)
+        existing = {item.get("ability_name") for item in ability_options}
+        for item in cls._ability_options_from_report(report):
+            if item.get("ability_name") not in existing:
+                ability_options.append(item)
+                existing.add(item.get("ability_name"))
+        return {
+            "resume_context": resume_context,
+            "interview_context": interview_context,
+            "target_position": target_position or "",
+            "ability_options": ability_options[:16],
+            "report": report,
         }
 
     @classmethod
@@ -306,11 +428,16 @@ class LearningPlanService:
         user: User,
         target_position: Optional[str] = None,
         resume_id: Optional[int] = None,
+        interview_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         try:
-            resume_context = await cls._load_resume_analysis(db, user.id, resume_id)
-            analysis = resume_context.get("analysis") or {}
-            position = target_position or analysis.get("target_position") or ""
+            context = await cls.build_context_from_report(
+                db,
+                user=user,
+                resume_id=resume_id,
+                interview_id=interview_id,
+            )
+            position = target_position or context.get("target_position") or ""
             templates = await cls._route_records(db, route_kind="template")
             mature_plans = await cls._route_records(db, route_kind="mature_plan")
         except SQLAlchemyError as exc:
@@ -319,10 +446,13 @@ class LearningPlanService:
             raise ValidationError(message=user_facing_db_error(exc)) from exc
 
         user_summary = deepseek_config_service.summarize_for_profile(user)
+        resume_obj = (context.get("resume_context") or {}).get("resume")
         return {
             "version": LEARNING_PLAN_V2,
             "target_position": position,
-            "ability_options": cls._ability_options_from_analysis(analysis),
+            "resume_id": resume_id or (resume_obj.id if resume_obj else None),
+            "interview_id": interview_id,
+            "ability_options": context.get("ability_options") or [],
             "templates": templates,
             "mature_plans": mature_plans,
             "web_search_available": bool(user_summary.get("openai_has_personal_api_key")),
@@ -388,7 +518,7 @@ class LearningPlanService:
 
         try:
             ai_config = deepseek_config_service.build_runtime_config(user, require_personal_key=True)
-            raw = await AIService._chat(
+            raw, json_mode_status = await AIService._chat_json(
                 [
                     {
                         "role": "system",
@@ -411,7 +541,15 @@ class LearningPlanService:
                 temperature=0.3,
                 ai_config=ai_config,
             )
-            payload = AIService._extract_json(raw)
+            payload = await AIService._extract_or_repair_json(
+                raw,
+                schema_hint='{"tasks":[{"title":"","learning_material":"","practice_task":"","acceptance_criteria":[]}]}',
+                ai_config=ai_config,
+                expected_type="object",
+                required_keys=["tasks"],
+                max_repair_rounds=1,
+                parser_label="learning_plan_refine",
+            )
             if isinstance(payload, dict) and isinstance(payload.get("tasks"), list):
                 refined_tasks = cls._merge_ai_task_overrides(
                     deterministic_plan.get("tasks") or [],
@@ -424,6 +562,7 @@ class LearningPlanService:
                         "web_search_status": web_search_status,
                         "sources": sources,
                         "generation_backend": ai_config.get("provider") or "ai",
+                        "json_mode_status": json_mode_status,
                     }
         except Exception as exc:  # noqa: BLE001 - normal AI generation is optional
             logger.warning("Learning plan AI refine fallback: %s", exc)
@@ -434,6 +573,220 @@ class LearningPlanService:
             "sources": sources,
             "generation_backend": "deterministic_template",
         }
+
+    @staticmethod
+    def _plan_progress(tasks: List[LearningTask]) -> Dict[str, Any]:
+        total = len(tasks)
+        done = sum(1 for task in tasks if task.done)
+        pending = max(total - done, 0)
+        completion_rate = round(done / total * 100) if total else 0
+        return {
+            "total": total,
+            "done": done,
+            "pending": pending,
+            "completion_rate": completion_rate,
+        }
+
+    @classmethod
+    def _next_action(cls, plan: LearningPlan, tasks: List[LearningTask]) -> Dict[str, Any]:
+        pending = [task for task in tasks if not task.done]
+        if pending:
+            task = sorted(pending, key=lambda item: (item.step_order or 9999, item.id or 0))[0]
+            return {
+                "type": "continue_task",
+                "label": "继续下一项任务",
+                "task_key": task.task_key,
+                "title": task.title,
+            }
+        if plan.source_interview_id:
+            return {
+                "type": "training_review",
+                "label": "进入训练复盘，整理本轮学习证据",
+                "interview_id": plan.source_interview_id,
+            }
+        return {
+            "type": "validation_interview",
+            "label": "开始一次验证面试，检查本轮能力提升",
+            "target_position": plan.target_position or "",
+        }
+
+    @classmethod
+    def _serialize_plan(cls, plan: LearningPlan, tasks: Optional[List[LearningTask]] = None) -> Dict[str, Any]:
+        task_items = [LearningTaskService._serialize(item) for item in (tasks or [])]
+        progress = cls._plan_progress(tasks or [])
+        return {
+            "id": plan.id,
+            "learning_plan_id": plan.id,
+            "user_id": plan.user_id,
+            "source_resume_id": plan.source_resume_id,
+            "source_interview_id": plan.source_interview_id,
+            "previous_plan_id": plan.previous_plan_id,
+            "target_position": plan.target_position or "",
+            "title": plan.title,
+            "goal": plan.goal or "",
+            "status": plan.status,
+            "plan_days": plan.plan_days,
+            "daily_minutes": plan.daily_minutes,
+            "selected_abilities": plan.selected_abilities or [],
+            "plan_json": plan.plan_json or {},
+            "sources": plan.sources or [],
+            "generation_backend": plan.generation_backend or "",
+            "web_search_status": plan.web_search_status or "",
+            "tasks": task_items,
+            "progress": progress,
+            "next_action": cls._next_action(plan, tasks or []),
+            "created_at": plan.created_at.isoformat() if plan.created_at else "",
+            "updated_at": plan.updated_at.isoformat() if plan.updated_at else "",
+        }
+
+    @classmethod
+    async def _load_plan_with_tasks(
+        cls,
+        db: AsyncSession,
+        *,
+        user_id: int,
+        plan_id: int,
+    ) -> tuple[LearningPlan, List[LearningTask]]:
+        result = await db.execute(
+            select(LearningPlan).where(LearningPlan.id == plan_id, LearningPlan.user_id == user_id)
+        )
+        plan = result.scalar_one_or_none()
+        if not plan:
+            raise NotFoundError(message="学习计划不存在或不属于当前用户")
+        task_result = await db.execute(
+            select(LearningTask)
+            .where(LearningTask.user_id == user_id, LearningTask.learning_plan_id == plan_id)
+            .order_by(LearningTask.step_order.asc().nulls_last(), LearningTask.id.asc())
+        )
+        return plan, list(task_result.scalars().all())
+
+    @classmethod
+    async def get_plan(cls, db: AsyncSession, *, user: User, plan_id: int) -> Dict[str, Any]:
+        try:
+            plan, tasks = await cls._load_plan_with_tasks(db, user_id=user.id, plan_id=plan_id)
+            return cls._serialize_plan(plan, tasks)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
+
+    @classmethod
+    async def update_plan(
+        cls,
+        db: AsyncSession,
+        *,
+        user: User,
+        plan_id: int,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        try:
+            plan, _ = await cls._load_plan_with_tasks(db, user_id=user.id, plan_id=plan_id)
+            if "title" in payload and cls._text(payload.get("title")):
+                plan.title = cls._text(payload.get("title"))[:255]
+            if "goal" in payload:
+                plan.goal = cls._text(payload.get("goal"))
+            if "status" in payload:
+                status = cls._text(payload.get("status"), plan.status)
+                if status not in PLAN_STATUSES:
+                    raise ValidationError(message="学习计划状态不合法")
+                plan.status = status
+            if "plan_json" in payload and isinstance(payload.get("plan_json"), dict):
+                plan.plan_json = {
+                    **(plan.plan_json or {}),
+                    **payload["plan_json"],
+                    "user_edited": True,
+                }
+            await db.commit()
+            await db.refresh(plan)
+            _, tasks = await cls._load_plan_with_tasks(db, user_id=user.id, plan_id=plan_id)
+            return cls._serialize_plan(plan, tasks)
+        except SQLAlchemyError as exc:
+            await db.rollback()
+            raise ValidationError(message=user_facing_db_error(exc)) from exc
+
+    @classmethod
+    async def _persist_plan(
+        cls,
+        db: AsyncSession,
+        *,
+        user: User,
+        plan: Dict[str, Any],
+        abilities: List[Dict[str, Any]],
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        source_resume_id = payload.get("resume_id")
+        source_interview_id = payload.get("interview_id")
+        if source_interview_id:
+            interview_context = await cls._load_interview_context(db, user.id, source_interview_id)
+            source_resume_id = source_resume_id or interview_context.get("resume_id")
+        if source_resume_id:
+            await cls._load_resume_analysis(db, user.id, source_resume_id)
+        previous_plan_id = payload.get("previous_plan_id")
+        if previous_plan_id:
+            await cls._load_plan_with_tasks(db, user_id=user.id, plan_id=int(previous_plan_id))
+
+        plan_days = payload.get("plan_days") or 14
+        daily_minutes = payload.get("daily_minutes") or 45
+        title = cls._text(payload.get("title")) or f"{plan.get('target_position') or '岗位能力'}学习计划"
+        goal = cls._text(payload.get("goal")) or f"{plan_days} 天内完成核心能力训练，并通过复盘或验证面试检查效果。"
+        plan_entity = LearningPlan(
+            user_id=user.id,
+            source_resume_id=source_resume_id,
+            source_interview_id=source_interview_id,
+            previous_plan_id=previous_plan_id,
+            target_position=plan.get("target_position") or payload.get("target_position"),
+            title=title[:255],
+            goal=goal,
+            status="draft",
+            plan_days=int(plan_days),
+            daily_minutes=int(daily_minutes),
+            selected_abilities=abilities,
+            plan_json={
+                **plan,
+                "plan_days": int(plan_days),
+                "daily_minutes": int(daily_minutes),
+                "next_actions": [
+                    "继续下一项任务",
+                    "完成关键任务后进入训练复盘",
+                    "用本轮笔记开始验证面试",
+                ],
+            },
+            sources=plan.get("sources") or [],
+            generation_backend=plan.get("generation_backend") or "deterministic_template",
+            web_search_status=plan.get("web_search_status") or "not_requested",
+        )
+        db.add(plan_entity)
+        await db.flush()
+
+        touched: List[LearningTask] = []
+        for index, raw_task in enumerate(plan.get("tasks") or [], start=1):
+            task_payload = {
+                **raw_task,
+                "source_type": "learning_plan",
+                "source_id": str(plan_entity.id),
+                "resume_id": source_resume_id,
+                "interview_id": source_interview_id,
+                "learning_plan_id": plan_entity.id,
+                "step_order": index,
+                "task_key": f"plan_{plan_entity.id}__step_{index}",
+                "task_metadata": {
+                    **(raw_task.get("task_metadata") or {}),
+                    "validation_action": raw_task.get("validation_action")
+                    or "完成后用训练复盘或验证面试检查是否真正掌握",
+                    "next_action": raw_task.get("next_action") or "完成本步骤后继续下一项任务",
+                    "source_gap_ids": [item.get("ability_id") for item in abilities if item.get("ability_id")],
+                    "execution_state": "draft",
+                },
+            }
+            normalized = LearningTaskService._normalize_input(task_payload)
+            entity = LearningTask(user_id=user.id, **normalized)
+            db.add(entity)
+            touched.append(entity)
+
+        await db.commit()
+        await db.refresh(plan_entity)
+        for task in touched:
+            await db.refresh(task)
+        return cls._serialize_plan(plan_entity, touched)
 
     @classmethod
     async def generate(
@@ -447,12 +800,18 @@ class LearningPlanService:
         if mode not in {"ai_generate", "mature_plan"}:
             raise ValidationError(message="学习计划生成方式必须是 ai_generate 或 mature_plan")
 
-        target_position = cls._text(payload.get("target_position"))
+        context = await cls.build_context_from_report(
+            db,
+            user=user,
+            resume_id=payload.get("resume_id"),
+            interview_id=payload.get("interview_id"),
+        )
+        target_position = cls._text(payload.get("target_position") or context.get("target_position"))
         if not target_position:
             raise ValidationError(message="请先选择目标岗位")
 
         supplemental_text = cls._supplemental_text(payload.get("supplemental_materials"))
-        abilities = cls._normalize_abilities(payload.get("abilities"))
+        abilities = cls._normalize_abilities(payload.get("selected_abilities") or payload.get("abilities"))
         if not abilities:
             raise ValidationError(message="请至少选择 1 个缺失能力后再生成学习计划")
 
@@ -485,6 +844,11 @@ class LearningPlanService:
             {
                 "mode": mode,
                 "allow_web_search": bool(payload.get("allow_web_search")),
+                "resume_id": payload.get("resume_id"),
+                "interview_id": payload.get("interview_id"),
+                "plan_days": payload.get("plan_days") or 14,
+                "daily_minutes": payload.get("daily_minutes") or 45,
+                "selected_abilities": abilities,
                 "mature_plan_group": cls._text(payload.get("mature_plan_group")),
                 "supplemental_materials_used": bool(supplemental_text),
                 "resource_requirement": "只支持轻量文本、链接和摘要；不要上传大型文件。",
@@ -504,6 +868,19 @@ class LearningPlanService:
             plan["web_search_status"] = "not_requested"
             plan["generation_backend"] = "mature_plan"
             plan["sources"] = []
+
+        if payload.get("persist"):
+            try:
+                return await cls._persist_plan(
+                    db,
+                    user=user,
+                    plan=plan,
+                    abilities=abilities,
+                    payload={**payload, "target_position": target_position},
+                )
+            except SQLAlchemyError as exc:
+                await db.rollback()
+                raise ValidationError(message=user_facing_db_error(exc)) from exc
 
         return plan
 

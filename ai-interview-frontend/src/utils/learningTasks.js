@@ -92,6 +92,8 @@ export function normalizeLearningTask(input) {
     source_id: sourceId,
     resume_id: input.resume_id || '',
     interview_id: input.interview_id || '',
+    learning_plan_id: input.learning_plan_id || input.learningPlanId || '',
+    step_order: safeNumber(input.step_order || input.stepOrder, ''),
     priority_score: input.priority_score ?? input.priority ?? '',
     route_source: safeText(input.route_source || input.routeSource, ''),
     route_stage: safeText(input.route_stage || input.routeStage, ''),
@@ -306,6 +308,8 @@ export function taskFromLearningPlan(task, context = {}) {
     source_type: context.source_type || 'learning_plan',
     source_id: context.source_id || context.resume_id || context.interview_id,
     resume_id: context.resume_id,
-    interview_id: context.interview_id
+    interview_id: context.interview_id,
+    learning_plan_id: context.learning_plan_id,
+    step_order: context.step_order || task?.step_order
   })
 }

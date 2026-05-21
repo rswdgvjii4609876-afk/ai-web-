@@ -130,6 +130,12 @@
           <button class="btn-primary" type="button" :disabled="saving" @click="saveReview">
             {{ saving ? '保存中...' : '保存复盘' }}
           </button>
+          <router-link v-if="planId" class="btn-secondary hero-btn" :to="{ path: '/learning-tasks', query: { previous_plan_id: planId, interview_id: selectedInterviewId } }">
+            基于复盘生成下一轮计划
+          </router-link>
+          <router-link v-if="selectedInterviewId" class="btn-secondary hero-btn" to="/resume/upload">
+            用本轮笔记开始验证面试
+          </router-link>
           <span v-if="saveMessage" class="save-message">{{ saveMessage }}</span>
         </div>
       </div>
@@ -146,6 +152,7 @@ import { loadLearningTasksFromServer } from '../utils/learningTasks'
 import { buildTrainingReviewSummary } from '../utils/trainingReview'
 
 const route = useRoute()
+const planId = computed(() => firstQueryValue(route.query.plan_id) || '')
 const loading = ref(true)
 const reportLoading = ref(false)
 const reportError = ref('')
@@ -203,7 +210,10 @@ async function loadPage() {
 
 async function loadTasks() {
   try {
-    tasks.value = (await loadLearningTasksFromServer()).tasks
+    const allTasks = (await loadLearningTasksFromServer()).tasks
+    tasks.value = planId.value
+      ? allTasks.filter(task => String(task.learning_plan_id || '') === String(planId.value))
+      : allTasks
   } catch (e) {
     reportError.value = e.message || '学习任务读取失败。'
     tasks.value = []

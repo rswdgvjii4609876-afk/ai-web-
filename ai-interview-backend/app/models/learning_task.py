@@ -21,6 +21,8 @@ class LearningTask(BaseModel):
     source_id = Column(String(255), nullable=True)
     resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True)
     interview_id = Column(Integer, ForeignKey("interviews.id", ondelete="SET NULL"), nullable=True)
+    learning_plan_id = Column(Integer, ForeignKey("learning_plans.id", ondelete="SET NULL"), nullable=True, index=True)
+    step_order = Column(Integer, nullable=True)
     priority_score = Column(String(50), nullable=True)
     route_source = Column(String(100), nullable=True)
     route_stage = Column(String(100), nullable=True)
@@ -39,3 +41,4 @@ class LearningTask(BaseModel):
     user = relationship("User", backref="learning_tasks")
     resume = relationship("Resume", backref="learning_tasks")
     interview = relationship("Interview", backref="learning_tasks")
+    learning_plan = relationship("LearningPlan", back_populates="tasks")

@@ -1,5 +1,35 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-21 当前有效状态：阶段 184 学习计划闭环重构
+
+本阶段把“报告页勾选能力后生成零散学习任务”升级为“基于报告/能力诊断生成可编辑、可执行、可复盘的学习计划”。当前有效主线变为：报告/能力诊断勾选能力 -> DeepSeek 生成计划草稿 -> 用户编辑任务 -> 激活/执行任务和笔记 -> 训练复盘或验证面试 -> 下一轮计划。
+
+当前有效结论：
+- 后端新增 `learning_plans` 表，并给 `learning_tasks` 增加 `learning_plan_id`、`step_order`，旧学习任务仍兼容。
+- `GET /api/v1/learning-plans/options` 支持按 `interview_id` 汇总报告、能力差距和训练建议；`POST /api/v1/learning-plans/generate` 支持 `persist=true` 创建 draft plan 和关联任务。
+- 新增 `GET/PATCH /api/v1/learning-plans/{plan_id}`，学习任务页可读取同一计划、进度和下一步行动。
+- DeepSeek 负责个性化计划生成，走 JSON mode/修复/校验；失败时保留 deterministic template，不阻塞用户生成计划。
+- OpenAI web search 只在用户有 OpenAI Key 且允许联网时作为资料来源补充；搜索 query 不发送姓名、手机号、邮箱、完整简历或完整问答。
+- 报告页新增“生成本轮学习计划”主路径；学习任务页升级为学习计划工作台；训练复盘页支持 `plan_id` 聚合同一计划下的任务笔记。
+
+验证结果：
+- `python -m compileall app migrations` 通过。
+- `python -m alembic heads` 只有 `ab4c9d2e7f01 (head)`。
+- `python -m pytest tests/test_learning_plan_service.py tests/test_learning_task_service.py tests/test_learning_plan_closed_loop.py -q` 通过，10 passed。
+- 后端全量 `python -m pytest -q` 通过，264 passed。
+- `cd ai-interview-frontend && npm run build` 通过。
+- `git diff --check` 通过，仅有 Windows CRLF 换行提示。
+
+当前下一步：
+1. 服务器部署后执行 `docker compose exec -T app alembic upgrade head`。
+2. 用已完成报告测试：勾选 2-3 个能力 -> 生成学习计划 -> 跳转 `/learning-tasks?plan_id=...` -> 编辑/完成任务 -> 进入训练复盘。
+3. 复盘后根据笔记生成下一轮计划或进入验证面试。
+
+边界：
+- 本阶段不修改管理员补授权、SFT 门禁、面试评分、简历解析主逻辑。
+- 不假设 DeepSeek API 自带联网搜索。
+- 不把学习计划生成结果当成训练样本；它只是用户学习执行和复盘工作流。
+
 ## 2026-05-21 当前有效状态：阶段 182 面试难度策略重构
 
 本阶段把 `easy / medium / hard` 从简单标签升级为稳定的面试产品策略：`easy` 对应基础执行型面试，优先问基础知识、框架使用和项目复述；`medium` 对应标准岗位能力面试，重点验证项目职责、技术取舍和证据链；`hard` 对应高强度综合面试，重点追问项目边界、系统设计、高并发、可靠性、RAG/LLM 工程优化等复杂场景。

@@ -15,6 +15,8 @@ class LearningTaskUpsert(BaseSchema):
     source_id: Optional[str] = None
     resume_id: Optional[int] = None
     interview_id: Optional[int] = None
+    learning_plan_id: Optional[int] = None
+    step_order: Optional[int] = None
     priority_score: Optional[Any] = None
     route_source: Optional[str] = None
     route_stage: Optional[str] = None
@@ -39,6 +41,8 @@ class LearningTaskPatch(BaseSchema):
     source_id: Optional[str] = None
     resume_id: Optional[int] = None
     interview_id: Optional[int] = None
+    learning_plan_id: Optional[int] = None
+    step_order: Optional[int] = None
     priority_score: Optional[Any] = None
     route_source: Optional[str] = None
     route_stage: Optional[str] = None
@@ -58,3 +62,4 @@ class LearningTaskPatch(BaseSchema):
 class LearningTaskBulkUpsert(BaseSchema):
     tasks: List[LearningTaskUpsert]
     replace_progress: bool = False
+    replaceProgress: Optional[bool] = None

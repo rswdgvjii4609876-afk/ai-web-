@@ -7,7 +7,8 @@ export function getLearningTasks() {
 export function bulkUpsertLearningTasks(tasks, options = {}) {
   return api.post('/learning-tasks/bulk-upsert', {
     tasks,
-    replace_progress: Boolean(options.replaceProgress)
+    replace_progress: Boolean(options.replaceProgress),
+    replaceProgress: Boolean(options.replaceProgress)
   })
 }
 

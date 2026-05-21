@@ -75,6 +75,28 @@
         </div>
       </div>
 
+      <div v-if="planAbilityOptions.length" class="card section-card plan-builder-card">
+        <div class="plan-builder-head">
+          <div>
+            <h3>生成本轮学习计划</h3>
+            <p>从报告里选择本轮最需要提升的能力，系统会基于目标岗位、报告短板和学习路线生成一个可编辑计划。</p>
+          </div>
+          <button class="btn-primary diagnosis-link task-link" type="button" :disabled="generatingPlan || !selectedPlanAbilityIds.length" @click="generatePlanFromReport">
+            {{ generatingPlan ? '生成中...' : '生成本轮学习计划' }}
+          </button>
+        </div>
+        <div class="plan-ability-list">
+          <label v-for="item in planAbilityOptions" :key="item.ability_id" class="plan-ability-item">
+            <input v-model="selectedPlanAbilityIds" type="checkbox" :value="item.ability_id" />
+            <span>
+              <strong>{{ item.ability_name }}</strong>
+              <em>{{ item.evidence_basis || item.recommended_action || '来自本次报告' }}</em>
+            </span>
+          </label>
+        </div>
+        <p class="plan-builder-note">默认生成草稿计划，进入学习任务页后可以继续编辑任务、调整顺序和记录笔记。</p>
+      </div>
+
       <div class="card section-card diagnosis-link-card">
         <div>
           <h3>能力提升计划</h3>
@@ -232,10 +254,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import CaseDataContributionCard from '../components/CaseDataContributionCard.vue'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import { getReport, updateCaseDataContributionConsent } from '../api/interview'
+import { generateLearningPlan } from '../api/learningPlans'
 import {
   taskFromAbilityGap,
   taskFromLearningPlan,
@@ -248,12 +271,15 @@ import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 import { getInterviewDifficultyProfile } from '../utils/interviewDifficulty'
 
 const route = useRoute()
+const router = useRouter()
 const interviewId = route.params.id
 const data = ref(null)
 const report = ref(null)
 const loading = ref(true)
 const reportError = ref('')
 const taskMessage = ref('')
+const generatingPlan = ref(false)
+const selectedPlanAbilityIds = ref([])
 const caseDataContributionConsent = ref(false)
 const caseConsentSaving = ref(false)
 const caseConsentMessage = ref('')
@@ -273,6 +299,39 @@ const abilityGapItems = computed(() => {
   const topGaps = profile?.top_gaps
   const items = Array.isArray(topGaps) && topGaps.length ? topGaps : profile?.items
   return Array.isArray(items) ? items.slice(0, 5) : []
+})
+const planAbilityOptions = computed(() => {
+  const items = []
+  abilityGapItems.value.forEach((item, index) => {
+    items.push({
+      ...item,
+      ability_id: item.ability_id || `gap_${index + 1}`,
+      ability_name: item.name || item.ability_name || `能力 ${index + 1}`,
+      evidence_basis: item.evidence_basis || item.reason || '',
+      action_type: item.action_type || 'learning_gap',
+      evidence_status: item.evidence_status || 'missing'
+    })
+  })
+  ;(report.value?.training_priorities || []).slice(0, 4).forEach((item, index) => {
+    const text = formatInsightItem(item)
+    if (text) {
+      items.push({
+        ability_id: `training_${index + 1}`,
+        ability_name: text.length > 36 ? `${text.slice(0, 36)}...` : text,
+        evidence_basis: text,
+        action_type: 'learning_gap',
+        evidence_status: 'missing',
+        priority_score: 70
+      })
+    }
+  })
+  const seen = new Set()
+  return items.filter((item) => {
+    const key = item.ability_name || item.ability_id
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 8)
 })
 const learningPlan = computed(() => resumeEvaluation.value.learningPlan || null)
 const learningPlanTasks = computed(() => {
@@ -372,6 +431,37 @@ async function addTextTask(item, sourceType, index) {
     setTaskMessage('已加入账号学习任务。')
   } catch (e) {
     setTaskMessage(e.message || '加入学习任务失败，请确认登录状态和服务器连接。')
+  }
+}
+
+async function generatePlanFromReport() {
+  const selected = planAbilityOptions.value.filter(item => selectedPlanAbilityIds.value.includes(item.ability_id))
+  if (!selected.length) {
+    setTaskMessage('请先选择至少一个本轮要提升的能力。')
+    return
+  }
+  generatingPlan.value = true
+  try {
+    const plan = await generateLearningPlan({
+      target_position: learningPlanTarget.value || data.value?.target_position || '',
+      resume_id: data.value?.resume_id || undefined,
+      interview_id: Number(interviewId),
+      selected_abilities: selected,
+      abilities: selected,
+      plan_days: 14,
+      daily_minutes: 45,
+      persist: true,
+      allow_web_search: false
+    })
+    const planId = plan.learning_plan_id || plan.id
+    setTaskMessage('学习计划草稿已生成。')
+    if (planId) {
+      router.push({ path: '/learning-tasks', query: { plan_id: planId } })
+    }
+  } catch (e) {
+    setTaskMessage(e.message || '学习计划生成失败，请稍后重试。')
+  } finally {
+    generatingPlan.value = false
   }
 }
 
@@ -484,6 +574,62 @@ onMounted(async () => {
 
 .task-message {
   color: #047857;
+}
+
+.plan-builder-card {
+  display: grid;
+  gap: 14px;
+  border-left: 4px solid #0f766e;
+}
+
+.plan-builder-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.plan-builder-head p,
+.plan-builder-note {
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.plan-ability-list {
+  display: grid;
+  gap: 8px;
+}
+
+.plan-ability-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.plan-ability-item input {
+  width: auto;
+  margin-top: 3px;
+}
+
+.plan-ability-item span {
+  display: grid;
+  gap: 4px;
+}
+
+.plan-ability-item strong {
+  color: #111827;
+}
+
+.plan-ability-item em {
+  color: #6b7280;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.6;
 }
 
 .ability-gap-list {
@@ -764,6 +910,10 @@ onMounted(async () => {
   .diagnosis-link-card {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .plan-builder-head {
+    flex-direction: column;
   }
 
   .two-col {

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.models.interview import Interview
+from app.models.learning_plan import LearningPlan
 from app.models.learning_task import LearningTask
 from app.models.resume import Resume
 from app.utils.db_error_messages import user_facing_db_error
@@ -132,6 +133,10 @@ class LearningTaskService:
             ),
             "resume_id": LearningTaskService._int_or_none(data.get("resume_id")),
             "interview_id": LearningTaskService._int_or_none(data.get("interview_id")),
+            "learning_plan_id": LearningTaskService._int_or_none(
+                data.get("learning_plan_id") or data.get("learningPlanId")
+            ),
+            "step_order": LearningTaskService._int_or_none(data.get("step_order") or data.get("stepOrder")),
             "priority_score": LearningTaskService._clean_optional(data.get("priority_score") or data.get("priority"), 50),
             "route_source": LearningTaskService._clean_optional(data.get("route_source") or data.get("routeSource"), 100),
             "route_stage": LearningTaskService._clean_optional(data.get("route_stage") or data.get("routeStage"), 100),
@@ -170,6 +175,14 @@ class LearningTaskService:
             if result.scalar_one_or_none() is None:
                 raise ValidationError(message="学习任务来源面试不属于当前用户")
 
+        learning_plan_id = data.get("learning_plan_id")
+        if learning_plan_id:
+            result = await db.execute(
+                select(LearningPlan.id).where(LearningPlan.id == learning_plan_id, LearningPlan.user_id == user_id)
+            )
+            if result.scalar_one_or_none() is None:
+                raise ValidationError(message="学习计划不属于当前用户")
+
     @staticmethod
     def _serialize(item: LearningTask) -> Dict[str, Any]:
         task_key = item.task_key
@@ -184,6 +197,8 @@ class LearningTaskService:
             "source_id": item.source_id or "",
             "resume_id": item.resume_id or "",
             "interview_id": item.interview_id or "",
+            "learning_plan_id": item.learning_plan_id or "",
+            "step_order": item.step_order or "",
             "priority_score": item.priority_score or "",
             "route_source": item.route_source or "",
             "route_stage": item.route_stage or "",
@@ -291,6 +306,8 @@ class LearningTaskService:
                 "source_id",
                 "resume_id",
                 "interview_id",
+                "learning_plan_id",
+                "step_order",
                 "priority_score",
                 "route_source",
                 "route_stage",

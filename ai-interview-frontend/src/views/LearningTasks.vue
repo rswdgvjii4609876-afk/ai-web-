@@ -26,6 +26,34 @@
       </button>
     </div>
 
+    <div v-if="activePlan" class="plan-workspace card">
+      <div class="plan-workspace-head">
+        <div>
+          <p class="eyebrow">学习计划工作台</p>
+          <h2>{{ activePlan.title || '本轮学习计划' }}</h2>
+          <p>{{ activePlan.goal || '按步骤完成任务，记录笔记后进入复盘或验证面试。' }}</p>
+        </div>
+        <div class="plan-status-box">
+          <strong>{{ activePlan.progress?.completion_rate || 0 }}%</strong>
+          <span>{{ activePlan.progress?.done || 0 }}/{{ activePlan.progress?.total || 0 }} 已完成</span>
+        </div>
+      </div>
+      <div class="plan-meta-row">
+        <span>目标岗位：{{ activePlan.target_position || '未指定' }}</span>
+        <span>状态：{{ planStatusLabel(activePlan.status) }}</span>
+        <span>周期：{{ activePlan.plan_days || '-' }} 天</span>
+        <span>每天：{{ activePlan.daily_minutes || '-' }} 分钟</span>
+      </div>
+      <div class="plan-next-action">
+        <strong>下一步</strong>
+        <span>{{ activePlan.next_action?.label || '继续完成计划任务' }}</span>
+        <router-link v-if="activePlan.source_interview_id" class="btn-secondary hero-btn" :to="{ path: '/training-review', query: { interview_id: activePlan.source_interview_id, plan_id: activePlan.id } }">
+          进入训练复盘
+        </router-link>
+        <router-link class="btn-primary hero-btn primary" to="/resume/upload">开始验证面试</router-link>
+      </div>
+    </div>
+
     <div class="plan-generator card">
       <div class="generator-head">
         <div>
@@ -284,7 +312,8 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { generateLearningPlan, getLearningPlanOptions } from '../api/learningPlans'
+import { useRoute } from 'vue-router'
+import { generateLearningPlan, getLearningPlan, getLearningPlanOptions } from '../api/learningPlans'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import {
   LEARNING_TASKS_VERSION,
@@ -298,6 +327,7 @@ import {
 } from '../utils/learningTasks'
 
 const tasks = ref([])
+const route = useRoute()
 const fileInput = ref(null)
 const message = ref('')
 const messageType = ref('success')
@@ -311,6 +341,7 @@ const qualityFilter = ref('')
 const planOptionsLoading = ref(false)
 const generatingPlan = ref(false)
 const savingDraft = ref(false)
+const activePlan = ref(null)
 const planOptions = ref({ templates: [], mature_plans: [], ability_options: [] })
 const planForm = ref({
   target_position: '',
@@ -352,11 +383,42 @@ const filteredTasks = computed(() => tasks.value.filter((task) => {
   return true
 }))
 
-onMounted(() => {
+onMounted(async () => {
   refreshLegacyCount()
-  loadTasks()
+  await loadTasks()
+  await loadActivePlan()
   loadPlanOptions()
 })
+
+async function loadActivePlan() {
+  const planId = Array.isArray(route.query.plan_id) ? route.query.plan_id[0] : route.query.plan_id
+  if (!planId) return
+  try {
+    const plan = await getLearningPlan(planId)
+    activePlan.value = plan
+    if (Array.isArray(plan.tasks) && plan.tasks.length) {
+      tasks.value = plan.tasks.map(normalizePlanTaskForView)
+      stageFilter.value = ''
+      abilityFilter.value = ''
+      statusFilter.value = ''
+      qualityFilter.value = ''
+    }
+    if (plan.target_position && !planForm.value.target_position) {
+      planForm.value.target_position = plan.target_position
+    }
+  } catch (e) {
+    setMessage(e.message || '学习计划读取失败，请返回报告页重新生成。', 'error')
+  }
+}
+
+function normalizePlanTaskForView(task) {
+  return {
+    ...task,
+    task_id: task.task_id || task.task_key,
+    learning_plan_id: task.learning_plan_id || activePlan.value?.id || '',
+    step_order: task.step_order || ''
+  }
+}
 
 async function loadTasks() {
   loading.value = true
@@ -523,9 +585,30 @@ async function updateTask(taskId, patch) {
   try {
     const updated = await updateLearningTaskOnServer(taskId, patch)
     tasks.value = tasks.value.map(task => (task.task_id === taskId ? { ...task, ...updated } : task))
+    refreshActivePlanProgress()
     setMessage('学习任务已同步。')
   } catch (e) {
     setMessage(e.message || '学习任务同步失败。', 'error')
+  }
+}
+
+function refreshActivePlanProgress() {
+  if (!activePlan.value) return
+  const total = tasks.value.length
+  const done = tasks.value.filter(task => task.done).length
+  const nextTask = tasks.value.find(task => !task.done)
+  activePlan.value = {
+    ...activePlan.value,
+    progress: {
+      ...(activePlan.value.progress || {}),
+      total,
+      done,
+      pending: Math.max(total - done, 0),
+      completion_rate: total ? Math.round((done / total) * 100) : 0
+    },
+    next_action: nextTask
+      ? { type: 'continue_task', label: `继续下一项：${nextTask.title || ''}` }
+      : { type: 'training_review', label: '本轮任务已完成，进入训练复盘或开始验证面试' }
   }
 }
 
@@ -607,6 +690,15 @@ function sourceLabel(type) {
     report_weakness: '报告短板',
     diagnosis_fallback: '诊断兜底'
   }[type] || '学习任务'
+}
+
+function planStatusLabel(status) {
+  return {
+    draft: '草稿',
+    active: '执行中',
+    reviewed: '已复盘',
+    archived: '已归档'
+  }[status] || status || '草稿'
 }
 
 function uniqueValues(values) {
@@ -834,6 +926,79 @@ function setMessage(text, type = 'success') {
   gap: 16px;
   margin-bottom: 14px;
   border-left: 4px solid #111827;
+}
+
+.plan-workspace {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+  border-left: 4px solid #0f766e;
+}
+
+.plan-workspace-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.plan-workspace-head h2 {
+  margin: 0 0 8px;
+  color: #111827;
+  font-size: 22px;
+}
+
+.plan-workspace-head p,
+.plan-next-action span {
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+.plan-status-box {
+  min-width: 120px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #065f46;
+  text-align: center;
+}
+
+.plan-status-box strong {
+  display: block;
+  font-size: 26px;
+}
+
+.plan-status-box span {
+  font-size: 12px;
+}
+
+.plan-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plan-meta-row span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.plan-next-action {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.plan-next-action strong {
+  color: #111827;
 }
 
 .generator-head,
@@ -1138,6 +1303,8 @@ function setMessage(text, type = 'success') {
   .tasks-hero,
   .migration-card,
   .task-toolbar,
+  .plan-workspace-head,
+  .plan-next-action,
   .generator-head,
   .generator-actions,
   .task-head {

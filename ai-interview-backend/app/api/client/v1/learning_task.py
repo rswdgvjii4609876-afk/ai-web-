@@ -31,7 +31,7 @@ async def bulk_upsert_learning_tasks(
         db=db,
         user_id=current_user.id,
         tasks=tasks,
-        replace_progress=payload.replace_progress,
+        replace_progress=payload.replace_progress or bool(payload.replaceProgress),
     )
     return ApiResponse.success(data=result)
 
