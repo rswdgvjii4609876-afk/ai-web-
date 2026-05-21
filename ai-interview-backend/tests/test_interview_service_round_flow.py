@@ -11,7 +11,7 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
-from app.schemas.client.interview import AnswerSubmit
+from app.schemas.client.interview import AnswerSubmit, InterviewStartResponse
 from app.services.client.ai_service import AIService
 from app.services.client.interview_service import InterviewService
 from app.services.client.training_review_service import TrainingReviewService
@@ -24,6 +24,24 @@ def test_answer_submit_requires_question_index():
 
     payload = AnswerSubmit(answer="I handled the rollout.", question_index=0)
     assert payload.question_index == 0
+
+
+@pytest.mark.unit
+def test_interview_start_response_accepts_panel_start_metadata():
+    payload = InterviewStartResponse(
+        interview_id=1,
+        first_question="请做一个自我介绍。",
+        question_index=0,
+        total_questions=3,
+        requested_interview_mode="panel",
+        effective_interview_mode="panel",
+        panel_status="active_fallback",
+        fallback_reason="panel_question_generation_failed",
+        generation_strategy="deterministic_start_fallback",
+    )
+
+    assert payload.requested_interview_mode == "panel"
+    assert payload.generation_strategy == "deterministic_start_fallback"
 
 
 @pytest.mark.unit
@@ -50,6 +68,232 @@ def test_deterministic_question_fallback_generates_normalizable_questions():
     assert len(normalized) == 3
     assert "Career-AgentOS" in raw_questions[1]["question"]
     assert normalized[0]["panel_context"]["metadata"]["fallback_reason"] == "question_generation_failed"
+
+
+@pytest.mark.unit
+def test_question_plan_uses_distinct_difficulty_profiles():
+    easy_plan = InterviewService._build_question_plan(total_questions=5, difficulty="easy")
+    medium_plan = InterviewService._build_question_plan(total_questions=5, difficulty="unknown")
+    hard_plan = InterviewService._build_question_plan(total_questions=5, difficulty="hard")
+
+    assert medium_plan[0]["difficulty_level"] == "medium"
+    assert easy_plan[1]["template_key"] == "basic_knowledge"
+    assert hard_plan[2]["template_key"] == "system_design_depth"
+    assert hard_plan[4]["template_key"] == "rag_optimization"
+    assert easy_plan[0]["routing_top_k"] < hard_plan[0]["routing_top_k"]
+    assert easy_plan[0]["followup_depth"] == "basic"
+    assert hard_plan[0]["followup_depth"] == "pressure"
+
+
+@pytest.mark.unit
+def test_hard_rag_question_is_gated_by_resume_or_role_signal():
+    hard_plan = InterviewService._build_question_plan(total_questions=5, difficulty="hard")
+
+    routed_without_rag = InterviewService._route_question_plan(
+        question_plan=hard_plan,
+        knowledge_base={
+            "title": "Generic backend knowledge base",
+            "knowledge_content": "RAG embedding rerank retrieval augmented generation",
+            "focus_points": "Use knowledge-base slices only as reference material.",
+            "slices": [
+                {
+                    "slice_id": 1,
+                    "content": "RAG embedding rerank retrieval augmented generation",
+                    "priority": 10,
+                    "stage_tags": ["technical"],
+                    "role_tags": ["technical_deep_dive"],
+                    "scene_tags": ["technical_depth"],
+                    "topic_tags": ["RAG"],
+                    "skill_tags": ["rag", "embedding"],
+                    "keywords": ["rerank", "retrieval"],
+                    "source_section": "interview_experience",
+                    "difficulty": "hard",
+                    "is_enabled": True,
+                }
+            ],
+        },
+        parsed_resume={
+            "skills": ["Python", "FastAPI", "PostgreSQL"],
+            "projects": [{"title": "Backend API", "description": "REST API and database work"}],
+        },
+        target_position="Python Backend Engineer",
+        difficulty="hard",
+    )
+
+    assert routed_without_rag[4]["template_key"] == "system_design_depth"
+    assert routed_without_rag[4]["rag_gate_replaced"] is True
+    assert routed_without_rag[4]["rag_signal_present"] is False
+
+    routed_with_rag = InterviewService._route_question_plan(
+        question_plan=hard_plan,
+        knowledge_base=None,
+        parsed_resume={
+            "skills": ["Python", "RAG", "embedding", "rerank"],
+            "projects": [{"title": "LLM knowledge base", "description": "Built retrieval and reranking"}],
+        },
+        target_position="RAG Engineer",
+        difficulty="hard",
+    )
+
+    assert routed_with_rag[4]["template_key"] == "rag_optimization"
+    assert routed_with_rag[4]["rag_signal_present"] is True
+
+
+@pytest.mark.unit
+def test_deterministic_fallback_keeps_difficulty_metadata():
+    question_plan = InterviewService._build_question_plan(total_questions=5, difficulty="hard")
+    routed_plan = InterviewService._route_question_plan(
+        question_plan=question_plan,
+        knowledge_base=None,
+        parsed_resume={
+            "skills": ["Python", "RAG", "embedding"],
+            "projects": [{"title": "LLM search service"}],
+        },
+        target_position="RAG Engineer",
+        difficulty="hard",
+    )
+
+    raw_questions = InterviewService._build_deterministic_question_fallback(
+        question_plan=routed_plan,
+        parsed_resume={"projects": [{"title": "LLM search service"}]},
+        target_position="RAG Engineer",
+        total_questions=5,
+    )
+
+    assert len(raw_questions) == 5
+    assert raw_questions[0]["difficulty_level"] == "hard"
+    assert raw_questions[0]["routing_top_k"] == 4
+    assert raw_questions[0]["panel_context"]["metadata"]["difficulty_profile"]["level"] == "hard"
+    assert raw_questions[4]["category"] == "system-design"
+    assert not InterviewService._question_has_internal_prompt_leak(raw_questions[4]["question"])
+
+
+@pytest.mark.unit
+def test_hard_short_deterministic_fallback_keeps_system_design_depth():
+    question_plan = InterviewService._build_question_plan(total_questions=3, difficulty="hard")
+
+    raw_questions = InterviewService._build_deterministic_question_fallback(
+        question_plan=question_plan,
+        parsed_resume={"projects": [{"title": "Backend API"}], "skills": ["Python", "FastAPI"]},
+        target_position="Python Backend Engineer",
+        total_questions=3,
+    )
+
+    assert len(raw_questions) == 3
+    assert raw_questions[2]["category"] == "system-design"
+    assert raw_questions[2]["difficulty_level"] == "hard"
+    assert not InterviewService._question_has_internal_prompt_leak(raw_questions[2]["question"])
+
+
+@pytest.mark.unit
+def test_medium_short_deterministic_fallback_keeps_technical_core():
+    question_plan = InterviewService._build_question_plan(total_questions=3, difficulty="medium")
+
+    raw_questions = InterviewService._build_deterministic_question_fallback(
+        question_plan=question_plan,
+        parsed_resume={"projects": [{"title": "Backend API"}], "skills": ["Python", "FastAPI"]},
+        target_position="Python Backend Engineer",
+        total_questions=3,
+    )
+
+    assert raw_questions[2]["category"] == "technical"
+    assert raw_questions[2]["difficulty_level"] == "medium"
+    assert not InterviewService._question_has_internal_prompt_leak(raw_questions[2]["question"])
+
+
+@pytest.mark.unit
+def test_panel_start_falls_back_without_single_question_llm(monkeypatch):
+    resume = SimpleNamespace(
+        id=10,
+        user_id=3,
+        status="completed",
+        parsed_content=json.dumps(
+            {
+                "name": "Demo",
+                "skills": ["Python", "FastAPI"],
+                "projects": [{"title": "Backend API", "description": "Built APIs"}],
+            }
+        ),
+        analysis=json.dumps({"overall_score": 7, "resume_evidence": {"evidence_summary": ["Built APIs"]}}),
+        target_position="Python backend engineer",
+    )
+
+    class _Result:
+        def __init__(self, value=None):
+            self.value = value
+
+        def scalar_one_or_none(self):
+            return self.value
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self.value
+
+    class _Db:
+        def __init__(self):
+            self.results = [_Result(resume), _Result(None), _Result(None)]
+            self.added = []
+            self.commit_count = 0
+
+        async def execute(self, _statement):
+            return self.results.pop(0)
+
+        def add(self, item):
+            if item.__class__.__name__ == "Interview":
+                item.id = 123
+            self.added.append(item)
+
+        async def commit(self):
+            self.commit_count += 1
+
+        async def rollback(self):
+            return None
+
+        async def refresh(self, item):
+            item.id = item.id or 123
+
+    async def _blueprint_should_not_run(**kwargs):
+        raise AssertionError("panel start should use local blueprint fallback")
+
+    async def _panel_questions(**kwargs):
+        assert kwargs.get("allow_json_repair") is False
+        raise ValueError("bad panel json")
+
+    async def _single_questions_should_not_run(**kwargs):
+        raise AssertionError("panel fallback must not call single question LLM")
+
+    monkeypatch.setattr(AIService, "extract_interview_blueprint", _blueprint_should_not_run)
+    monkeypatch.setattr(AIService, "generate_panel_questions", _panel_questions)
+    monkeypatch.setattr(AIService, "generate_questions", _single_questions_should_not_run)
+
+    async def _run():
+        return await InterviewService.start_interview(
+            db=_Db(),
+            user_id=3,
+            resume_id=10,
+            target_position="Python backend engineer",
+            knowledge_base_id=None,
+            difficulty="medium",
+            total_questions=3,
+            multi_interviewer_enabled=True,
+            ai_config={"api_key": "test", "provider": "deepseek"},
+        )
+
+    result = asyncio.run(_run())
+
+    assert result["interview_mode"] == "panel"
+    assert result["effective_interview_mode"] == "panel"
+    assert result["requested_interview_mode"] == "panel"
+    assert result["generation_strategy"] == "deterministic_start_fallback"
+    assert result["panel_status"] == "active_fallback"
+    assert result["fallback_reason"] == "panel_question_generation_failed"
+    assert result["difficulty_profile"]["level"] == "medium"
+    assert result["company_archetype"] == result["difficulty_profile"]["company_archetype"]
+    assert result["question_strategy_summary"]
+    assert result["rubric_summary"]
+    assert result["first_question"]
 
 
 @pytest.mark.unit
@@ -132,6 +376,26 @@ def test_normalize_questions_redacts_internal_prompt_leak():
         assert "Place the candidate" not in item["question"]
         assert item["panel_context"]["metadata"]["question_sanitized_reason"] == "internal_prompt_leak"
         assert item["panel_context"]["metadata"]["original_question_redacted"] is True
+
+
+@pytest.mark.unit
+def test_normalize_questions_redacts_chinese_internal_prompt_leak():
+    question_plan = InterviewService._build_question_plan(total_questions=1, difficulty="medium")
+    raw_questions = [
+        {
+            "question": "题目计划：按评估重点验证候选人证据，主持人推理不要展示。",
+            "category": "scenario",
+        }
+    ]
+
+    normalized = InterviewService._normalize_questions(
+        raw_questions=raw_questions,
+        question_plan=question_plan,
+        interview_mode="single",
+    )
+
+    assert normalized[0]["question"] != raw_questions[0]["question"]
+    assert normalized[0]["panel_context"]["metadata"]["question_sanitized_reason"] == "internal_prompt_leak"
 
 
 @pytest.mark.unit
@@ -1212,6 +1476,103 @@ def test_submit_answer_requires_index_and_handles_dirty_total_questions(monkeypa
         assert db.committed is True
 
     asyncio.run(_run())
+
+
+@pytest.mark.unit
+def test_get_report_returns_interview_difficulty_profile():
+    interview = SimpleNamespace(
+        id=88,
+        user_id=7,
+        resume_id=None,
+        target_position="Python Backend Engineer",
+        difficulty="hard",
+        total_questions=3,
+        interview_mode="single",
+        status="completed",
+        overall_score=Decimal("7.5"),
+        report="{}",
+        questions_data=[
+            {
+                "index": 0,
+                "question": "Describe a backend project.",
+                "score": 7.5,
+                "feedback": "ok",
+            }
+        ],
+        data_contribution_consent=True,
+        privacy_consent_snapshot=None,
+        knowledge_base_snapshot=None,
+        panel_snapshot=None,
+        user_deleted_at=None,
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return interview
+
+    class _Db:
+        async def execute(self, _statement):
+            return _Result()
+
+    result = asyncio.run(
+        InterviewService.get_report(db=_Db(), user_id=7, interview_id=88)
+    )
+
+    assert result["difficulty"] == "hard"
+    assert result["difficulty_profile"]["level"] == "hard"
+    assert result["report"]["difficulty_profile"]["level"] == "hard"
+
+
+@pytest.mark.unit
+def test_get_interview_messages_returns_difficulty_profile_for_direct_entry():
+    interview = SimpleNamespace(
+        id=89,
+        user_id=7,
+        difficulty="easy",
+        interview_mode="panel",
+        status="in_progress",
+        current_question_index=1,
+        total_questions=3,
+        user_deleted_at=None,
+    )
+    messages = [
+        SimpleNamespace(
+            id=1,
+            role="interviewer",
+            content="Describe yourself.",
+            question_index=0,
+            score=None,
+            feedback=None,
+            created_at=None,
+        )
+    ]
+
+    class _InterviewResult:
+        def scalar_one_or_none(self):
+            return interview
+
+    class _MessagesResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return messages
+
+    class _Db:
+        def __init__(self):
+            self.results = [_InterviewResult(), _MessagesResult()]
+
+        async def execute(self, _statement):
+            return self.results.pop(0)
+
+    result = asyncio.run(
+        InterviewService.get_interview_messages(db=_Db(), user_id=7, interview_id=89)
+    )
+
+    assert result["difficulty"] == "easy"
+    assert result["difficulty_profile"]["level"] == "easy"
+    assert result["interview_mode"] == "panel"
+    assert result["items"][0]["content"] == "Describe yourself."
 
 
 def test_start_interview_returns_business_error_when_record_commit_fails(monkeypatch):

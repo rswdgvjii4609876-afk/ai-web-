@@ -201,6 +201,70 @@ def test_rank_slices_prefers_stage_role_and_scene_matches():
 
 
 @pytest.mark.unit
+def test_rank_slices_applies_exact_general_and_adjacent_difficulty_weighting():
+    def make_slice(slice_id: int, difficulty: str) -> dict:
+        return {
+            "slice_id": slice_id,
+            "content": "Probe FastAPI, Redis, concurrency, and reliability trade-offs.",
+            "priority": 5,
+            "stage_tags": ["technical"],
+            "role_tags": ["technical_deep_dive"],
+            "scene_tags": ["technical_depth"],
+            "topic_tags": ["Python Backend Engineer"],
+            "skill_tags": ["fastapi", "redis"],
+            "keywords": ["concurrency", "reliability"],
+            "source_section": "focus_points",
+            "difficulty": difficulty,
+            "is_enabled": True,
+        }
+
+    ranked = position_knowledge_base_slice_service.rank_slices(
+        slices=[
+            make_slice(1, "easy"),
+            make_slice(2, "medium"),
+            make_slice(3, "hard"),
+            make_slice(4, "general"),
+        ],
+        query_text="FastAPI Redis concurrency reliability",
+        stage="technical",
+        role="technical_deep_dive",
+        scene="technical_depth",
+        difficulty="hard",
+        skills=["fastapi", "redis"],
+        topics=["Python Backend Engineer"],
+        top_k=4,
+    )
+
+    assert [item["slice_id"] for item in ranked[:4]] == [3, 4, 2, 1]
+    assert ranked[0]["routing_score"] > ranked[1]["routing_score"]
+    assert ranked[1]["routing_score"] > ranked[2]["routing_score"]
+    assert ranked[2]["routing_score"] > ranked[3]["routing_score"]
+
+
+@pytest.mark.unit
+def test_rank_slices_clamps_invalid_top_k():
+    slices = [
+        {
+            "slice_id": 1,
+            "content": "FastAPI backend interview basics.",
+            "priority": 1,
+            "stage_tags": ["technical"],
+            "role_tags": ["technical_deep_dive"],
+            "scene_tags": ["technical_depth"],
+            "topic_tags": ["Python Backend Engineer"],
+            "skill_tags": ["fastapi"],
+            "keywords": ["backend"],
+            "source_section": "overview",
+            "difficulty": "general",
+            "is_enabled": True,
+        }
+    ]
+
+    assert position_knowledge_base_slice_service.rank_slices(slices=slices, top_k="bad")
+    assert len(position_knowledge_base_slice_service.rank_slices(slices=slices, top_k=0)) == 1
+
+
+@pytest.mark.unit
 def test_rank_slices_marks_generic_overlap_as_low_confidence():
     slices = [
         {

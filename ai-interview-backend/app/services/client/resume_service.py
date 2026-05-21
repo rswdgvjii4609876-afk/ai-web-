@@ -375,12 +375,51 @@ class ResumeService:
         except ValidationError as exc:
             await ResumeService._mark_resume_failed(db, resume, exc.detail)
         except JSONDecodeError as exc:
-            logger.exception("Resume analysis JSON decode failed for resume %s: %s", resume.id, exc)
-            await ResumeService._mark_resume_failed(
-                db,
-                resume,
-                "AI 返回的简历分析结果格式异常，请稍后重试或更换模型",
+            logger.warning(
+                "Resume analysis JSON decode failed for resume %s, using service fallback: %s",
+                resume.id,
+                exc,
             )
+            try:
+                analysis = AIService.build_resume_analysis_fallback(
+                    parsed,
+                    resume.target_position or "",
+                    resume_evidence,
+                )
+                analysis["fallback_reason"] = "analysis_json_malformed_service"
+                analysis["llm_analysis_status"] = "json_malformed_after_service_catch"
+                analysis = await ResumeService._attach_matching_metrics(
+                    analysis,
+                    parsed_resume=parsed,
+                    target_position=resume.target_position or "",
+                    resume_evidence=resume_evidence,
+                    db=db,
+                    user_id=resume.user_id,
+                )
+                resume.analysis = json.dumps(
+                    ResumeService._build_analysis_payload(
+                        analysis,
+                        resume_evidence,
+                        extraction_diagnostics=extraction_diagnostics,
+                        parse_quality=parse_quality,
+                        normalized_resume=parsed.get("normalized_resume"),
+                    ),
+                    ensure_ascii=False,
+                )
+                resume.status = "completed"
+                await db.commit()
+                await db.refresh(resume)
+            except Exception as fallback_exc:
+                logger.exception(
+                    "Resume analysis deterministic fallback failed for resume %s: %s",
+                    resume.id,
+                    fallback_exc,
+                )
+                await ResumeService._mark_resume_failed(
+                    db,
+                    resume,
+                    "简历分析服务异常，请稍后重试",
+                )
         except Exception as exc:
             logger.exception("Resume analysis failed for resume %s: %s", resume.id, exc)
             await ResumeService._mark_resume_failed(
@@ -424,9 +463,14 @@ class ResumeService:
         payload["semantic_score"] = metrics["semantic_score"]
         payload["rule_score"] = metrics["rule_score"]
         payload["final_score"] = metrics["final_score"]
+        payload["skill_presence_score"] = metrics.get("skill_presence_score")
+        payload["evidence_depth_score"] = metrics.get("evidence_depth_score")
+        payload["declared_skill_score_floor"] = metrics.get("declared_skill_score_floor")
         payload["evidence_basis"] = metrics["evidence_basis"]
         payload["ability_gap_profile"] = metrics.get("ability_gap_profile")
         payload["learning_priority_summary"] = metrics.get("learning_priority_summary") or []
+        payload["learning_gap_summary"] = metrics.get("learning_gap_summary") or []
+        payload["verification_priority_summary"] = metrics.get("verification_priority_summary") or []
         payload["learning_plan"] = metrics.get("learning_plan") or {}
         payload = ensure_resume_evaluation_snapshot(payload, target_position=target_position)
         return payload

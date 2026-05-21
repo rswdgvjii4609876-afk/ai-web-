@@ -30,6 +30,16 @@ export function normalizeResumeEvaluation(payload = {}) {
     || root.learning_priority_summary
     || metrics.learning_priority_summary
   )
+  const verificationPrioritySummary = arrayOf(
+    snapshot.verification_priority_summary
+    || root.verification_priority_summary
+    || metrics.verification_priority_summary
+  )
+  const learningGapSummary = arrayOf(
+    snapshot.learning_gap_summary
+    || root.learning_gap_summary
+    || metrics.learning_gap_summary
+  )
 
   return {
     version: snapshot.version || RESUME_EVALUATION_VERSION,
@@ -41,9 +51,14 @@ export function normalizeResumeEvaluation(payload = {}) {
       semantic_score: scores.semantic_score ?? metrics.semantic_score ?? root.semantic_score,
       tfidf_semantic_score: scores.tfidf_semantic_score ?? metrics.tfidf_semantic_score,
       rule_score: scores.rule_score ?? metrics.rule_score ?? root.rule_score,
+      skill_presence_score: scores.skill_presence_score ?? metrics.skill_presence_score ?? root.skill_presence_score,
+      evidence_depth_score: scores.evidence_depth_score ?? metrics.evidence_depth_score ?? root.evidence_depth_score,
+      declared_skill_score_floor: scores.declared_skill_score_floor ?? metrics.declared_skill_score_floor ?? root.declared_skill_score_floor,
       ability_gap_profile: abilityProfile,
       learning_plan: learningPlan,
-      learning_priority_summary: learningPrioritySummary
+      learning_priority_summary: learningPrioritySummary,
+      verification_priority_summary: verificationPrioritySummary,
+      learning_gap_summary: learningGapSummary
     },
     scores,
     keywordCoverage,
@@ -60,6 +75,8 @@ export function normalizeResumeEvaluation(payload = {}) {
     learningPlan,
     learningPlanTasks: arrayOf(learningPlan.tasks),
     learningPrioritySummary,
+    verificationPrioritySummary,
+    learningGapSummary,
     targetPosition: snapshot.target_position || root.target_position || metrics.target_position || learningPlan.target_position || ''
   }
 }

@@ -237,6 +237,62 @@ def test_extract_json_accepts_python_style_dict_output():
 
 
 @pytest.mark.unit
+def test_extract_or_repair_json_repairs_missing_required_keys(monkeypatch):
+    calls = []
+
+    async def fake_chat(_messages, temperature=0, ai_config=None):
+        calls.append({"messages": _messages, "temperature": temperature, "ai_config": ai_config})
+        return json.dumps(
+            {
+                "overall_score": 6.5,
+                "strengths": ["有项目经验"],
+                "weaknesses": [],
+                "suggestions": ["补充指标"],
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(AIService, "_chat", fake_chat)
+
+    async def _run():
+        payload = await AIService._extract_or_repair_json(
+            '{"overall_score": 6.5, "strengths": ["有项目经验"]}',
+            "JSON object with overall_score, strengths, weaknesses, suggestions",
+            expected_type="object",
+            required_keys=["overall_score", "strengths", "weaknesses", "suggestions"],
+            parser_label="unit_payload",
+        )
+        assert payload["overall_score"] == 6.5
+        assert payload["suggestions"] == ["补充指标"]
+        assert len(calls) == 1
+        assert "Required keys: overall_score, strengths, weaknesses, suggestions" in calls[0]["messages"][1]["content"]
+
+    asyncio.run(_run())
+
+
+@pytest.mark.unit
+def test_extract_or_repair_json_rejects_wrong_type_after_repair(monkeypatch):
+    async def fake_chat(_messages, temperature=0, ai_config=None):
+        return '["still", "wrong"]'
+
+    monkeypatch.setattr(AIService, "_chat", fake_chat)
+
+    async def _run():
+        with pytest.raises(json.JSONDecodeError) as exc_info:
+            await AIService._extract_or_repair_json(
+                '["wrong"]',
+                "JSON object",
+                expected_type="object",
+                max_repair_rounds=1,
+                parser_label="unit_object",
+            )
+        assert "unit_object" in str(exc_info.value)
+        assert "expected object" in str(exc_info.value)
+
+    asyncio.run(_run())
+
+
+@pytest.mark.unit
 def test_build_resume_parse_fallback_extracts_grounded_resume_fields():
     resume_text = """
 詹已誉
@@ -279,6 +335,62 @@ def test_parse_resume_falls_back_when_ai_json_remains_malformed(monkeypatch):
     assert parsed["name"] == "詹已誉"
     assert "Python" in parsed["skills"]
     assert parsed["projects"]
+
+
+@pytest.mark.unit
+def test_analyze_resume_falls_back_when_ai_json_remains_malformed(monkeypatch):
+    async def _bad_chat(*args, **kwargs):
+        return '{"overall_score": 6.5, "strengths": ["项目里提到"FastAPI"但引号坏掉"]}'
+
+    monkeypatch.setattr(AIService, "_chat", staticmethod(_bad_chat))
+
+    analysis = asyncio.run(
+        AIService.analyze_resume(
+            {
+                "skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"],
+                "projects": [{"name": "HireMate", "description": "使用 Python 完成简历解析和规则评分"}],
+            },
+            "Python后端开发工程师",
+            resume_evidence={
+                "skills": [{"skill": "FastAPI", "evidence": "技能栏声明"}],
+                "projects": [{"title": "HireMate", "evidence": "Python 简历解析项目"}],
+                "missing_evidence_flags": ["缺少量化结果"],
+            },
+        )
+    )
+
+    assert analysis["analysis_source"] == "deterministic_fallback"
+    assert analysis["fallback_reason"] == "analysis_json_malformed"
+    assert analysis["llm_analysis_status"] == "json_malformed_after_repair"
+    assert isinstance(analysis["overall_score"], float)
+    assert analysis["strengths"]
+    assert analysis["suggestions"]
+    assert "FastAPI" in analysis["keyword_match"]
+    assert "FastAPI 的可验证项目/生产场景证据" in analysis["verification_needed_keywords"]
+    assert "FastAPI" not in analysis["missing_keywords"]
+    assert not any("缺少 FastAPI" in item for item in analysis["weaknesses"])
+
+
+@pytest.mark.unit
+def test_analyze_resume_normalizes_non_object_json_payload(monkeypatch):
+    async def _array_chat(*args, **kwargs):
+        return '["not", "an", "analysis", "object"]'
+
+    monkeypatch.setattr(AIService, "_chat", staticmethod(_array_chat))
+
+    analysis = asyncio.run(
+        AIService.analyze_resume(
+            {"skills": ["Python"], "projects": []},
+            "Python后端开发工程师",
+            resume_evidence={"skills": [{"skill": "Python", "evidence": "技能栏声明"}]},
+        )
+    )
+
+    assert analysis["analysis_source"] == "deterministic_fallback"
+    assert analysis["fallback_reason"] == "analysis_json_malformed"
+    assert analysis["llm_analysis_status"] == "json_malformed_after_repair"
+    assert analysis["summary"]
+    assert analysis["missing_keywords"] == []
 
 
 @pytest.mark.unit
@@ -692,6 +804,52 @@ def test_deepseek_config_default_model_rejects_legacy_env_value(monkeypatch):
 
 
 @pytest.mark.unit
+def test_resume_analysis_sanitizer_keeps_declared_skill_as_verification_need():
+    payload = {
+        "summary": "缺少 FastAPI 和 Docker，后端经验不足",
+        "strengths": ["掌握 Python，但没有 Redis"],
+        "weaknesses": ["缺少 FastAPI", "缺少 Redis 项目证据"],
+        "suggestions": ["不会 Docker"],
+        "keyword_match": [{"label": "FastAPI", "comment": "FastAPI 是短板"}],
+        "missing_keywords": ["FastAPI", "Redis项目经验不足", "Celery"],
+    }
+
+    cleaned = AIService._sanitize_resume_analysis_skill_claims(
+        payload,
+        declared_skills=["FastAPI", "Redis", "Docker"],
+    )
+
+    assert cleaned["summary"] == "FastAPI 已在技能栏声明；当前缺少能证明使用深度的项目、职责边界、生产场景或结果证据。"
+    assert cleaned["strengths"][0] == "Redis 已在技能栏声明；当前缺少能证明使用深度的项目、职责边界、生产场景或结果证据。"
+    assert cleaned["weaknesses"][0] == "FastAPI 已在技能栏声明；当前缺少能证明使用深度的项目、职责边界、生产场景或结果证据。"
+    assert cleaned["weaknesses"][1] == "缺少 Redis 项目证据"
+    assert cleaned["suggestions"][0] == "Docker 已在技能栏声明；当前缺少能证明使用深度的项目、职责边界、生产场景或结果证据。"
+    assert cleaned["keyword_match"][0]["comment"] == "FastAPI 已在技能栏声明；当前缺少能证明使用深度的项目、职责边界、生产场景或结果证据。"
+    assert cleaned["missing_keywords"] == ["Celery"]
+    assert cleaned["verification_needed_keywords"] == [
+        "FastAPI 的可验证项目/生产场景证据",
+        "Redis 的可验证项目/生产场景证据",
+    ]
+
+
+@pytest.mark.unit
+def test_declared_resume_skill_terms_splits_compound_skill_lines():
+    terms = AIService._declared_resume_skill_terms(
+        parsed_resume={
+            "skills": [
+                "Python / FastAPI / Redis / Docker",
+                {"skill": "SQL、PostgreSQL、MySQL"},
+                "熟悉 Celery",
+            ]
+        },
+        resume_evidence={"skills": ["Vue，TypeScript"]},
+    )
+
+    for expected in ["Python", "FastAPI", "Redis", "Docker", "SQL", "PostgreSQL", "MySQL", "Celery", "Vue", "TypeScript"]:
+        assert expected in terms
+
+
+@pytest.mark.unit
 def test_evaluate_answer_uses_json_repair_contract(monkeypatch):
     calls = []
 
@@ -795,5 +953,31 @@ def test_generate_panel_questions_uses_json_repair_contract(monkeypatch):
         assert len(calls) == 2
         assert calls[1]["temperature"] == 0
         assert "moderator.selected_questions" in calls[1]["messages"][1]["content"]
+
+    asyncio.run(_run())
+
+
+@pytest.mark.unit
+def test_generate_panel_questions_can_disable_json_repair(monkeypatch):
+    calls = []
+
+    async def fake_chat(_messages, temperature=0.5, ai_config=None):
+        calls.append({"messages": _messages, "temperature": temperature, "ai_config": ai_config})
+        return '{"panel":[{"role":"technical","focus":"bad "quote"}],"moderator":{}'
+
+    monkeypatch.setattr(AIService, "_chat", fake_chat)
+
+    async def _run():
+        with pytest.raises(json.JSONDecodeError):
+            await AIService.generate_panel_questions(
+                parsed_resume={"projects": [{"name": "demo"}]},
+                target_position="Python backend engineer",
+                difficulty="medium",
+                count=1,
+                question_plan=[{}],
+                panel_snapshot=_panel_snapshot(),
+                allow_json_repair=False,
+            )
+        assert len(calls) == 1
 
     asyncio.run(_run())

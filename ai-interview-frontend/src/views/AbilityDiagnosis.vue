@@ -33,7 +33,7 @@
         <div class="card summary-card">
           <span>岗位匹配分</span>
           <strong>{{ scoreText(matchingMetrics?.final_score) }}</strong>
-          <small>{{ semanticSourceLabel(matchingMetrics) }}</small>
+          <small>{{ scoreBreakdownText }}</small>
         </div>
         <div class="card summary-card">
           <span>能力匹配度</span>
@@ -47,7 +47,7 @@
           <div class="section-head">
             <div>
               <p class="eyebrow">能力差距</p>
-              <h2>优先补强的能力</h2>
+              <h2>待验证与待补强能力</h2>
             </div>
             <span class="section-badge">{{ topGaps.length }} 项重点</span>
           </div>
@@ -77,7 +77,7 @@
                   {{ keyword }}
                 </span>
               </div>
-              <button class="task-add-btn" type="button" @click="addGapTask(item)">加入学习任务</button>
+              <button class="task-add-btn" type="button" @click="addGapTask(item)">{{ gapActionButtonLabel(item) }}</button>
             </article>
           </div>
           <p v-else class="muted-text">{{ emptyGapMessage }}</p>
@@ -160,6 +160,15 @@ const resumeEvaluation = computed(() => normalizeResumeEvaluation(analysis.value
 const matchingMetrics = computed(() => resumeEvaluation.value.matchingMetrics || null)
 const abilityProfile = computed(() => resumeEvaluation.value.abilityProfile || null)
 const learningPlan = computed(() => resumeEvaluation.value.learningPlan || null)
+const scoreBreakdownText = computed(() => {
+  const metrics = matchingMetrics.value || {}
+  const skill = metrics.skill_presence_score
+  const depth = metrics.evidence_depth_score
+  if (skill !== undefined || depth !== undefined) {
+    return `技能声明 ${scoreText(skill)} · 证据深度 ${scoreText(depth)}`
+  }
+  return semanticSourceLabel(metrics)
+})
 const learningPlanTasks = computed(() => {
   const tasks = learningPlan.value?.tasks
   return Array.isArray(tasks) ? tasks : []
@@ -232,6 +241,12 @@ const emptyGapMessage = computed(() => {
   }
   return '当前结构化能力图谱没有返回重点短板，但仍建议结合简历证据和模拟面试继续验证表达完整度。'
 })
+
+function gapActionButtonLabel(item = {}) {
+  if (item.action_type === 'interview_verification') return '准备验证证据'
+  if (item.action_type === 'evidence_completion') return '补充项目证据'
+  return '加入学习任务'
+}
 const strengths = computed(() => {
   const items = abilityProfile.value?.strengths
   return Array.isArray(items) ? items.slice(0, 4) : []

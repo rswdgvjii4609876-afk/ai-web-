@@ -1,4 +1,5 @@
-from collections import Counter
+﻿from collections import Counter
+import asyncio
 from datetime import datetime, timezone
 from hashlib import sha256
 import io
@@ -40,6 +41,7 @@ EVALUATION_DATASET_SCHEMA_VERSION = "ai-interview.evaluation-dataset.v1"
 FINE_TUNING_SAMPLE_SCHEMA_VERSION = "ai-interview.fine-tuning-sample.v1"
 FINE_TUNING_READINESS_REPORT_VERSION = "ai-interview.fine-tuning-readiness-report.v1"
 USER_DELETED_COMPLETED_INTERVIEW_REASON = "user_deleted_completed_interview_retained_for_review"
+START_PANEL_QUESTION_TIMEOUT_SECONDS = 25
 DIRECT_IDENTIFIER_REPLACEMENTS = (
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[REDACTED_EMAIL]"),
     (re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}(?!\d)"), "[REDACTED_PHONE]"),
@@ -201,6 +203,30 @@ QUESTION_TEMPLATES = {
         "intent": "Use debugging or optimization questions to verify diagnosis and engineering experience.",
         "evaluation_focus": ["debugging approach", "engineering experience", "optimization ability"],
     },
+    "basic_knowledge": {
+        "stage": "technical",
+        "category": "technical",
+        "lead_role": "technical_deep_dive",
+        "support_roles": ["project_follow_up"],
+        "intent": "Check basic role knowledge, common framework usage, and daily execution readiness.",
+        "evaluation_focus": ["basic knowledge", "framework usage", "execution readiness"],
+    },
+    "system_design_depth": {
+        "stage": "scenario",
+        "category": "system-design",
+        "lead_role": "pressure_challenge",
+        "support_roles": ["technical_deep_dive", "business_scenario"],
+        "intent": "Probe scalable system design, concurrency, reliability, performance, and trade-offs.",
+        "evaluation_focus": ["system design", "concurrency", "reliability", "trade-offs"],
+    },
+    "rag_optimization": {
+        "stage": "scenario",
+        "category": "system-design",
+        "lead_role": "technical_deep_dive",
+        "support_roles": ["pressure_challenge", "business_scenario"],
+        "intent": "Probe RAG or LLM engineering optimization only when the role or evidence is relevant.",
+        "evaluation_focus": ["RAG retrieval quality", "reranking", "groundedness", "evaluation"],
+    },
     "project_ownership": {
         "stage": "project",
         "category": "project",
@@ -230,13 +256,13 @@ QUESTION_TEMPLATES = {
 QUESTION_ORDERS = {
     "easy": [
         "opening_intro",
+        "basic_knowledge",
         "project_core",
-        "technical_core",
+        "technical_debug",
         "behavior_growth",
         "project_ownership",
-        "technical_debug",
+        "technical_core",
         "business_scenario",
-        "scenario_tradeoff",
         "closing_reflection",
         "closing_reflection",
     ],
@@ -255,8 +281,9 @@ QUESTION_ORDERS = {
     "hard": [
         "opening_intro",
         "project_core",
-        "technical_core",
+        "system_design_depth",
         "pressure_tradeoff",
+        "rag_optimization",
         "business_scenario",
         "technical_debug",
         "project_ownership",
@@ -264,6 +291,54 @@ QUESTION_ORDERS = {
         "technical_core",
         "closing_reflection",
     ],
+}
+
+RAG_SIGNAL_RE = re.compile(
+    r"rag|llm|大模型|检索增强|向量|向量库|embedding|embeddings|rerank|reranker|重排|召回|"
+    r"grounded|grounding|幻觉|问答系统|retrieval|chunk|chunking",
+    re.IGNORECASE,
+)
+
+INTERVIEW_DIFFICULTY_PROFILES: Dict[str, Dict[str, Any]] = {
+    "easy": {
+        "public_label": "简单",
+        "company_archetype": "基础执行型面试",
+        "question_strategy_summary": "基础知识、常见框架使用、项目复述和日常问题处理。",
+        "rubric_summary": "能讲清基础概念、自己做过什么、常见错误如何处理，就能获得较好评价。",
+        "feedback_style": "训练导向，指出基础表达和项目复述的具体补强点。",
+        "difficulty_guidance": "按基础执行型岗位标准出题，先确认基础知识和可执行性，不提前进行高强度系统设计追问。",
+        "routing_difficulty": "easy",
+        "routing_top_k": 2,
+        "adjacent_difficulties": ["medium"],
+        "followup_depth": "basic",
+        "evidence_strictness": "normal",
+    },
+    "medium": {
+        "public_label": "中等",
+        "company_archetype": "常规岗位能力验证",
+        "question_strategy_summary": "项目职责、技术取舍、证据验证、能力短板和复盘。",
+        "rubric_summary": "需要证明自己真实参与、能解释方案选择，并能说明不足与改进。",
+        "feedback_style": "岗位能力导向，明确证据是否充分、职责边界是否清楚。",
+        "difficulty_guidance": "按常规岗位面试标准出题，围绕项目证据、职责边界和技术取舍追问。",
+        "routing_difficulty": "medium",
+        "routing_top_k": 3,
+        "adjacent_difficulties": ["easy", "hard"],
+        "followup_depth": "evidence",
+        "evidence_strictness": "strict",
+    },
+    "hard": {
+        "public_label": "困难",
+        "company_archetype": "高强度综合面试",
+        "question_strategy_summary": "项目深挖、系统设计、高并发、稳定性、性能、成本和复杂工程取舍。",
+        "rubric_summary": "不仅要讲做了什么，还要讲边界、失败模式、扩展性、成本和可验证结果。",
+        "feedback_style": "高标准评估导向，直接指出系统化思考、深度证据和风险控制不足。",
+        "difficulty_guidance": "按高强度综合面试标准出题，优先深挖项目、系统设计、并发、可靠性和取舍；RAG 只在岗位相关时出现。",
+        "routing_difficulty": "hard",
+        "routing_top_k": 4,
+        "adjacent_difficulties": ["medium"],
+        "followup_depth": "pressure",
+        "evidence_strictness": "high",
+    },
 }
 
 PANEL_ROLE_TITLES = {
@@ -276,6 +351,99 @@ PANEL_ROLE_TITLES = {
 
 
 class InterviewService:
+    @staticmethod
+    def _normalize_difficulty(difficulty: Optional[str]) -> str:
+        value = str(difficulty or "").strip().lower()
+        return value if value in INTERVIEW_DIFFICULTY_PROFILES else "medium"
+
+    @staticmethod
+    def _difficulty_profile(difficulty: Optional[str]) -> Dict[str, Any]:
+        normalized = InterviewService._normalize_difficulty(difficulty)
+        return dict(INTERVIEW_DIFFICULTY_PROFILES[normalized])
+
+    @staticmethod
+    def _public_difficulty_profile(difficulty: Optional[str]) -> Dict[str, Any]:
+        normalized = InterviewService._normalize_difficulty(difficulty)
+        profile = InterviewService._difficulty_profile(difficulty)
+        neutral_public_profiles = {
+            "easy": {
+                "public_label": "简单",
+                "company_archetype": "基础执行型面试",
+                "question_strategy_summary": "基础知识、常见框架使用、项目复述和日常问题处理。",
+                "rubric_summary": "能讲清基础概念、自己做过什么、常见错误如何处理，就能获得较好评价。",
+                "feedback_style": "训练导向，指出基础表达和项目复述的具体补强点。",
+            },
+            "medium": {
+                "public_label": "中等",
+                "company_archetype": "标准岗位能力面试",
+                "question_strategy_summary": "项目职责、技术取舍、证据验证、能力短板和复盘。",
+                "rubric_summary": "需要证明自己真实参与、能解释方案选择，并能说明不足与改进。",
+                "feedback_style": "岗位能力导向，明确证据是否充分、职责边界是否清楚。",
+            },
+            "hard": {
+                "public_label": "困难",
+                "company_archetype": "高强度综合面试",
+                "question_strategy_summary": "项目深挖、系统设计、高并发、稳定性、性能、成本和复杂工程取舍。",
+                "rubric_summary": "不仅要讲做了什么，还要讲边界、失败模式、扩展性、成本和可验证结果。",
+                "feedback_style": "高标准评估导向，直接指出系统化思考、深度证据和风险控制不足。",
+            },
+        }
+        public_profile = neutral_public_profiles.get(normalized, {})
+        return {
+            "level": normalized,
+            "public_label": public_profile.get("public_label", profile["public_label"]),
+            "company_archetype": public_profile.get("company_archetype", profile["company_archetype"]),
+            "question_strategy_summary": public_profile.get(
+                "question_strategy_summary",
+                profile["question_strategy_summary"],
+            ),
+            "rubric_summary": public_profile.get("rubric_summary", profile["rubric_summary"]),
+            "feedback_style": public_profile.get("feedback_style", profile["feedback_style"]),
+        }
+
+    @staticmethod
+    def _difficulty_profile_summary(difficulty: Optional[str]) -> str:
+        profile = InterviewService._difficulty_profile(difficulty)
+        return (
+            f"{profile['public_label']}｜{profile['company_archetype']}："
+            f"{profile['question_strategy_summary']} 评分标尺：{profile['rubric_summary']}"
+        )
+
+    @staticmethod
+    def _has_rag_signal(*values: Any) -> bool:
+        chunks: List[str] = []
+
+        def collect(value: Any) -> None:
+            if value is None:
+                return
+            if isinstance(value, str):
+                chunks.append(value)
+                return
+            if isinstance(value, dict):
+                for nested in value.values():
+                    collect(nested)
+                return
+            if isinstance(value, (list, tuple, set)):
+                for nested in value:
+                    collect(nested)
+                return
+            chunks.append(str(value))
+
+        for value in values:
+            collect(value)
+        return bool(RAG_SIGNAL_RE.search("\n".join(chunks)))
+
+    @staticmethod
+    def _safe_routing_top_k(value: Any, fallback: Any = 3) -> int:
+        try:
+            top_k = int(value)
+        except (TypeError, ValueError):
+            try:
+                top_k = int(fallback)
+            except (TypeError, ValueError):
+                top_k = 3
+        return max(1, min(top_k, 6))
+
     @staticmethod
     def _load_resume_analysis_payload(resume: Resume) -> Dict[str, Any]:
         payload = (resume.analysis or "").strip()
@@ -387,6 +555,24 @@ class InterviewService:
         if fallback_reason:
             snapshot["fallback_reason"] = fallback_reason
         return snapshot
+
+    @staticmethod
+    def _set_panel_generation_metadata(
+        panel_snapshot: Dict[str, Any],
+        *,
+        generation_strategy: str,
+        panel_status: str,
+        fallback_reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        metadata = dict(panel_snapshot.get("metadata") or {})
+        metadata["generation_strategy"] = generation_strategy
+        metadata["panel_status"] = panel_status
+        if fallback_reason:
+            metadata["fallback_reason"] = fallback_reason
+            panel_snapshot["fallback_reason"] = fallback_reason
+        panel_snapshot["metadata"] = metadata
+        panel_snapshot["panel_status"] = panel_status
+        return panel_snapshot
 
     @staticmethod
     def _sanitize_ai_runtime_config(ai_config: Optional[Dict]) -> Dict:
@@ -876,11 +1062,24 @@ class InterviewService:
 
     @staticmethod
     def _build_question_plan(total_questions: int, difficulty: str) -> List[Dict]:
-        order = QUESTION_ORDERS.get(difficulty, QUESTION_ORDERS["medium"])
+        normalized_difficulty = InterviewService._normalize_difficulty(difficulty)
+        profile = InterviewService._difficulty_profile(normalized_difficulty)
+        order = QUESTION_ORDERS.get(normalized_difficulty, QUESTION_ORDERS["medium"])
         plan = []
         for index, key in enumerate(order[:total_questions]):
             item = QUESTION_TEMPLATES[key].copy()
             item["index"] = index
+            item["template_key"] = key
+            item["difficulty_level"] = normalized_difficulty
+            item["difficulty_guidance"] = profile["difficulty_guidance"]
+            item["company_archetype"] = profile["company_archetype"]
+            item["question_strategy_summary"] = profile["question_strategy_summary"]
+            item["rubric_summary"] = profile["rubric_summary"]
+            item["feedback_style"] = profile["feedback_style"]
+            item["routing_difficulty"] = profile["routing_difficulty"]
+            item["routing_top_k"] = profile["routing_top_k"]
+            item["followup_depth"] = profile["followup_depth"]
+            item["evidence_strictness"] = profile["evidence_strictness"]
             plan.append(item)
         return plan
 
@@ -893,7 +1092,46 @@ class InterviewService:
         difficulty: str,
         matching_metrics: Optional[Dict] = None,
     ) -> List[Dict]:
+        normalized_difficulty = InterviewService._normalize_difficulty(difficulty)
+        profile = InterviewService._difficulty_profile(normalized_difficulty)
         verification_targets = InterviewService._ability_verification_targets(matching_metrics)
+        has_rag_signal = InterviewService._has_rag_signal(
+            target_position,
+            parsed_resume.get("skills"),
+            parsed_resume.get("projects"),
+            parsed_resume.get("experience"),
+            parsed_resume.get("work_experience"),
+            parsed_resume.get("project_experience"),
+        )
+
+        def apply_rag_gate(item: Dict) -> Dict:
+            effective_item = dict(item or {})
+            if effective_item.get("template_key") != "rag_optimization" or has_rag_signal:
+                return effective_item
+            replacement = QUESTION_TEMPLATES["system_design_depth"].copy()
+            replacement.update(
+                {
+                    key: value
+                    for key, value in effective_item.items()
+                    if key
+                    in {
+                        "index",
+                        "difficulty_level",
+                        "difficulty_guidance",
+                        "company_archetype",
+                        "question_strategy_summary",
+                        "rubric_summary",
+                        "feedback_style",
+                        "routing_difficulty",
+                        "routing_top_k",
+                        "followup_depth",
+                        "evidence_strictness",
+                    }
+                }
+            )
+            replacement["template_key"] = "system_design_depth"
+            replacement["rag_gate_replaced"] = True
+            return replacement
 
         def target_for(index: int) -> Optional[Dict]:
             if not verification_targets:
@@ -908,6 +1146,11 @@ class InterviewService:
                 focus_text = f"验证{ability_name}掌握程度"
                 if focus_text not in evaluation_focus:
                     evaluation_focus.append(focus_text)
+            routing_difficulty = item.get("routing_difficulty") or profile["routing_difficulty"]
+            routing_top_k = InterviewService._safe_routing_top_k(
+                item.get("routing_top_k"),
+                profile["routing_top_k"],
+            )
             return {
                 **item,
                 "evaluation_focus": evaluation_focus,
@@ -915,14 +1158,31 @@ class InterviewService:
                 "question_target_gap": (verification_target or {}).get("reason") or item.get("question_target_gap"),
                 "question_reason": (verification_target or {}).get("reason") or item.get("question_reason"),
                 "selected_slices": selected or [],
+                "difficulty_level": item.get("difficulty_level") or normalized_difficulty,
+                "difficulty_guidance": item.get("difficulty_guidance") or profile["difficulty_guidance"],
+                "company_archetype": item.get("company_archetype") or profile["company_archetype"],
+                "question_strategy_summary": item.get("question_strategy_summary") or profile["question_strategy_summary"],
+                "rubric_summary": item.get("rubric_summary") or profile["rubric_summary"],
+                "feedback_style": item.get("feedback_style") or profile["feedback_style"],
+                "routing_difficulty": routing_difficulty,
+                "routing_top_k": routing_top_k,
+                "followup_depth": item.get("followup_depth") or profile["followup_depth"],
+                "evidence_strictness": item.get("evidence_strictness") or profile["evidence_strictness"],
+                "rag_signal_present": has_rag_signal,
             }
 
         if not knowledge_base:
-            return [enrich_item(item, index) for index, item in enumerate(question_plan)]
+            return [
+                enrich_item(apply_rag_gate(item), index)
+                for index, item in enumerate(question_plan)
+            ]
 
         slices = knowledge_base.get("slices") or []
         if not slices:
-            return [enrich_item(item, index) for index, item in enumerate(question_plan)]
+            return [
+                enrich_item(apply_rag_gate(item), index)
+                for index, item in enumerate(question_plan)
+            ]
 
         routed = []
         top_k = 2 if len(question_plan) >= 7 else 3
@@ -930,9 +1190,19 @@ class InterviewService:
         resume_skills = InterviewService._route_values_to_texts(parsed_resume.get("skills"), 12)
         resume_projects = InterviewService._route_values_to_texts(parsed_resume.get("projects"), 6)
         for index, item in enumerate(question_plan):
+            effective_item = apply_rag_gate(item)
             verification_target = target_for(index)
             verification_text = ""
+            weakness_terms: List[str] = []
             if verification_target:
+                weakness_terms = [
+                    str(value)
+                    for value in [
+                        verification_target.get("ability_name"),
+                        *(verification_target.get("keywords") or []),
+                    ]
+                    if str(value or "").strip()
+                ][:8]
                 verification_text = "\n".join(
                     [
                         str(verification_target.get("ability_name") or ""),
@@ -946,38 +1216,50 @@ class InterviewService:
                     target_position,
                     resume_text,
                     verification_text,
-                    item.get("intent") or "",
-                    " ".join(item.get("evaluation_focus") or []),
+                    effective_item.get("intent") or "",
+                    effective_item.get("difficulty_guidance") or "",
+                    " ".join(effective_item.get("evaluation_focus") or []),
                 ]
             )
             try:
                 selected = position_knowledge_base_slice_service.rank_slices(
                     slices=slices,
                     query_text=query_text,
-                    stage=item.get("stage"),
-                    role=item.get("lead_role"),
-                    scene=item.get("category") or item.get("stage"),
-                    difficulty=difficulty,
+                    stage=effective_item.get("stage"),
+                    role=effective_item.get("lead_role"),
+                    scene=effective_item.get("category") or effective_item.get("stage"),
+                    difficulty=effective_item.get("routing_difficulty") or normalized_difficulty,
                     skills=resume_skills[:8],
                     topics=[target_position, *(resume_projects[:2])],
-                    top_k=top_k,
+                    weakness_terms=weakness_terms,
+                    top_k=InterviewService._safe_routing_top_k(
+                        effective_item.get("routing_top_k"),
+                        top_k,
+                    ),
                 )
                 if not selected:
                     selected = position_knowledge_base_slice_service.rank_slices(
                         slices=slices,
                         query_text=query_text,
-                        difficulty=difficulty,
+                        difficulty=effective_item.get("routing_difficulty") or normalized_difficulty,
                         skills=resume_skills[:6],
                         topics=[target_position],
+                        weakness_terms=weakness_terms,
                         top_k=2,
                     )
             except Exception as exc:
-                logger.warning("Knowledge slice routing failed for stage=%s: %s", item.get("stage"), exc)
+                logger.warning("Knowledge slice routing failed for stage=%s: %s", effective_item.get("stage"), exc)
                 knowledge_base["slices"] = []
                 knowledge_base["slice_count"] = 0
                 knowledge_base["routing_strategy"] = "full_text_fallback"
                 selected = []
-            routed.append(enrich_item(item, index, [InterviewService._compact_slice(slice_item) for slice_item in selected]))
+            routed.append(
+                enrich_item(
+                    effective_item,
+                    index,
+                    [InterviewService._compact_slice(slice_item) for slice_item in selected],
+                )
+            )
         return routed
 
     @staticmethod
@@ -1046,6 +1328,17 @@ class InterviewService:
             r"Use\s+business\s+changes",
             r"Close\s+the\s+interview",
             r"Probe\s+technical\s+depth",
+            r"Check\s+basic\s+role\s+knowledge",
+            r"Probe\s+scalable\s+system\s+design",
+            r"Probe\s+RAG\s+or\s+LLM\s+engineering",
+            r"题目计划",
+            r"评估重点",
+            r"主持人推理",
+            r"内部面板",
+            r"内部字段",
+            r"候选人证据",
+            r"蓝图优先级",
+            r"链式思考",
             r"\b(stage|category|intent|moderator|schema|step|type|goal|priority|focus|blueprint)\b\s*[:=]",
         )
         return any(re.search(pattern, value, flags=re.IGNORECASE) for pattern in patterns)
@@ -1303,6 +1596,9 @@ class InterviewService:
         safe_evidence = evidence_hint or "简历中最相关的一段经历"
         stage = str((plan or {}).get("stage") or "").strip().lower()
         category = str((plan or {}).get("category") or "").strip().lower()
+        difficulty = InterviewService._normalize_difficulty((plan or {}).get("difficulty_level"))
+        template_key = str((plan or {}).get("template_key") or "").strip()
+        company_archetype = str((plan or {}).get("company_archetype") or "").strip()
         key = stage or category
 
         if index == 0 or key == "opening" or category == "self-intro":
@@ -1310,22 +1606,57 @@ class InterviewService:
                 "self-intro",
                 f"请先做一个简短自我介绍，说明你为什么匹配{safe_position}，并指出简历里最能支撑这个岗位的一段经历。",
             )
+        if template_key == "basic_knowledge":
+            return (
+                "technical",
+                f"按{company_archetype or '基础执行岗'}标准，请说明{safe_position}日常最常用的基础知识或框架能力，并结合一个你实际用过的例子说明。",
+            )
+        if template_key == "system_design_depth":
+            return (
+                "system-design",
+                f"如果把你做过的“{safe_evidence}”扩展到更高并发或更多用户场景，你会如何设计接口、数据存储、缓存/队列和故障兜底？请说明关键取舍。",
+            )
+        if template_key == "rag_optimization":
+            return (
+                "system-design",
+                "如果这个岗位中的 RAG/知识库能力要上线到真实业务，你会如何优化召回、切片、重排、答案可信度和评估监控？请结合项目或岗位场景说明。",
+            )
         if index == 1 or key == "project" or "project" in category:
+            if difficulty == "hard":
+                return (
+                    "project",
+                    f"请围绕“{safe_evidence}”做一次项目深挖：你负责的边界是什么，最难的技术/业务取舍是什么，如果流量或数据规模扩大 10 倍会怎么改？",
+                )
             return (
                 "project",
                 f"请围绕“{safe_evidence}”展开说明：当时的场景是什么，你具体做了什么，最后形成了什么结果？",
             )
-        if index == 2 or key == "gap":
+        if key == "gap":
             return (
                 "gap",
                 f"结合{safe_position}的要求，你认为自己当前最需要补强的能力是什么？接下来会如何学习和验证？",
             )
         if key == "technical" or "technical" in category:
+            if difficulty == "easy":
+                return (
+                    "technical",
+                    f"请说明{safe_position}常用的一项基础技术你是怎么理解和使用的，并结合一个项目例子说明遇到问题时如何排查。",
+                )
+            if difficulty == "hard":
+                return (
+                    "technical",
+                    "请结合一个具体项目说明你如何处理性能、并发、稳定性或故障恢复问题，重点说明约束、方案取舍和验证结果。",
+                )
             return (
                 "technical",
                 "请结合一个具体项目说明你如何拆解技术问题、选择方案并验证结果，重点说明你自己的判断依据。",
             )
         if key == "scenario" or "scenario" in category:
+            if difficulty == "hard":
+                return (
+                    "scenario",
+                    f"假设你负责的{safe_position}相关系统在高峰期出现超时、数据不一致或成本上升，你会如何定位、降级、恢复并复盘？",
+                )
             return (
                 "scenario",
                 f"假设你在{safe_position}工作中遇到需求变化或资源受限，请结合一个具体经历说明你会如何做取舍。",
@@ -1369,6 +1700,9 @@ class InterviewService:
         )
         evidence_hint = project_label or experience_label or skill_label or "简历中最相关的一段经历"
         position_label = target_position or "目标岗位"
+        fallback_profile = InterviewService._public_difficulty_profile(
+            (question_plan[0] or {}).get("difficulty_level") if question_plan else None
+        )
 
         templates = [
             (
@@ -1385,6 +1719,7 @@ class InterviewService:
             ),
         ]
 
+        templates = []
         while len(templates) < count:
             extra_index = len(templates)
             extra_plan = dict(question_plan[extra_index]) if extra_index < len(question_plan) else {}
@@ -1418,10 +1753,20 @@ class InterviewService:
                     "support_roles": plan.get("support_roles") or [],
                     "intent": plan.get("intent") or category,
                     "evaluation_focus": plan.get("evaluation_focus") or [],
+                    "difficulty_level": plan.get("difficulty_level"),
+                    "difficulty_guidance": plan.get("difficulty_guidance"),
+                    "company_archetype": plan.get("company_archetype"),
+                    "question_strategy_summary": plan.get("question_strategy_summary"),
+                    "rubric_summary": plan.get("rubric_summary"),
+                    "routing_difficulty": plan.get("routing_difficulty"),
+                    "routing_top_k": plan.get("routing_top_k"),
+                    "followup_depth": plan.get("followup_depth"),
+                    "evidence_strictness": plan.get("evidence_strictness"),
                     "panel_context": {
                         "metadata": {
                             "fallback_generated": True,
                             "fallback_reason": fallback_reason,
+                            "difficulty_profile": fallback_profile,
                         }
                     },
                 }
@@ -1527,6 +1872,17 @@ class InterviewService:
                 "support_roles": support_roles,
                 "intent": raw.get("intent") or plan.get("intent"),
                 "evaluation_focus": evaluation_focus,
+                "difficulty_level": raw.get("difficulty_level") or plan.get("difficulty_level"),
+                "difficulty_guidance": raw.get("difficulty_guidance") or plan.get("difficulty_guidance"),
+                "company_archetype": raw.get("company_archetype") or plan.get("company_archetype"),
+                "question_strategy_summary": raw.get("question_strategy_summary") or plan.get("question_strategy_summary"),
+                "rubric_summary": raw.get("rubric_summary") or plan.get("rubric_summary"),
+                "feedback_style": raw.get("feedback_style") or plan.get("feedback_style"),
+                "routing_difficulty": raw.get("routing_difficulty") or plan.get("routing_difficulty"),
+                "routing_top_k": raw.get("routing_top_k") or plan.get("routing_top_k"),
+                "followup_depth": raw.get("followup_depth") or plan.get("followup_depth"),
+                "evidence_strictness": raw.get("evidence_strictness") or plan.get("evidence_strictness"),
+                "rag_signal_present": raw.get("rag_signal_present") if raw.get("rag_signal_present") is not None else plan.get("rag_signal_present"),
                 "selected_slices": selected_slices,
                 "used_slice_ids": requested_ids or [],
                 "evidence_trace": InterviewService._build_evidence_trace(
@@ -1604,13 +1960,17 @@ class InterviewService:
     def _build_question_scores(questions: List[Dict]) -> List[Dict]:
         items = []
         for question in questions:
+            safe_question = InterviewService._sanitize_question_public_fields(question)
             items.append(
                 {
-                    "question": question.get("question"),
-                    "score": float(question.get("score") or 0),
-                    "feedback": question.get("feedback") or "",
-                    "category": question.get("category"),
-                    "lead_role": question.get("lead_role"),
+                    "question": safe_question.get("question"),
+                    "score": float(safe_question.get("score") or 0),
+                    "feedback": safe_question.get("feedback") or "",
+                    "category": safe_question.get("category"),
+                    "lead_role": safe_question.get("lead_role"),
+                    "difficulty_level": safe_question.get("difficulty_level"),
+                    "difficulty_guidance": safe_question.get("difficulty_guidance"),
+                    "rubric_summary": safe_question.get("rubric_summary"),
                 }
             )
         return items
@@ -1630,6 +1990,10 @@ class InterviewService:
                     "lead_role": question.get("lead_role"),
                     "support_roles": question.get("support_roles") or [],
                     "intent": question.get("intent"),
+                    "difficulty_level": question.get("difficulty_level"),
+                    "company_archetype": question.get("company_archetype"),
+                    "question_strategy_summary": question.get("question_strategy_summary"),
+                    "rubric_summary": question.get("rubric_summary"),
                     "evaluation_focus": question.get("evaluation_focus") or [],
                     "selected_slices": question.get("selected_slices") or [],
                     "used_slice_ids": question.get("used_slice_ids") or [],
@@ -1932,11 +2296,20 @@ class InterviewService:
         resume_text = InterviewService._resume_route_text(parsed_resume)
         resume_skills = InterviewService._route_values_to_texts(parsed_resume.get("skills"), 12)
         resume_projects = InterviewService._route_values_to_texts(parsed_resume.get("projects"), 6)
+        routing_difficulty = (
+            question_meta.get("routing_difficulty")
+            or InterviewService._difficulty_profile(difficulty)["routing_difficulty"]
+        )
+        try:
+            routing_top_k = int(question_meta.get("routing_top_k") or 2)
+        except (TypeError, ValueError):
+            routing_top_k = 2
         query_parts = [
             target_position,
             resume_text,
             question_meta.get("question") or "",
             question_meta.get("intent") or "",
+            question_meta.get("difficulty_guidance") or "",
             " ".join(question_meta.get("evaluation_focus") or []),
             " ".join(context_terms or []),
         ]
@@ -1947,11 +2320,11 @@ class InterviewService:
                 stage=question_meta.get("stage"),
                 role=question_meta.get("lead_role"),
                 scene=question_meta.get("category") or question_meta.get("stage"),
-                difficulty=difficulty,
+                difficulty=routing_difficulty,
                 skills=resume_skills[:8],
                 topics=[target_position, *(resume_projects[:2])],
                 weakness_terms=context_terms or [],
-                top_k=2,
+                top_k=max(2, min(routing_top_k, 4)),
             )
         except Exception as exc:
             logger.warning("Question slice reroute failed for question index=%s: %s", question_meta.get("index"), exc)
@@ -3421,6 +3794,8 @@ class InterviewService:
         data_contribution_consent: Optional[bool] = None,
         privacy_consent_snapshot: Optional[Dict[str, Any]] = None,
     ) -> Dict:
+        difficulty = InterviewService._normalize_difficulty(difficulty)
+        difficulty_profile = InterviewService._public_difficulty_profile(difficulty)
         result = await db.execute(
             select(Resume).where(
                 Resume.id == resume_id,
@@ -3472,17 +3847,8 @@ class InterviewService:
             matching_metrics=matching_metrics,
         )
         resume_evidence = InterviewService._load_resume_evidence(resume)
-        try:
-            interview_blueprint = await AIService.extract_interview_blueprint(
-                parsed_resume=parsed_resume,
-                target_position=target_position,
-                resume_evidence=resume_evidence,
-                knowledge_base=knowledge_base_context,
-                question_plan=question_plan,
-                ai_config=ai_config,
-            )
-        except Exception as exc:
-            logger.warning("Interview blueprint generation failed, using fallback: %s", exc)
+        interview_mode = "panel" if multi_interviewer_enabled else "single"
+        if interview_mode == "panel":
             interview_blueprint = AIService.build_interview_blueprint_fallback(
                 parsed_resume=parsed_resume,
                 target_position=target_position,
@@ -3490,28 +3856,54 @@ class InterviewService:
                 knowledge_base=knowledge_base_context,
                 question_plan=question_plan,
             )
+        else:
+            try:
+                interview_blueprint = await AIService.extract_interview_blueprint(
+                    parsed_resume=parsed_resume,
+                    target_position=target_position,
+                    resume_evidence=resume_evidence,
+                    knowledge_base=knowledge_base_context,
+                    question_plan=question_plan,
+                    ai_config=ai_config,
+                )
+            except ValidationError as exc:
+                raise ValidationError(
+                    message=InterviewService._format_start_interview_error(exc.detail)
+                ) from exc
+            except Exception as exc:
+                logger.warning("Interview blueprint generation failed, using fallback: %s", exc)
+                interview_blueprint = AIService.build_interview_blueprint_fallback(
+                    parsed_resume=parsed_resume,
+                    target_position=target_position,
+                    resume_evidence=resume_evidence,
+                    knowledge_base=knowledge_base_context,
+                    question_plan=question_plan,
+                )
         question_plan = InterviewService._apply_blueprint_to_question_plan(
             question_plan=question_plan,
             interview_blueprint=interview_blueprint,
         )
 
-        interview_mode = "panel" if multi_interviewer_enabled else "single"
         panel_snapshot = InterviewService._build_panel_snapshot(interview_mode)
         if interview_blueprint:
             panel_snapshot["interview_blueprint"] = interview_blueprint
 
-        try:
-            if interview_mode == "panel":
-                panel_payload = await AIService.generate_panel_questions(
-                    parsed_resume=parsed_resume,
-                    target_position=target_position,
-                    difficulty=difficulty,
-                    count=total_questions,
-                    question_plan=question_plan,
-                    knowledge_base=knowledge_base_context,
-                    panel_snapshot=panel_snapshot,
-                    interview_blueprint=interview_blueprint,
-                    ai_config=ai_config,
+        if interview_mode == "panel":
+            try:
+                panel_payload = await asyncio.wait_for(
+                    AIService.generate_panel_questions(
+                        parsed_resume=parsed_resume,
+                        target_position=target_position,
+                        difficulty=difficulty,
+                        count=total_questions,
+                        question_plan=question_plan,
+                        knowledge_base=knowledge_base_context,
+                        panel_snapshot=panel_snapshot,
+                        interview_blueprint=interview_blueprint,
+                        ai_config=ai_config,
+                        allow_json_repair=False,
+                    ),
+                    timeout=START_PANEL_QUESTION_TIMEOUT_SECONDS,
                 )
                 if panel_payload.get("moderator_style"):
                     panel_snapshot["moderator_style"] = panel_payload["moderator_style"]
@@ -3527,7 +3919,77 @@ class InterviewService:
                     question_plan=question_plan,
                     interview_mode="panel",
                 )
-            else:
+                InterviewService._set_panel_generation_metadata(
+                    panel_snapshot,
+                    generation_strategy="llm_panel_start",
+                    panel_status="active",
+                )
+            except ValidationError as exc:
+                if not InterviewService._is_question_generation_validation_error(exc):
+                    raise ValidationError(
+                        message=InterviewService._format_start_interview_error(exc.detail)
+                    ) from exc
+                logger.warning("Panel question generation returned invalid payload, using deterministic fallback: %s", exc)
+                raw_questions = InterviewService._build_deterministic_question_fallback(
+                    question_plan=question_plan,
+                    parsed_resume=parsed_resume,
+                    target_position=target_position,
+                    total_questions=total_questions,
+                    fallback_reason="panel_question_generation_invalid",
+                )
+                questions = InterviewService._normalize_questions(
+                    raw_questions=raw_questions,
+                    question_plan=question_plan,
+                    interview_mode="panel",
+                )
+                InterviewService._set_panel_generation_metadata(
+                    panel_snapshot,
+                    generation_strategy="deterministic_start_fallback",
+                    panel_status="active_fallback",
+                    fallback_reason="panel_question_generation_invalid",
+                )
+            except asyncio.TimeoutError as exc:
+                logger.warning("Panel question generation timed out, using deterministic fallback")
+                raw_questions = InterviewService._build_deterministic_question_fallback(
+                    question_plan=question_plan,
+                    parsed_resume=parsed_resume,
+                    target_position=target_position,
+                    total_questions=total_questions,
+                    fallback_reason="panel_question_generation_timeout",
+                )
+                questions = InterviewService._normalize_questions(
+                    raw_questions=raw_questions,
+                    question_plan=question_plan,
+                    interview_mode="panel",
+                )
+                InterviewService._set_panel_generation_metadata(
+                    panel_snapshot,
+                    generation_strategy="deterministic_start_fallback",
+                    panel_status="active_fallback",
+                    fallback_reason="panel_question_generation_timeout",
+                )
+            except Exception as exc:
+                logger.warning("Panel question generation failed, using deterministic fallback: %s", exc)
+                raw_questions = InterviewService._build_deterministic_question_fallback(
+                    question_plan=question_plan,
+                    parsed_resume=parsed_resume,
+                    target_position=target_position,
+                    total_questions=total_questions,
+                    fallback_reason="panel_question_generation_failed",
+                )
+                questions = InterviewService._normalize_questions(
+                    raw_questions=raw_questions,
+                    question_plan=question_plan,
+                    interview_mode="panel",
+                )
+                InterviewService._set_panel_generation_metadata(
+                    panel_snapshot,
+                    generation_strategy="deterministic_start_fallback",
+                    panel_status="active_fallback",
+                    fallback_reason="panel_question_generation_failed",
+                )
+        else:
+            try:
                 raw_questions = await AIService.generate_questions(
                     parsed_resume=parsed_resume,
                     target_position=target_position,
@@ -3543,108 +4005,35 @@ class InterviewService:
                     question_plan=question_plan,
                     interview_mode="single",
                 )
-        except ValidationError as exc:
-            if not InterviewService._is_question_generation_validation_error(exc):
-                raise ValidationError(
-                    message=InterviewService._format_start_interview_error(exc.detail)
-                ) from exc
-            logger.warning("Question generation returned invalid payload, using deterministic fallback: %s", exc)
-            raw_questions = InterviewService._build_deterministic_question_fallback(
-                question_plan=question_plan,
-                parsed_resume=parsed_resume,
-                target_position=target_position,
-                total_questions=total_questions,
-            )
-            questions = InterviewService._normalize_questions(
-                raw_questions=raw_questions,
-                question_plan=question_plan,
-                interview_mode="single",
-            )
-            panel_snapshot = InterviewService._build_panel_snapshot(
-                mode="single",
-                requested_panel=interview_mode == "panel",
-                fallback_reason="question_generation_failed",
-            )
-            if interview_blueprint:
-                panel_snapshot["interview_blueprint"] = interview_blueprint
-            interview_mode = "single"
-        except Exception as exc:
-            if interview_mode == "panel":
-                logger.warning("Panel question generation failed, fallback to single mode: %s", exc)
-                try:
-                    raw_questions = await AIService.generate_questions(
-                        parsed_resume=parsed_resume,
-                        target_position=target_position,
-                        difficulty=difficulty,
-                        count=total_questions,
-                        knowledge_base=knowledge_base_context,
-                        question_plan=question_plan,
-                        interview_blueprint=interview_blueprint,
-                        ai_config=ai_config,
-                    )
-                    questions = InterviewService._normalize_questions(
-                        raw_questions=raw_questions,
-                        question_plan=question_plan,
-                        interview_mode="single",
-                    )
-                    interview_mode = "single"
-                    panel_snapshot = InterviewService._build_panel_snapshot(
-                        mode="single",
-                        requested_panel=True,
-                        fallback_reason="panel_generation_failed",
-                    )
-                    if interview_blueprint:
-                        panel_snapshot["interview_blueprint"] = interview_blueprint
-                except ValidationError as inner_exc:
-                    if not InterviewService._is_question_generation_validation_error(inner_exc):
-                        raise ValidationError(
-                            message=InterviewService._format_start_interview_error(inner_exc.detail)
-                        ) from inner_exc
-                    logger.warning(
-                        "Single question fallback returned invalid payload, using deterministic fallback: %s",
-                        inner_exc,
-                    )
-                    raw_questions = InterviewService._build_deterministic_question_fallback(
-                        question_plan=question_plan,
-                        parsed_resume=parsed_resume,
-                        target_position=target_position,
-                        total_questions=total_questions,
-                    )
-                    questions = InterviewService._normalize_questions(
-                        raw_questions=raw_questions,
-                        question_plan=question_plan,
-                        interview_mode="single",
-                    )
-                    interview_mode = "single"
-                    panel_snapshot = InterviewService._build_panel_snapshot(
-                        mode="single",
-                        requested_panel=True,
-                        fallback_reason="question_generation_failed",
-                    )
-                    if interview_blueprint:
-                        panel_snapshot["interview_blueprint"] = interview_blueprint
-                except Exception as inner_exc:
-                    logger.exception("Single question fallback failed, using deterministic fallback: %s", inner_exc)
-                    raw_questions = InterviewService._build_deterministic_question_fallback(
-                        question_plan=question_plan,
-                        parsed_resume=parsed_resume,
-                        target_position=target_position,
-                        total_questions=total_questions,
-                    )
-                    questions = InterviewService._normalize_questions(
-                        raw_questions=raw_questions,
-                        question_plan=question_plan,
-                        interview_mode="single",
-                    )
-                    interview_mode = "single"
-                    panel_snapshot = InterviewService._build_panel_snapshot(
-                        mode="single",
-                        requested_panel=True,
-                        fallback_reason="question_generation_failed",
-                    )
-                    if interview_blueprint:
-                        panel_snapshot["interview_blueprint"] = interview_blueprint
-            else:
+                InterviewService._set_panel_generation_metadata(
+                    panel_snapshot,
+                    generation_strategy="llm_single_start",
+                    panel_status="single_active",
+                )
+            except ValidationError as exc:
+                if not InterviewService._is_question_generation_validation_error(exc):
+                    raise ValidationError(
+                        message=InterviewService._format_start_interview_error(exc.detail)
+                    ) from exc
+                logger.warning("Question generation returned invalid payload, using deterministic fallback: %s", exc)
+                raw_questions = InterviewService._build_deterministic_question_fallback(
+                    question_plan=question_plan,
+                    parsed_resume=parsed_resume,
+                    target_position=target_position,
+                    total_questions=total_questions,
+                )
+                questions = InterviewService._normalize_questions(
+                    raw_questions=raw_questions,
+                    question_plan=question_plan,
+                    interview_mode="single",
+                )
+                InterviewService._set_panel_generation_metadata(
+                    panel_snapshot,
+                    generation_strategy="deterministic_start_fallback",
+                    panel_status="single_fallback",
+                    fallback_reason="question_generation_failed",
+                )
+            except Exception as exc:
                 logger.exception("Question generation failed, using deterministic fallback: %s", exc)
                 raw_questions = InterviewService._build_deterministic_question_fallback(
                     question_plan=question_plan,
@@ -3664,7 +4053,12 @@ class InterviewService:
                 )
                 if interview_blueprint:
                     panel_snapshot["interview_blueprint"] = interview_blueprint
-                interview_mode = "single"
+                InterviewService._set_panel_generation_metadata(
+                    panel_snapshot,
+                    generation_strategy="deterministic_start_fallback",
+                    panel_status="single_fallback",
+                    fallback_reason="question_generation_failed",
+                )
 
         runtime_snapshot = InterviewService._sanitize_ai_runtime_config(ai_config)
         if runtime_snapshot:
@@ -3729,6 +4123,17 @@ class InterviewService:
             "total_questions": total_questions,
             "knowledge_base_title": knowledge_base_context["title"] if knowledge_base_context else None,
             "interview_mode": interview_mode,
+            "difficulty_profile": difficulty_profile,
+            "company_archetype": difficulty_profile["company_archetype"],
+            "question_strategy_summary": difficulty_profile["question_strategy_summary"],
+            "rubric_summary": difficulty_profile["rubric_summary"],
+            "requested_interview_mode": "panel" if multi_interviewer_enabled else "single",
+            "effective_interview_mode": interview_mode,
+            "panel_status": panel_snapshot.get("panel_status")
+            or (panel_snapshot.get("metadata") or {}).get("panel_status"),
+            "fallback_reason": panel_snapshot.get("fallback_reason")
+            or (panel_snapshot.get("metadata") or {}).get("fallback_reason"),
+            "generation_strategy": (panel_snapshot.get("metadata") or {}).get("generation_strategy"),
             "training_focus": interview_blueprint.get("training_focus") or [],
             "high_risk_claims": InterviewService._blueprint_claim_strings(interview_blueprint),
             "blueprint_evidence_summary": (
@@ -4102,6 +4507,10 @@ class InterviewService:
             report_signals=report_signals,
             interview_mode=interview.interview_mode,
         )
+        difficulty = InterviewService._normalize_difficulty(getattr(interview, "difficulty", None))
+        difficulty_profile = InterviewService._public_difficulty_profile(difficulty)
+        report["difficulty"] = difficulty
+        report["difficulty_profile"] = difficulty_profile
         if interview.resume_id and not report.get("resume_evaluation_snapshot"):
             resume = await db.get(Resume, interview.resume_id)
             if resume:
@@ -4125,6 +4534,11 @@ class InterviewService:
             "overall_score": float(interview.overall_score) if interview.overall_score else 0,
             "total_questions": interview.total_questions,
             "interview_mode": interview.interview_mode,
+            "difficulty": difficulty,
+            "difficulty_profile": difficulty_profile,
+            "company_archetype": difficulty_profile["company_archetype"],
+            "question_strategy_summary": difficulty_profile["question_strategy_summary"],
+            "rubric_summary": difficulty_profile["rubric_summary"],
             "data_contribution_consent": bool(getattr(interview, "data_contribution_consent", False)),
             "privacy_consent_snapshot": getattr(interview, "privacy_consent_snapshot", None),
             "knowledge_base": interview.knowledge_base_snapshot,
@@ -4315,11 +4729,19 @@ class InterviewService:
             }
             for item in messages
         ]
+        difficulty = InterviewService._normalize_difficulty(getattr(interview, "difficulty", None))
+        difficulty_profile = InterviewService._public_difficulty_profile(difficulty)
         return {
             "items": items,
             "status": interview.status,
             "current_question_index": interview.current_question_index,
             "total_questions": interview.total_questions,
+            "interview_mode": interview.interview_mode,
+            "difficulty": difficulty,
+            "difficulty_profile": difficulty_profile,
+            "company_archetype": difficulty_profile["company_archetype"],
+            "question_strategy_summary": difficulty_profile["question_strategy_summary"],
+            "rubric_summary": difficulty_profile["rubric_summary"],
         }
 
     @staticmethod

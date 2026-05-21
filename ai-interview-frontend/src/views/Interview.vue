@@ -74,6 +74,12 @@
       </p>
     </div>
 
+    <div v-if="!preparing && !loadError" class="difficulty-status-card">
+      <strong>{{ difficultyProfile.public_label }} · {{ difficultyProfile.company_archetype }}</strong>
+      <span>{{ difficultyProfile.question_strategy_summary }}</span>
+      <em>评分标尺：{{ difficultyProfile.rubric_summary }}</em>
+    </div>
+
     <div v-if="!preparing && !loadError && isPanelMode" class="panel-status-card">
       <div class="panel-status-top">
         <div>
@@ -87,6 +93,9 @@
       <div class="panel-role-tags">
         <span v-for="item in panelRoleHints" :key="item" class="panel-role-tag">{{ item }}</span>
       </div>
+      <p v-if="panelFallbackNotice" class="panel-fallback-note">
+        {{ panelFallbackNotice }}
+      </p>
       <details v-if="latestRoundSummary" class="round-summary">
         <summary>最近一轮内部评估</summary>
         <p v-if="latestRoundSummary.feedback" class="round-summary-feedback">
@@ -168,7 +177,7 @@
       <div class="round-feedback-bar">
         <div class="round-feedback-main">
           <strong>上一题评分 {{ roundSummaryScoreText }}</strong>
-          <span>{{ safeText(latestRoundSummary.questionTargetGap || latestRoundSummary.feedback || '本轮评估已完成，可以继续回答下一题。') }}</span>
+          <span>按{{ difficultyProfile.public_label }}档位：{{ safeText(latestRoundSummary.questionTargetGap || latestRoundSummary.feedback || '本轮评估已完成，可以继续回答下一题。') }}</span>
         </div>
         <div class="round-feedback-actions">
           <button
@@ -291,6 +300,7 @@ import { useAuthStore } from '../stores/auth'
 import { getMessages, submitAnswerStream } from '../api/interview'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import { isAiConfigError } from '../utils/aiConfigError'
+import { getInterviewDifficultyProfile } from '../utils/interviewDifficulty'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -331,6 +341,10 @@ const userInitial = computed(() => {
 })
 const interviewMode = computed(() => interviewMeta.value?.interviewMode || route.query.mode || 'single')
 const isPanelMode = computed(() => interviewMode.value === 'panel')
+const difficultyProfile = computed(() => getInterviewDifficultyProfile(
+  interviewMeta.value?.difficulty || route.query.difficulty || 'medium',
+  interviewMeta.value?.difficultyProfile || null
+))
 const trainingFocus = computed(() => {
   const items = interviewMeta.value?.trainingFocus
   return Array.isArray(items) ? items.slice(0, 3) : []
@@ -349,6 +363,16 @@ const hasBlueprintCard = computed(() => {
 const interviewModeLabel = computed(() => {
   return interviewMode.value === 'panel' ? '多角色协同评估' : '单面试官模式'
 })
+const panelFallbackNotice = computed(() => {
+  const meta = interviewMeta.value || {}
+  if (meta.requestedInterviewMode === 'panel' && meta.effectiveInterviewMode === 'single') {
+    return '你请求了多面试官模式，但启动阶段已自动降级为单面试官；建议稍后重试多面试官模式。'
+  }
+  if (meta.interviewMode === 'panel' && meta.panelGenerationStrategy === 'deterministic_start_fallback') {
+    return '多面试官已启用；启动阶段使用快速兜底题目，后续答题仍会走多角色协同评估。'
+  }
+  return ''
+})
 const roundSummaryScoreText = computed(() => {
   const value = latestRoundSummary.value?.score
   if (value === null || value === undefined || value === '') return '-/10'
@@ -366,10 +390,12 @@ function loadInterviewMeta() {
   }
 
   const queryMode = typeof route.query.mode === 'string' ? route.query.mode : ''
+  const queryDifficulty = typeof route.query.difficulty === 'string' ? route.query.difficulty : ''
   const queryTotal = Number(route.query.total || 0)
   interviewMeta.value = {
     ...(storedMeta || {}),
     interviewMode: queryMode || storedMeta?.interviewMode || 'single',
+    difficulty: queryDifficulty || storedMeta?.difficulty || storedMeta?.difficultyProfile?.level || 'medium',
     totalQuestions: queryTotal || storedMeta?.totalQuestions || totalQuestions.value
   }
 
@@ -390,6 +416,19 @@ function hydrateMessages(data) {
     }
     if (data.status === 'completed') {
       finished.value = true
+    }
+    const nextDifficulty = data.difficulty_profile?.level || data.difficulty
+    if (nextDifficulty || data.interview_mode) {
+      interviewMeta.value = {
+        ...(interviewMeta.value || {}),
+        interviewMode: data.interview_mode || interviewMeta.value?.interviewMode || 'single',
+        difficulty: nextDifficulty || interviewMeta.value?.difficulty || 'medium',
+        difficultyProfile: data.difficulty_profile || interviewMeta.value?.difficultyProfile || null,
+        companyArchetype: data.company_archetype || interviewMeta.value?.companyArchetype || '',
+        questionStrategySummary: data.question_strategy_summary || interviewMeta.value?.questionStrategySummary || '',
+        rubricSummary: data.rubric_summary || interviewMeta.value?.rubricSummary || '',
+        totalQuestions: totalQuestions.value
+      }
     }
   }
   messages.value = safeList.map(item => ({
@@ -510,7 +549,7 @@ function formatConfidenceLevel(level) {
 
 function hasInternalPromptLeak(text) {
   const value = String(text || '')
-  return /Blueprint\s+priority|blueprint[_\s-]*track|blueprint[_\s-]*priority|role[_\s-]*calibration|Assess\s+boundary|Place\s+the\s+candidate|Question\s+plan|Question\s+reason|Question\s+target\s+gap|Evaluation\s+focus|Interview\s+routing\s+context|Interview\s+blueprint|Internal\s+panel|Internal\s+roles|Moderator\s+name|Plan\s*#|Lead\s+role|Support\s+roles|Requirement\s+status|Candidate\s+evidence|Suggested\s+followups|question_plan|candidate_evidence|verification_reason|stage\/category\/intent|lead_role|support_roles|assessment_points|selected_questions|used_slice_ids|routed[_\s-]*slice|routed\s+slices|evaluation_focus|selected_followups|chain[-\s]?of[-\s]?thought|Use\s+the\s+self[-\s]?introduction|Deep[-\s]?dive\s+the\s+most\s+important\s+project|Validate\s+mastery\s+of\s+core\s+knowledge|Evaluate\s+collaboration|Use\s+debugging\s+or\s+optimization|Further\s+verify\s+role\s+boundaries|Use\s+business\s+changes|Close\s+the\s+interview|Probe\s+technical\s+depth|\b(stage|category|intent|moderator|schema|step|type|goal|priority|focus|blueprint)\b\s*[:=]/i.test(value)
+  return /Blueprint\s+priority|blueprint[_\s-]*track|blueprint[_\s-]*priority|role[_\s-]*calibration|Assess\s+boundary|Place\s+the\s+candidate|Question\s+plan|Question\s+reason|Question\s+target\s+gap|Evaluation\s+focus|Interview\s+routing\s+context|Interview\s+blueprint|Internal\s+panel|Internal\s+roles|Moderator\s+name|Plan\s*#|Lead\s+role|Support\s+roles|Requirement\s+status|Candidate\s+evidence|Suggested\s+followups|question_plan|candidate_evidence|verification_reason|stage\/category\/intent|lead_role|support_roles|assessment_points|selected_questions|used_slice_ids|routed[_\s-]*slice|routed\s+slices|evaluation_focus|selected_followups|chain[-\s]?of[-\s]?thought|Use\s+the\s+self[-\s]?introduction|Deep[-\s]?dive\s+the\s+most\s+important\s+project|Validate\s+mastery\s+of\s+core\s+knowledge|Evaluate\s+collaboration|Use\s+debugging\s+or\s+optimization|Further\s+verify\s+role\s+boundaries|Use\s+business\s+changes|Close\s+the\s+interview|Probe\s+technical\s+depth|题目计划|评估重点|主持人推理|内部面板|内部字段|候选人证据|蓝图优先级|链式思考|\b(stage|category|intent|moderator|schema|step|type|goal|priority|focus|blueprint)\b\s*[:=]/i.test(value)
 }
 
 function renderContent(text) {
@@ -848,6 +887,29 @@ async function handleSubmit() {
   color: #6b7280;
 }
 
+.difficulty-status-card {
+  margin: 12px 20px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: grid;
+  gap: 4px;
+}
+
+.difficulty-status-card strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.difficulty-status-card span,
+.difficulty-status-card em {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.55;
+  font-style: normal;
+}
+
 .panel-status-card {
   margin: 16px 20px 0;
   padding: 14px 16px;
@@ -894,6 +956,16 @@ async function handleSubmit() {
   border: 1px solid rgba(79, 70, 229, 0.08);
   color: #374151;
   font-size: 12px;
+}
+
+.panel-fallback-note {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #374151;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .round-summary {

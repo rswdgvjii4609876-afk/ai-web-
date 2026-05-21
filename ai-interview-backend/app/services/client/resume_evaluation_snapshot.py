@@ -142,10 +142,23 @@ def build_resume_evaluation_snapshot(
             "tfidf_semantic_score": _score(metrics, analysis_payload, "tfidf_semantic_score"),
             "rule_score": _score(metrics, analysis_payload, "rule_score"),
             "llm_score_reference": metrics.get("llm_score_reference"),
+            "skill_presence_score": _score(metrics, analysis_payload, "skill_presence_score"),
+            "evidence_depth_score": _score(metrics, analysis_payload, "evidence_depth_score"),
+            "declared_skill_score_floor": _score(metrics, analysis_payload, "declared_skill_score_floor"),
         },
         "keyword_evidence": _keyword_evidence(metrics, analysis_payload),
         "ability_profile": ability_profile,
         "learning_priority_summary": _learning_priority(metrics, analysis_payload, existing),
+        "verification_priority_summary": _list(
+            existing.get("verification_priority_summary")
+            or analysis_payload.get("verification_priority_summary")
+            or metrics.get("verification_priority_summary")
+        ),
+        "learning_gap_summary": _list(
+            existing.get("learning_gap_summary")
+            or analysis_payload.get("learning_gap_summary")
+            or metrics.get("learning_gap_summary")
+        ),
         "learning_plan": learning_plan,
         "verification_targets": _verification_targets(ability_profile),
         "compatibility_fields": [
@@ -187,6 +200,14 @@ def ensure_resume_evaluation_snapshot(
         payload.setdefault("learning_priority_summary", snapshot["learning_priority_summary"])
         if metrics and not metrics.get("learning_priority_summary"):
             metrics["learning_priority_summary"] = snapshot["learning_priority_summary"]
+    if snapshot.get("verification_priority_summary"):
+        payload.setdefault("verification_priority_summary", snapshot["verification_priority_summary"])
+        if metrics and not metrics.get("verification_priority_summary"):
+            metrics["verification_priority_summary"] = snapshot["verification_priority_summary"]
+    if snapshot.get("learning_gap_summary"):
+        payload.setdefault("learning_gap_summary", snapshot["learning_gap_summary"])
+        if metrics and not metrics.get("learning_gap_summary"):
+            metrics["learning_gap_summary"] = snapshot["learning_gap_summary"]
 
     if metrics:
         metrics.setdefault("resume_evaluation_snapshot", snapshot)
@@ -219,4 +240,10 @@ def matching_metrics_from_payload(payload: Optional[Dict[str, Any]]) -> Dict[str
         metrics.setdefault("ability_gap_profile", _dict(snapshot.get("ability_profile")))
         metrics.setdefault("learning_plan", _dict(snapshot.get("learning_plan")))
         metrics.setdefault("learning_priority_summary", _list(snapshot.get("learning_priority_summary")))
+        metrics.setdefault("verification_priority_summary", _list(snapshot.get("verification_priority_summary")))
+        metrics.setdefault("learning_gap_summary", _list(snapshot.get("learning_gap_summary")))
+        scores = _dict(snapshot.get("scores"))
+        for key in ("skill_presence_score", "evidence_depth_score", "declared_skill_score_floor"):
+            if scores.get(key) is not None:
+                metrics.setdefault(key, scores.get(key))
     return metrics

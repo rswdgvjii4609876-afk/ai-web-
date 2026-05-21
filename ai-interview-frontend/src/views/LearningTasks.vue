@@ -30,7 +30,7 @@
       <div class="generator-head">
         <div>
           <p class="eyebrow">生成学习计划</p>
-          <h2>把缺失能力生成可编辑任务</h2>
+          <h2>把待验证和待补强能力生成可编辑任务</h2>
           <p>
             可以选择 AI 根据后台基础路线生成，也可以直接使用后台维护的成熟计划。补充资料只适合放链接、摘要和小段文本，不要上传大型文件。
           </p>
@@ -53,11 +53,11 @@
           </select>
         </label>
         <label>
-          缺失能力
+          待验证 / 待补强能力
           <textarea
             v-model="planForm.abilities_text"
             rows="4"
-            placeholder="每行一个能力，例如：FastAPI 接口设计&#10;SQL 查询与事务&#10;项目复盘表达"
+            placeholder="每行一个能力，例如：FastAPI 接口设计&#10;SQL 查询与事务&#10;项目复盘表达。已声明但缺少项目证据的能力会生成“准备验证证据”任务。"
           ></textarea>
         </label>
         <label>
@@ -396,11 +396,31 @@ async function loadPlanOptions() {
 }
 
 function planAbilities() {
+  const optionMap = new Map((planOptions.value.ability_options || [])
+    .map(item => [String(item.ability_name || item.name || item.title || '').trim(), item])
+    .filter(([name]) => Boolean(name)))
   return String(planForm.value.abilities_text || '')
     .split(/\r?\n|,|，/)
     .map(item => item.trim())
     .filter(Boolean)
-    .map((name, index) => ({ ability_id: `manual_${index + 1}`, name, missing_keywords: [name] }))
+    .map((name, index) => {
+      const option = optionMap.get(name)
+      if (option) {
+        return {
+          ...option,
+          name: option.ability_name || option.name || name,
+          ability_id: option.ability_id || `option_${index + 1}`,
+          action_type: option.action_type || (option.evidence_status === 'claimed_only' ? 'interview_verification' : 'learning_gap')
+        }
+      }
+      return {
+        ability_id: `manual_${index + 1}`,
+        name,
+        missing_keywords: [name],
+        evidence_status: 'missing',
+        action_type: 'learning_gap'
+      }
+    })
 }
 
 function normalizeDraftTask(task, index) {
@@ -433,7 +453,7 @@ async function handleGeneratePlan() {
     return
   }
   if (!abilities.length) {
-    setMessage('请至少填写 1 个缺失能力。', 'error')
+    setMessage('请至少填写 1 个待验证或待补强能力。', 'error')
     return
   }
   generatingPlan.value = true

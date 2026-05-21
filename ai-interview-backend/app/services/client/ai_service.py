@@ -1,4 +1,5 @@
 import ast
+import hashlib
 import json
 import logging
 import re
@@ -343,29 +344,101 @@ class AIService:
                 return AIService._parse_json_candidate(candidate)
             except (json.JSONDecodeError, SyntaxError, ValueError) as exc:
                 last_error = exc
-        preview = payload[:400].replace("\n", "\\n")
-        logger.warning("AI JSON extraction failed. preview=%s", preview)
+        payload_hash = hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()[:12]
+        logger.warning("AI JSON extraction failed. length=%s sha256_12=%s", len(payload), payload_hash)
         if isinstance(last_error, json.JSONDecodeError):
             raise last_error
         raise json.JSONDecodeError("Unable to decode JSON response", payload, 0)
+
+    @staticmethod
+    def _json_contract_error(message: str, parser_label: str = "structured_output") -> json.JSONDecodeError:
+        return json.JSONDecodeError(f"{parser_label}: {message}", "", 0)
+
+    @staticmethod
+    def _validate_structured_json_payload(
+        payload: Any,
+        expected_type: Optional[Any] = None,
+        required_keys: Optional[Sequence[str]] = None,
+        parser_label: str = "structured_output",
+    ) -> Any:
+        if expected_type:
+            if isinstance(expected_type, str):
+                expected_types = {expected_type}
+            else:
+                expected_types = {str(item) for item in expected_type}
+            matches_type = (
+                ("object" in expected_types and isinstance(payload, dict))
+                or ("array" in expected_types and isinstance(payload, list))
+                or ("list" in expected_types and isinstance(payload, list))
+            )
+            if not matches_type:
+                actual = type(payload).__name__
+                expected = "/".join(sorted(expected_types))
+                raise AIService._json_contract_error(
+                    f"expected {expected}, got {actual}",
+                    parser_label,
+                )
+
+        if required_keys:
+            if not isinstance(payload, dict):
+                raise AIService._json_contract_error(
+                    "required keys need JSON object payload",
+                    parser_label,
+                )
+            missing = [key for key in required_keys if key not in payload]
+            if missing:
+                raise AIService._json_contract_error(
+                    "missing required keys: " + ", ".join(missing),
+                    parser_label,
+                )
+        return payload
+
     @staticmethod
     async def _extract_or_repair_json(
         raw_text: str,
         schema_hint: str,
         ai_config: Optional[Dict] = None,
+        allow_repair: bool = True,
+        expected_type: Optional[Any] = None,
+        required_keys: Optional[Sequence[str]] = None,
+        max_repair_rounds: int = 1,
+        parser_label: str = "structured_output",
     ) -> Any:
+        last_error: Optional[json.JSONDecodeError] = None
+        current_text = raw_text
         try:
-            return AIService._extract_json(raw_text)
-        except json.JSONDecodeError:
-            logger.warning("AI JSON malformed, attempting one repair round")
-            repaired = await AIService._chat(
+            payload = AIService._extract_json(current_text)
+            return AIService._validate_structured_json_payload(
+                payload,
+                expected_type=expected_type,
+                required_keys=required_keys,
+                parser_label=parser_label,
+            )
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            if not allow_repair or max_repair_rounds <= 0:
+                raise
+
+        repair_rounds = max(0, min(int(max_repair_rounds or 0), 3))
+        for round_index in range(repair_rounds):
+            logger.warning(
+                "AI JSON malformed or contract-invalid, attempting repair round %s/%s parser=%s error=%s",
+                round_index + 1,
+                repair_rounds,
+                parser_label,
+                last_error,
+            )
+            current_text = await AIService._chat(
                 [
                     {
                         "role": "system",
                         "content": (
                             "You repair malformed structured output. "
                             "Return valid JSON only. "
-                            "Do not add commentary or markdown fences."
+                            "Do not add commentary or markdown fences. "
+                            "Only repair JSON syntax and shape. Preserve the original meaning. "
+                            "Do not invent candidate experience, metrics, project facts, company names, dates, or outcomes. "
+                            "If a required field is missing and cannot be inferred from the original content, use an empty string, empty array, null, or false as appropriate."
                         ),
                     },
                     {
@@ -373,14 +446,29 @@ class AIService:
                         "content": (
                             f"Repair the following content into valid JSON.\n"
                             f"Required schema hint: {schema_hint}\n"
-                            f"Original content:\n{raw_text}"
+                            f"Expected type: {expected_type or '-'}\n"
+                            f"Required keys: {', '.join(required_keys or []) or '-'}\n"
+                            f"Original content:\n{current_text}"
                         ),
                     },
                 ],
                 temperature=0,
                 ai_config=ai_config,
             )
-            return AIService._extract_json(repaired)
+            try:
+                payload = AIService._extract_json(current_text)
+                return AIService._validate_structured_json_payload(
+                    payload,
+                    expected_type=expected_type,
+                    required_keys=required_keys,
+                    parser_label=parser_label,
+                )
+            except json.JSONDecodeError as exc:
+                last_error = exc
+                continue
+        if last_error:
+            raise last_error
+        raise AIService._json_contract_error("unable to repair JSON", parser_label)
     @staticmethod
     def _normalize_panel_roles(panel_snapshot: Optional[Dict]) -> List[Dict]:
         raw_roles = (panel_snapshot or {}).get("roles") or []
@@ -1695,6 +1783,9 @@ class AIService:
             result,
             'JSON object with keys: projects, skills, metrics, timeline_signals, role_scope, business_domain_terms, ambiguity_flags, missing_evidence_flags, followup_candidates, evidence_summary',
             ai_config=ai_config,
+            expected_type="object",
+            required_keys=["projects", "skills", "metrics", "evidence_summary"],
+            parser_label="resume_evidence",
         )
         return AIService._normalize_resume_evidence(payload)
     @staticmethod
@@ -1874,6 +1965,9 @@ class AIService:
             result,
             "JSON object with matched_requirements, weakly_supported_requirements, unsupported_requirements, high_risk_claims, role_calibration_claims, priority_question_tracks, training_focus, blueprint_evidence, evidence_summary",
             ai_config=ai_config,
+            expected_type="object",
+            required_keys=["matched_requirements", "high_risk_claims", "role_calibration_claims", "evidence_summary"],
+            parser_label="interview_blueprint",
         )
         return AIService._normalize_interview_blueprint(payload)
     @staticmethod
@@ -1993,6 +2087,10 @@ class AIService:
             evaluation_focus = item.get("evaluation_focus") or []
             if evaluation_focus:
                 lines.append(f"  assessment_points: {', '.join(evaluation_focus)}")
+            if item.get("difficulty_guidance"):
+                lines.append(f"  difficulty_contract: {item.get('difficulty_guidance')}")
+            if item.get("rubric_summary"):
+                lines.append(f"  rubric: {item.get('rubric_summary')}")
             if item.get("blueprint_track"):
                 lines.append(
                     f"  priority: {item.get('blueprint_track')} ({item.get('blueprint_requirement_status') or 'weak'})"
@@ -2220,6 +2318,9 @@ class AIService:
                 result,
                 'JSON object with keys: name, education, skills, experience, projects, summary',
                 ai_config=ai_config,
+                expected_type="object",
+                required_keys=["name", "education", "skills", "experience", "projects", "summary"],
+                parser_label="resume_parse",
             )
         except json.JSONDecodeError as exc:
             logger.warning("Resume parse JSON malformed after repair, using deterministic fallback: %s", exc)
@@ -2437,14 +2538,270 @@ class AIService:
         }
 
     @staticmethod
+    def _declared_resume_skill_terms(
+        parsed_resume: Optional[dict],
+        resume_evidence: Optional[dict] = None,
+    ) -> List[str]:
+        terms: List[str] = []
+
+        def add_term(text: str) -> None:
+            text = str(text or "").strip().strip("：:，,、；;|｜/()（）[]【】")
+            text = re.sub(r"^(熟练使用|使用过|有一定|熟悉|掌握|了解|精通|具备|会)\s*", "", text).strip()
+            if not text or len(text) > 50:
+                return
+            if text not in terms:
+                terms.append(text)
+
+        def add(value: Any) -> None:
+            text = ""
+            if isinstance(value, dict):
+                text = str(value.get("skill") or value.get("name") or value.get("title") or "")
+            else:
+                text = str(value or "")
+            text = text.strip()
+            if not text:
+                return
+            add_term(text)
+            for part in re.split(r"[、,，/；;|｜\n\t]+", text):
+                add_term(part)
+
+        for value in (parsed_resume or {}).get("skills") or []:
+            add(value)
+        for value in (resume_evidence or {}).get("skills") or []:
+            add(value)
+        return terms[:24]
+
+    @staticmethod
+    def _sanitize_resume_analysis_skill_claims(
+        analysis: Dict[str, Any],
+        declared_skills: List[str],
+    ) -> Dict[str, Any]:
+        if not isinstance(analysis, dict) or not declared_skills:
+            return analysis
+        normalized_terms = [
+            (skill, re.sub(r"\s+", "", skill).lower())
+            for skill in declared_skills
+            if skill and re.sub(r"\s+", "", skill)
+        ]
+        negative_markers = (
+            "缺少",
+            "缺乏",
+            "缺失",
+            "没有",
+            "未体现",
+            "未提供",
+            "未展示",
+            "未掌握",
+            "不会",
+            "不具备",
+            "欠缺",
+            "薄弱",
+            "短板",
+            "不足",
+            "掌握不足",
+            "经验不足",
+        )
+
+        def mentions_skill(text: str, skill_normalized: str) -> bool:
+            return bool(skill_normalized and skill_normalized in re.sub(r"\s+", "", text or "").lower())
+
+        def rewrite(text: Any) -> str:
+            original = str(text or "").strip()
+            if not original:
+                return original
+            for skill, skill_normalized in normalized_terms:
+                if mentions_skill(original, skill_normalized) and any(marker in original for marker in negative_markers):
+                    if "证据" in original or "场景" in original or "项目" in original:
+                        return original
+                    return f"{skill} 已在技能栏声明；当前缺少能证明使用深度的项目、职责边界、生产场景或结果证据。"
+            return original
+
+        def sanitize_visible(value: Any) -> Any:
+            if isinstance(value, str):
+                return rewrite(value)
+            if isinstance(value, list):
+                return [sanitize_visible(item) for item in value]
+            if isinstance(value, dict):
+                return {key: sanitize_visible(item) for key, item in value.items()}
+            return value
+
+        for key, value in list(analysis.items()):
+            if key == "missing_keywords":
+                continue
+            analysis[key] = sanitize_visible(value)
+
+        missing = analysis.get("missing_keywords")
+        if isinstance(missing, list):
+            filtered = []
+            verification_needed = AIService._string_list(analysis.get("verification_needed_keywords"), limit=12)
+            for value in missing:
+                text = str(value or "").strip()
+                if not text:
+                    continue
+                normalized = re.sub(r"\s+", "", text).lower()
+                matched_skill = next(
+                    (
+                        skill
+                        for skill, skill_normalized in normalized_terms
+                        if normalized == skill_normalized or mentions_skill(text, skill_normalized)
+                    ),
+                    "",
+                )
+                if matched_skill:
+                    rewritten = f"{matched_skill} 的可验证项目/生产场景证据"
+                    if rewritten not in verification_needed:
+                        verification_needed.append(rewritten)
+                    continue
+                filtered.append(text)
+            analysis["missing_keywords"] = filtered
+            if verification_needed:
+                analysis["verification_needed_keywords"] = verification_needed[:12]
+        return analysis
+
+    @staticmethod
+    def build_resume_analysis_fallback(
+        parsed_resume: Optional[dict],
+        target_position: str = "",
+        resume_evidence: Optional[dict] = None,
+    ) -> Dict[str, Any]:
+        resume = parsed_resume or {}
+        evidence = resume_evidence if isinstance(resume_evidence, dict) else {}
+        declared_skills = AIService._declared_resume_skill_terms(resume, evidence)
+        evidence_projects = AIService._normalize_named_evidence_list(
+            evidence.get("projects") or resume.get("projects"),
+            "title",
+            "evidence",
+            limit=5,
+        )
+        evidence_metrics = AIService._normalize_named_evidence_list(
+            evidence.get("metrics"),
+            "metric",
+            "evidence",
+            limit=5,
+        )
+        evidence_summary = AIService._string_list(evidence.get("evidence_summary"), limit=4)
+        missing_evidence_flags = AIService._string_list(evidence.get("missing_evidence_flags"), limit=4)
+
+        score = 5.5
+        if declared_skills:
+            score += 0.6
+        if evidence_projects:
+            score += 0.7
+        if evidence_metrics:
+            score += 0.3
+        if missing_evidence_flags:
+            score -= min(0.4, len(missing_evidence_flags) * 0.1)
+        score = round(max(4.5, min(score, 7.2)), 1)
+
+        strengths: List[str] = []
+        if declared_skills:
+            strengths.append("技能栏已声明：" + "、".join(declared_skills[:8]))
+        if evidence_projects:
+            project_titles = "、".join(item.get("title", "") for item in evidence_projects[:3] if item.get("title"))
+            if project_titles:
+                strengths.append("简历包含可追问项目经历：" + project_titles)
+        strengths.extend(evidence_summary[:2])
+        if not strengths:
+            strengths.append("已提供可解析的简历基础信息，可进入保守规则分析。")
+
+        weaknesses: List[str] = []
+        if declared_skills:
+            weaknesses.append(
+                "已声明的核心技能仍需要结合项目职责、生产场景、交付结果或指标进一步验证使用深度。"
+            )
+        if not evidence_projects:
+            weaknesses.append("项目经历证据不足，需要补充具体职责边界、技术动作和交付结果。")
+        if not evidence_metrics:
+            weaknesses.append("缺少量化结果或可核验指标，当前难以判断项目实际效果。")
+        weaknesses.extend(missing_evidence_flags[:2])
+
+        suggestions = [
+            "为每个核心技能补充一个对应项目场景，说明使用方式、负责范围、问题处理和结果。",
+            "面试前准备项目追问材料，重点说明自己主导、负责或参与支持的边界。",
+            "补充可核验的交付结果、性能指标、用户反馈或上线情况，提升证据深度。",
+        ]
+        if target_position:
+            suggestions.append(f"围绕{target_position}整理岗位相关项目证据，避免只停留在技能罗列。")
+
+        verification_needed = [
+            f"{skill} 的可验证项目/生产场景证据"
+            for skill in declared_skills[:12]
+        ]
+
+        return {
+            "overall_score": score,
+            "strengths": strengths[:6],
+            "weaknesses": weaknesses[:6],
+            "suggestions": suggestions[:6],
+            "keyword_match": declared_skills[:12],
+            "missing_keywords": [],
+            "verification_needed_keywords": verification_needed,
+            "summary": "AI 简历分析结构化输出异常，已使用保守规则兜底；结论仅基于已解析简历与候选人证据。",
+            "analysis_source": "deterministic_fallback",
+            "fallback_reason": "analysis_json_malformed",
+            "llm_analysis_status": "json_malformed_after_repair",
+        }
+
+    @staticmethod
+    def _normalize_resume_analysis_payload(
+        payload: Any,
+        parsed_resume: Optional[dict],
+        target_position: str,
+        resume_evidence: Optional[dict],
+    ) -> Dict[str, Any]:
+        fallback = AIService.build_resume_analysis_fallback(
+            parsed_resume,
+            target_position,
+            resume_evidence,
+        )
+        if not isinstance(payload, dict):
+            fallback["fallback_reason"] = "analysis_payload_not_object"
+            fallback["llm_analysis_status"] = "payload_not_object"
+            return fallback
+
+        normalized = dict(fallback)
+        normalized["analysis_source"] = payload.get("analysis_source") or "llm"
+        normalized.pop("fallback_reason", None)
+        normalized["llm_analysis_status"] = payload.get("llm_analysis_status") or "ok"
+
+        try:
+            normalized["overall_score"] = round(
+                max(0.0, min(float(payload.get("overall_score", fallback["overall_score"])), 10.0)),
+                1,
+            )
+        except (TypeError, ValueError):
+            normalized["overall_score"] = fallback["overall_score"]
+            normalized["llm_analysis_status"] = "score_normalized"
+
+        for key in ("strengths", "weaknesses", "suggestions", "keyword_match", "missing_keywords"):
+            values = AIService._string_list(payload.get(key), limit=12)
+            normalized[key] = values if values else fallback.get(key, [])
+
+        verification_needed = AIService._string_list(payload.get("verification_needed_keywords"), limit=12)
+        if verification_needed:
+            normalized["verification_needed_keywords"] = verification_needed
+
+        summary = AIService._string_or_empty(payload.get("summary"))
+        normalized["summary"] = summary or fallback["summary"]
+
+        for key, value in payload.items():
+            if key not in normalized:
+                normalized[key] = value
+        return normalized
+
+    @staticmethod
     async def analyze_resume(
         parsed_resume: dict,
         target_position: str,
         resume_evidence: Optional[dict] = None,
         ai_config: Optional[Dict] = None,
     ) -> dict:
+        declared_skills = AIService._declared_resume_skill_terms(parsed_resume, resume_evidence)
         evidence_snapshot = json.dumps(
             {
+                "projects": (resume_evidence or {}).get("projects", []),
+                "skills": (resume_evidence or {}).get("skills", []),
+                "metrics": (resume_evidence or {}).get("metrics", []),
                 "evidence_summary": (resume_evidence or {}).get("evidence_summary", []),
                 "ambiguity_flags": (resume_evidence or {}).get("ambiguity_flags", []),
                 "missing_evidence_flags": (resume_evidence or {}).get("missing_evidence_flags", []),
@@ -2461,6 +2818,9 @@ class AIService:
                     "Stay grounded in the parsed resume and resume evidence only. "
                     "Do not invent candidate experience, project ownership, metrics, or business outcomes. "
                     "If evidence is weak, describe it as insufficient or ambiguous instead of making hard claims. "
+                    "Treat skills listed in the resume skills section as a declared baseline: count them as basic role fit, "
+                    "but mark depth as needing verification when project, responsibility, production scenario, or outcome evidence is absent. "
+                    "Never say the candidate lacks a skill that is explicitly declared; say they lack verifiable project/production evidence for that skill. "
                     "Schema: "
                     '{"overall_score":7.5,"strengths":[""],"weaknesses":[""],'
                     '"suggestions":[""],"keyword_match":[""],"missing_keywords":[""],"summary":""}. '
@@ -2477,11 +2837,34 @@ class AIService:
             },
         ]
         result = await AIService._chat(messages, temperature=0.4, ai_config=ai_config)
-        return await AIService._extract_or_repair_json(
-            result,
-            'JSON object with keys: overall_score, strengths, weaknesses, suggestions, keyword_match, missing_keywords, summary',
-            ai_config=ai_config,
+        try:
+            parsed = await AIService._extract_or_repair_json(
+                result,
+                'JSON object with keys: overall_score, strengths, weaknesses, suggestions, keyword_match, missing_keywords, summary',
+                ai_config=ai_config,
+                expected_type="object",
+                required_keys=["overall_score", "strengths", "weaknesses", "suggestions", "keyword_match", "missing_keywords", "summary"],
+                max_repair_rounds=2,
+                parser_label="resume_analysis",
+            )
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "Resume analysis JSON malformed after repair, using deterministic fallback: %s",
+                exc,
+            )
+            parsed = AIService.build_resume_analysis_fallback(
+                parsed_resume,
+                target_position,
+                resume_evidence,
+            )
+        normalized = AIService._normalize_resume_analysis_payload(
+            parsed,
+            parsed_resume,
+            target_position,
+            resume_evidence,
         )
+        return AIService._sanitize_resume_analysis_skill_claims(normalized, declared_skills)
+
 
     @staticmethod
     def _normalize_resume_polish_payload(
@@ -2577,15 +2960,28 @@ class AIService:
                     continue
                 ability_name = AIService._string_or_empty(gap.get("name") or gap.get("ability_name")) or "岗位能力"
                 evidence_status = AIService._string_or_empty(gap.get("evidence_status")) or "missing"
+                action_type = AIService._string_or_empty(gap.get("action_type"))
+                if evidence_status == "claimed_only" or action_type == "interview_verification":
+                    issue = "该能力已在简历中声明，但缺少可验证的项目、职责边界或结果证据。"
+                    rewrite_strategy = "保留已声明技能，但改成“使用场景 + 个人动作 + 结果/待补证据”的表达；没有真实案例时使用占位提示。"
+                    rewritten_text = f"- {ability_name}：[补充一次真实使用场景、个人负责内容、技术/业务取舍和结果，用于验证技能声明深度]"
+                    risk_level = "medium"
+                    risk_note = "该能力不是缺失技能，而是需要通过面试或补充项目细节验证使用深度。"
+                else:
+                    issue = "当前简历对该岗位能力的证据不足。"
+                    rewrite_strategy = "补充可验证项目、职责边界、产出和指标；没有真实经历时只能写待补充证据。"
+                    rewritten_text = f"- {ability_name}：[补充真实项目/课程/实习中的具体做法、工具、结果或数据，不能虚构经历]"
+                    risk_level = "high" if evidence_status == "missing" else "medium"
+                    risk_note = "该能力需要进一步补充真实证据或通过面试验证。"
                 suggestions.append(
                     {
                         "section": ability_name,
-                        "issue": "当前简历对该岗位能力的证据不足。",
+                        "issue": issue,
                         "evidence_basis": AIService._string_or_empty(gap.get("evidence_basis")),
-                        "rewrite_strategy": "补充可验证项目、职责边界、产出和指标；没有真实经历时只能写待补充证据。",
-                        "rewritten_text": f"- {ability_name}：[补充真实项目/课程/实习中的具体做法、工具、结果或数据，不能虚构经历]",
-                        "risk_level": "high" if evidence_status in {"missing", "claimed_only"} else "medium",
-                        "risk_note": "该能力需要进一步补充真实证据或通过面试验证。",
+                        "rewrite_strategy": rewrite_strategy,
+                        "rewritten_text": rewritten_text,
+                        "risk_level": risk_level,
+                        "risk_note": risk_note,
                     }
                 )
 
@@ -2727,6 +3123,9 @@ class AIService:
             result,
             "JSON object with resume polish fields",
             ai_config=ai_config,
+            expected_type="object",
+            required_keys=["overall_strategy", "section_suggestions", "keyword_alignment", "risk_warnings", "missing_evidence_to_prepare", "polished_resume_markdown"],
+            parser_label="resume_polish",
         )
         return AIService._normalize_resume_polish_payload(
             payload=payload,
@@ -2746,11 +3145,16 @@ class AIService:
         interview_blueprint: Optional[Dict] = None,
         ai_config: Optional[Dict] = None,
     ) -> list:
+        first_plan = next((item for item in question_plan or [] if isinstance(item, dict)), {})
         difficulty_desc = {
             "easy": "junior-friendly, focus on fundamentals and clear project narration",
             "medium": "balanced, cover project depth and practical engineering decisions",
             "hard": "senior-level, include architecture trade-offs, performance and risk handling",
         }.get(difficulty, "balanced")
+        difficulty_contract = AIService._string_or_empty(first_plan.get("difficulty_guidance"))
+        rubric_summary = AIService._string_or_empty(first_plan.get("rubric_summary"))
+        company_archetype = AIService._string_or_empty(first_plan.get("company_archetype"))
+        strategy_summary = AIService._string_or_empty(first_plan.get("question_strategy_summary"))
         knowledge_context = AIService._build_knowledge_base_context(knowledge_base)
         plan_context = AIService._build_question_plan_context(question_plan)
         blueprint_context = AIService._build_interview_blueprint_context(interview_blueprint)
@@ -2762,6 +3166,7 @@ class AIService:
                     "You are a senior interviewer designing a realistic mock interview. "
                     "Reply in Simplified Chinese. "
                     f"Target role: {target_position}. Difficulty: {difficulty_desc}. "
+                    f"Public difficulty profile: {company_archetype or '-'}; strategy: {strategy_summary or difficulty_contract or '-'}; rubric: {rubric_summary or '-'}. "
                     f"Generate exactly {count} interview questions. "
                     "The first question must be self-introduction. "
                     "If interview routing context is provided, strictly follow the provided order and goal. "
@@ -2783,7 +3188,15 @@ class AIService:
             },
         ]
         result = await AIService._chat(messages, temperature=0.65, ai_config=ai_config)
-        return AIService._normalize_question_array(AIService._extract_json(result))
+        payload = await AIService._extract_or_repair_json(
+            result,
+            'JSON array of question objects or JSON object {"questions":[...]}',
+            ai_config=ai_config,
+            expected_type=("array", "object"),
+            max_repair_rounds=2,
+            parser_label="single_questions",
+        )
+        return AIService._normalize_question_array(payload)
     @staticmethod
     async def generate_panel_questions(
         parsed_resume: dict,
@@ -2795,12 +3208,18 @@ class AIService:
         panel_snapshot: Optional[Dict] = None,
         interview_blueprint: Optional[Dict] = None,
         ai_config: Optional[Dict] = None,
+        allow_json_repair: bool = True,
     ) -> dict:
+        first_plan = next((item for item in question_plan or [] if isinstance(item, dict)), {})
         difficulty_desc = {
             "easy": "keep the bar realistic and training-oriented",
             "medium": "balance challenge and coaching value",
             "hard": "challenge the candidate with depth and pressure, but stay fair",
         }.get(difficulty, "balance challenge and coaching value")
+        difficulty_contract = AIService._string_or_empty(first_plan.get("difficulty_guidance"))
+        rubric_summary = AIService._string_or_empty(first_plan.get("rubric_summary"))
+        company_archetype = AIService._string_or_empty(first_plan.get("company_archetype"))
+        strategy_summary = AIService._string_or_empty(first_plan.get("question_strategy_summary"))
         has_routed_evidence = any((item.get("selected_slices") or []) for item in question_plan or [])
         blueprint_context = AIService._build_interview_blueprint_context(interview_blueprint)
         messages = [
@@ -2825,6 +3244,7 @@ class AIService:
                     '"retrieved_slice_ids":[1,2],"fallback_allowed":true}}. '
                     f"Generate exactly {count} selected questions. "
                     f"Target role: {target_position}. Difficulty guidance: {difficulty_desc}. "
+                    f"Public difficulty profile: {company_archetype or '-'}; strategy: {strategy_summary or difficulty_contract or '-'}; rubric: {rubric_summary or '-'}. "
                     "If routed slices exist, prefer them and reference the used slice ids in moderator.selected_questions[].used_slice_ids.\n"
                     f"{AIService._build_grounding_rules('panel_question', has_routed_evidence=has_routed_evidence)}\n"
                     f"{AIService._build_panel_context(panel_snapshot)}\n"
@@ -2843,6 +3263,10 @@ class AIService:
             result,
             "JSON object with panel array, moderator.selected_questions array, moderator.reasoning_summary, metadata object",
             ai_config=ai_config,
+            allow_repair=allow_json_repair,
+            expected_type="object",
+            required_keys=["panel", "moderator", "metadata"],
+            parser_label="panel_questions",
         )
         normalized = AIService._normalize_panel_question_payload(
             payload=payload,
@@ -2881,6 +3305,7 @@ class AIService:
                     '"claim_confidence_change":[{"claim":"","from_level":"weak","to_level":"moderate","change":"increased|unchanged|decreased","reason":""}],'
                     '"next_best_followup":{"question":"","reason":"","target_gap":"","target_evidence":[""],"evidence_source_ids":[1],"evidence_source_summary":[""]}}. '
                     "Score range is 1-10. Feedback should be concise and actionable."
+                    "When difficulty guidance or rubric is provided, explain the score against that bar without exposing internal field names."
                     f"\n{AIService._build_grounding_rules('evaluation', has_routed_evidence=bool(selected_slices))}"
                     f"\n{AIService._build_knowledge_base_context(knowledge_base, selected_slices=selected_slices)}"
                 ),
@@ -2894,6 +3319,7 @@ class AIService:
                     f"Candidate answer: {answer}\n"
                     f"Question intent: {(question_meta or {}).get('intent') or '-'}\n"
                     f"Evaluation focus: {', '.join((question_meta or {}).get('evaluation_focus') or []) or '-'}\n"
+                    f"Difficulty bar: {(question_meta or {}).get('company_archetype') or '-'} / {(question_meta or {}).get('rubric_summary') or '-'}\n"
                     f"{AIService._build_question_blueprint_context(question_meta)}\n"
                     f"Next question: {next_question or '-'}"
                 ),
@@ -2904,6 +3330,9 @@ class AIService:
             result,
             "JSON object with score, feedback, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
             ai_config=ai_config,
+            expected_type="object",
+            required_keys=["score", "feedback"],
+            parser_label="single_answer_evaluation",
         )
         return AIService._normalize_single_evaluation_payload(
             payload=payload,
@@ -2944,6 +3373,7 @@ class AIService:
                     '"claim_confidence_change":[{"claim":"","from_level":"weak","to_level":"moderate","change":"increased|unchanged|decreased","reason":""}],'
                     '"next_best_followup":{"question":"","reason":"","target_gap":"","target_evidence":[""],"evidence_source_ids":[1],"evidence_source_summary":[""]}}. '
                     "The outward feedback must remain one moderator voice and be concise."
+                    "When difficulty guidance or rubric is provided, explain the score against that bar without exposing internal field names."
                     f"\n{AIService._build_grounding_rules('panel_evaluation', has_routed_evidence=bool(selected_slices))}"
                     f"\n{AIService._build_panel_context(panel_snapshot)}\n"
                     f"{AIService._build_knowledge_base_context(knowledge_base, selected_slices=selected_slices)}"
@@ -2960,6 +3390,7 @@ class AIService:
                     f"Support roles: {', '.join((question_meta or {}).get('support_roles') or []) or '-'}\n"
                     f"Intent: {(question_meta or {}).get('intent') or '-'}\n"
                     f"Evaluation focus: {', '.join((question_meta or {}).get('evaluation_focus') or []) or '-'}\n"
+                    f"Difficulty bar: {(question_meta or {}).get('company_archetype') or '-'} / {(question_meta or {}).get('rubric_summary') or '-'}\n"
                     f"{AIService._build_question_blueprint_context(question_meta)}\n"
                     f"Suggested followups: {', '.join((question_meta or {}).get('selected_followups') or []) or '-'}"
                 ),
@@ -2970,6 +3401,9 @@ class AIService:
             result,
             "JSON object with panel, moderator, metadata, strengths, gaps, evidence_strength_delta, claim_confidence_change, next_best_followup",
             ai_config=ai_config,
+            expected_type="object",
+            required_keys=["panel", "moderator", "metadata"],
+            parser_label="panel_answer_evaluation",
         )
         normalized = AIService._normalize_panel_evaluation_payload(
             payload=payload,

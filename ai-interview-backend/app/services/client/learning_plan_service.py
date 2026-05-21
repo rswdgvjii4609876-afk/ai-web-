@@ -83,16 +83,26 @@ class LearningPlanService:
         if isinstance(value, dict):
             name = cls._text(value.get("ability_name") or value.get("name") or value.get("title"))
             missing_keywords = cls._string_list(value.get("missing_keywords") or value.get("keywords"))
+            evidence_status = value.get("evidence_status") or "needs_verification"
+            action_type = cls._text(value.get("action_type"))
+            if not action_type and evidence_status == "claimed_only":
+                action_type = "interview_verification"
+            elif not action_type and evidence_status == "indirect":
+                action_type = "evidence_completion"
+            elif not action_type:
+                action_type = "learning_gap"
             return {
                 "ability_id": cls._text(value.get("ability_id") or value.get("id"), f"ability_{index}"),
                 "name": name or f"能力项 {index}",
                 "missing_keywords": missing_keywords,
                 "matched_keywords": cls._string_list(value.get("matched_keywords")),
+                "verification_keywords": cls._string_list(value.get("verification_keywords")),
                 "priority_score": value.get("priority_score") or value.get("priority") or 70,
                 "current_level": value.get("current_level") or 1,
                 "required_level": value.get("required_level") or 3,
                 "gap": value.get("gap") or 2,
-                "evidence_status": value.get("evidence_status") or "needs_verification",
+                "evidence_status": evidence_status,
+                "action_type": action_type,
                 "verification_priority": value.get("verification_priority") or "medium",
                 "evidence_basis": cls._text(value.get("evidence_basis") or value.get("reason")),
             }
@@ -106,6 +116,8 @@ class LearningPlanService:
             "current_level": 1,
             "required_level": 3,
             "gap": 2,
+            "evidence_status": "missing",
+            "action_type": "learning_gap",
             "evidence_basis": "用户在学习任务页手动选择的待提升能力。",
         }
 
@@ -163,11 +175,16 @@ class LearningPlanService:
                     "ability_id": ability["ability_id"],
                     "ability_name": ability["name"],
                     "missing_keywords": ability["missing_keywords"],
+                    "matched_keywords": ability.get("matched_keywords") or [],
+                    "verification_keywords": ability.get("verification_keywords") or [],
                     "priority_score": ability["priority_score"],
                     "evidence_status": ability.get("evidence_status") or "needs_verification",
+                    "action_type": ability.get("action_type") or (
+                        "interview_verification" if ability.get("evidence_status") == "claimed_only" else "learning_gap"
+                    ),
                     "recommended_action": (
                         "interview_verification"
-                        if ability.get("evidence_status") == "claimed_only"
+                        if (ability.get("action_type") == "interview_verification" or ability.get("evidence_status") == "claimed_only")
                         else "learning_task"
                     ),
                     "evidence_basis": ability["evidence_basis"],
@@ -243,6 +260,7 @@ class LearningPlanService:
                 "route_kind": "mature_plan" if any(route.get("route_kind") == "mature_plan" for route in records) else "template",
                 "plan_group": plan_groups[0] if len(plan_groups) == 1 else "",
                 "source_evidence_status": ability.get("evidence_status") or "needs_verification",
+                "source_action_type": ability.get("action_type") or "learning_gap",
                 "source_verification_priority": ability.get("verification_priority") or "medium",
             }
             tasks.append(task)

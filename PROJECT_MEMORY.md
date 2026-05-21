@@ -1,5 +1,76 @@
 # PROJECT_MEMORY.md
 
+## 2026-05-21 当前有效状态：阶段 182 面试难度策略重构
+
+本阶段把 `easy / medium / hard` 从简单标签升级为稳定的面试产品策略：`easy` 对应基础执行型面试，优先问基础知识、框架使用和项目复述；`medium` 对应标准岗位能力面试，重点验证项目职责、技术取舍和证据链；`hard` 对应高强度综合面试，重点追问项目边界、系统设计、高并发、可靠性、RAG/LLM 工程优化等复杂场景。
+
+当前有效结论：
+- 后端新增统一难度画像 `INTERVIEW_DIFFICULTY_PROFILES`，单面试官、多面试官、fallback、后续追问、评分反馈和报告摘要共享同一策略。
+- 未知 difficulty 会归一为 `medium`，不再让错误参数进入不可控出题路径。
+- `easy` 必含基础题，不提前追问高并发、系统设计或 RAG 优化；`medium` 保持项目职责、技能验证和复盘取舍；`hard` 必含系统设计/压力取舍题。
+- RAG/知识库优化题增加 gating：只有目标岗位、简历技能、项目或经历出现 RAG、LLM、检索增强、向量、embedding、rerank 等强信号时才出现；普通岗位知识库内容不能单独触发 RAG 题，否则改为通用系统设计深挖题。
+- 知识库切片路由增加难度邻接加权：exact > general > adjacent，面经难度只作为岗位要求和追问参考，不写成候选人经历。
+- 前端新建面试页把难度选择改成三张说明卡，展示适合场景、会问什么、评分重点和压力程度；面试页和报告页显示本场难度标尺。
+- 可见题目继续经过内部 prompt 泄漏 sanitizer，`question_plan / blueprint / evaluation_focus / schema / moderator` 等内部字段不能进入候选人可见问题。
+
+验证结果：
+- `python -m compileall app migrations` 通过。
+- 定向后端测试通过：难度策略、RAG gating、fallback、报告/消息难度画像、知识库难度加权相关用例通过。
+- 后端全量 `python -m pytest -q` 通过：246 passed, 1 skipped。
+- `cd ai-interview-frontend && npm run build` 通过。
+- `git diff --check` 通过，仅有 Windows 换行提示。
+- Product / Backend / AI 子 agent 二次复审无 Must-fix；已吸收中性化文案、fallback 题型、`rank_slices` top_k 防御和 report 难度画像强制覆盖等 should-fix。
+
+当前下一步：
+1. 部署后用同一份简历分别跑 easy / medium / hard，确认题目深度递进明显，且 hard 只在相关信号存在时追问 RAG 优化。
+2. 后续可补结构化 `difficulty_achievement` 字段，让“按当前档位达成度”从自然语言反馈升级为可测试字段。
+
+## 2026-05-20 当前有效状态：阶段 181 简历分析评分机制修复
+
+本阶段修复“简历技能栏只写 FastAPI / Redis / Docker 等就被判定为缺少深入证据、评分偏低”的产品口径问题。当前评分口径调整为：技能声明给基础信用，项目/职责/指标/上线或排障证据决定深度分，面试负责验证真实掌握程度。
+
+当前有效结论：
+- `claimed_only` 不再等同于“能力不足”，改为“技能已声明但深度待验证”。
+- 岗位匹配新增分层指标：`skill_presence_score`、`evidence_depth_score`、`declared_skill_score_floor`、`verification_priority_summary`、`learning_gap_summary`。
+- 技能栏声明会进入基础匹配和面试验证，不再默认进入“从零学习”的短板口径。
+- `missing_evidence_flags` 不再参与技能声明匹配，避免“缺少 Redis 项目证据”反向把 Redis 判成已声明。
+- 简历分析 prompt 明确：已声明技能不能写成“缺少该技能”，只能写“缺少项目/生产场景证据证明使用深度”。
+- 能力诊断页显示“技能声明分 / 证据深度分”，并把按钮区分为“准备验证证据 / 补充项目证据 / 加入学习任务”。
+
+验证结果：
+- `python -m compileall app migrations` 通过。
+- `python -m pytest tests/test_matching_engine_ability_gap.py tests/test_ai_service_panel_structure.py -q` 通过：56 passed。
+- `python -m pytest -q` 通过：229 passed, 1 skipped。
+- `cd ai-interview-frontend && npm run build` 通过。
+
+当前下一步：
+1. 本地提交阶段 180 + 181 改动。
+2. 服务器拉取重建后，用包含技能栏声明的简历重新跑解析和能力诊断。
+3. 手工检查能力诊断：FastAPI/Redis/Docker 等已声明技能应显示“声明待验证 / 准备验证证据”，不应显示成“缺少该技能”。
+
+## 2026-05-20 当前有效状态：阶段 180 多面试官启动超时与启动失败修复
+
+本阶段修复用户端“多面试官模式一直启动不了 / `/interviews/start` 超过 60000ms”的真实原因：启动链路在一个请求里串行调用 blueprint、多面试官题目、JSON repair，失败后还可能继续调用单面试官题目，导致前端超时。
+
+当前有效结论：
+- 多面试官启动不再同步调用 AI blueprint，改用本地 blueprint fallback 先保证可启动。
+- 多面试官题目生成最多等待 25 秒；启动阶段禁用二次 LLM JSON repair。
+- panel 题目生成失败、超时或返回坏 JSON 时，不再继续调用单面试官 LLM，而是保留 `interview_mode=panel` 并使用确定性兜底题目。
+- 返回结果新增非破坏性状态字段：`requested_interview_mode`、`effective_interview_mode`、`panel_status`、`fallback_reason`、`generation_strategy`。
+- 前端 `/interviews/start` 使用专用 timeout，超时错误改为可操作提示；开始面试增加重复点击防护。
+- 面试页可显示“多面试官已启用，启动阶段使用快速兜底题目”的状态说明。
+
+验证结果：
+- `python -m compileall app migrations` 通过。
+- `python -m pytest tests/test_interview_service_round_flow.py tests/test_ai_service_panel_structure.py -q` 通过：71 passed, 1 skipped。
+- `python -m pytest -q` 通过：225 passed, 1 skipped。
+- `cd ai-interview-frontend && npm run build` 通过。
+
+当前下一步：
+1. 本地提交阶段 180 修复。
+2. 服务器执行 `git pull`、`docker compose up -d --build`、`docker compose exec -T app alembic upgrade head`。
+3. 用同一份简历实测多面试官模式：应能进入答题页；若模型慢，应显示快速兜底题目而不是卡死。
+
 ## 2026-05-20 当前有效状态：阶段 179 工程师 Skills 全链路复审与优化收口
 
 本阶段按 `plan-skill-router` 路由使用工程向复审视角：Code Reviewer、Backend Architect、Frontend Developer、AI Engineer、Security Engineer。复审结论无 Must-fix；已吸收高价值 should-fix 做代码级收口。

@@ -132,7 +132,9 @@ api.interceptors.response.use(
     const data = error.response?.data
     let msg = data?.message || error.message || '网络错误'
 
-    if (!error.response && error.message === 'Network Error') {
+    if (error.code === 'ECONNABORTED' || String(error.message || '').toLowerCase().includes('timeout')) {
+      msg = '请求超时：模型生成耗时较长。请勿连续重复点击；可先查看最近面试记录，或稍后重试。'
+    } else if (!error.response && error.message === 'Network Error') {
       msg = '网络连接失败，请稍后重试；如果反复失败，请检查服务状态、登录状态或简历文件大小'
     } else if (status === 502) {
       msg = '服务暂时不可用，请稍后重试'

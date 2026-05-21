@@ -34,6 +34,15 @@ class InterviewStartResponse(BaseSchema):
     total_questions: int
     knowledge_base_title: Optional[str] = None
     interview_mode: str = "single"
+    difficulty_profile: Optional[Dict[str, Any]] = None
+    company_archetype: Optional[str] = None
+    question_strategy_summary: Optional[str] = None
+    rubric_summary: Optional[str] = None
+    requested_interview_mode: Optional[str] = None
+    effective_interview_mode: Optional[str] = None
+    panel_status: Optional[str] = None
+    fallback_reason: Optional[str] = None
+    generation_strategy: Optional[str] = None
     training_focus: Optional[list[str]] = None
     high_risk_claims: Optional[list[str]] = None
     blueprint_evidence_summary: Optional[list[str]] = None
@@ -86,6 +95,11 @@ class InterviewReport(BaseSchema):
     overall_score: float
     total_questions: int
     interview_mode: Optional[str] = None
+    difficulty: Optional[str] = None
+    difficulty_profile: Optional[Dict[str, Any]] = None
+    company_archetype: Optional[str] = None
+    question_strategy_summary: Optional[str] = None
+    rubric_summary: Optional[str] = None
     data_contribution_consent: bool = False
     privacy_consent_snapshot: Optional[Dict[str, Any]] = None
     report: Dict[str, Any]

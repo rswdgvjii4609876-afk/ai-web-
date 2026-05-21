@@ -58,6 +58,56 @@ def test_learning_plan_builds_editable_tasks_from_route_records():
 
 
 @pytest.mark.unit
+def test_learning_plan_preserves_interview_verification_action_type():
+    abilities = LearningPlanService._normalize_abilities(
+        [
+            {
+                "ability_id": "api_design",
+                "name": "接口设计能力",
+                "evidence_status": "claimed_only",
+                "verification_keywords": ["FastAPI"],
+                "missing_keywords": ["接口压测"],
+                "matched_keywords": ["FastAPI"],
+                "priority_score": 80,
+            }
+        ]
+    )
+
+    assert abilities[0]["action_type"] == "interview_verification"
+    assert abilities[0]["verification_keywords"] == ["FastAPI"]
+
+    plan = LearningPlanService._build_tasks_from_records(
+        records=[],
+        abilities=abilities,
+        target_position="Python后端开发工程师",
+    )
+
+    task = plan["tasks"][0]
+    assert task["task_metadata"]["action_type"] == "interview_verification"
+    assert task["task_metadata"]["source_action_type"] == "interview_verification"
+    assert task["title"].startswith("准备验证")
+    assert "FastAPI" in task["practice_task"]
+    assert "接口压测" not in task["practice_task"]
+
+
+@pytest.mark.unit
+def test_learning_plan_legacy_indirect_defaults_to_evidence_completion():
+    abilities = LearningPlanService._normalize_abilities(
+        [
+            {
+                "ability_id": "api_design",
+                "name": "接口设计能力",
+                "evidence_status": "indirect",
+                "matched_keywords": ["REST API"],
+                "missing_keywords": ["异常处理"],
+            }
+        ]
+    )
+
+    assert abilities[0]["action_type"] == "evidence_completion"
+
+
+@pytest.mark.unit
 def test_learning_plan_ai_refinement_preserves_route_metadata():
     deterministic_tasks = [
         {

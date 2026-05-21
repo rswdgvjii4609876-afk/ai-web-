@@ -651,6 +651,11 @@ class PositionKnowledgeBaseSliceService:
     ) -> List[Dict]:
         if not slices:
             return []
+        try:
+            top_k = int(top_k)
+        except (TypeError, ValueError):
+            top_k = 4
+        top_k = max(1, min(top_k, 20))
 
         query_tokens = PositionKnowledgeBaseSliceService._tokenize(query_text)
         skill_terms = PositionKnowledgeBaseSliceService._normalize_terms(skills)
@@ -703,13 +708,27 @@ class PositionKnowledgeBaseSliceService:
                 routing_heads["stage_role"] += 2.5
                 reasons.append(f"匹配场景：{scene}")
             if difficulty:
+                adjacent = {
+                    "easy": {"medium"},
+                    "medium": {"easy", "hard"},
+                    "hard": {"medium"},
+                }
                 if slice_difficulty == difficulty:
-                    score += 2
-                    routing_heads["stage_role"] += 2
+                    score += 2.4
+                    routing_heads["stage_role"] += 2.4
                     reasons.append(f"匹配难度：{difficulty}")
                 elif slice_difficulty == "general":
-                    score += 1
-                    routing_heads["stage_role"] += 1
+                    score += 1.2
+                    routing_heads["stage_role"] += 1.2
+                    reasons.append("匹配通用难度")
+                elif slice_difficulty in adjacent.get(str(difficulty), set()):
+                    score += 0.6
+                    routing_heads["stage_role"] += 0.6
+                    reasons.append(f"相邻难度参考：{slice_difficulty}")
+                elif slice_difficulty:
+                    score -= 3.0
+                    routing_heads["stage_role"] -= 3.0
+                    reasons.append(f"difficulty_mismatch:{slice_difficulty}")
             matched_skill_terms = sorted(
                 skill_terms & PositionKnowledgeBaseSliceService._normalize_terms(item.get("skill_tags"))
             )

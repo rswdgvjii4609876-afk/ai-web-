@@ -26,6 +26,15 @@
         <p class="section-text">{{ report.summary }}</p>
       </div>
 
+      <div class="card section-card difficulty-report-card">
+        <h3>本场难度标尺</h3>
+        <div class="difficulty-report-grid">
+          <strong>{{ difficultyProfile.public_label }} · {{ difficultyProfile.company_archetype }}</strong>
+          <span>{{ difficultyProfile.question_strategy_summary }}</span>
+          <em>评分标尺：{{ difficultyProfile.rubric_summary }}</em>
+        </div>
+      </div>
+
       <div v-if="data.interview_mode === 'panel'" class="card panel-note-card section-card">
         <h3>多角色协同评估模式</h3>
         <p class="panel-note-text">
@@ -178,7 +187,7 @@
         <div v-for="(q, i) in report.question_scores" :key="i" class="q-score-item">
           <div class="q-score-header">
             <span class="q-index">Q{{ i + 1 }}</span>
-            <span class="q-text">{{ q.question }}</span>
+            <span class="q-text">{{ sanitizedQuestion(q.question) }}</span>
             <span
               class="q-score"
               :style="{ color: q.score >= 7 ? '#059669' : q.score >= 5 ? '#d97706' : '#dc2626' }"
@@ -236,6 +245,7 @@ import {
 } from '../utils/learningTasks'
 import { evidenceStatusClass, evidenceStatusHint, evidenceStatusLabel } from '../utils/evidenceStatus'
 import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
+import { getInterviewDifficultyProfile } from '../utils/interviewDifficulty'
 
 const route = useRoute()
 const interviewId = route.params.id
@@ -249,6 +259,10 @@ const caseConsentSaving = ref(false)
 const caseConsentMessage = ref('')
 const resumeEvaluation = computed(() => normalizeResumeEvaluation(report.value || {}))
 const matchingMetrics = computed(() => resumeEvaluation.value.matchingMetrics || null)
+const difficultyProfile = computed(() => getInterviewDifficultyProfile(
+  data.value?.difficulty_profile?.level || data.value?.difficulty || 'medium',
+  data.value?.difficulty_profile || null
+))
 const hasMatchingMetrics = computed(() => Boolean(
   report.value?.resume_evaluation_snapshot
   || report.value?.matching_metrics
@@ -303,6 +317,16 @@ function semanticSourceLabel(metrics) {
   if (metrics.semantic_backend === 'openai_embedding') return 'OpenAI embedding'
   if (String(metrics.embedding_status || '').startsWith('fallback')) return 'TF-IDF 回退'
   return 'TF-IDF'
+}
+
+function sanitizedQuestion(text) {
+  const value = String(text || '').trim()
+  if (!value) return '题目已被安全隐藏'
+  const leakPattern = /Blueprint priority|Assess boundary|Place the candidate|Question plan|evaluation_focus|selected_followups|moderator|schema|chain-of-thought|stage\/category\/intent|question_plan|blueprint|lead_role|support_roles|题目计划|评估重点|主持人推理|内部面板|内部字段|候选人证据|蓝图优先级|链式思考/i
+  if (leakPattern.test(value)) {
+    return '题目文本包含内部生成信息，已在报告页隐藏；请以面试记录中的安全题目为准。'
+  }
+  return value
 }
 
 function setTaskMessage(text) {
@@ -401,6 +425,23 @@ onMounted(async () => {
 
 .section-card {
   margin-top: 16px;
+}
+
+.difficulty-report-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.difficulty-report-grid strong {
+  color: #111827;
+}
+
+.difficulty-report-grid span,
+.difficulty-report-grid em {
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.6;
+  font-style: normal;
 }
 
 .diagnosis-link-card {

@@ -252,6 +252,125 @@ def test_claimed_redis_requires_interview_verification_not_full_credit():
     ]
     assert redis_items
     assert any(item["evidence_status"] == "claimed_only" for item in redis_items)
+    assert any(item["action_type"] == "interview_verification" for item in redis_items)
+
+
+@pytest.mark.unit
+def test_skills_only_core_stack_gets_declared_baseline_not_missing():
+    metrics = matching_engine.evaluate(
+        parsed_resume={
+            "skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"],
+            "projects": [],
+        },
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 6},
+        resume_evidence={
+            "skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"],
+            "missing_evidence_flags": ["缺少 Redis 项目证据"],
+        },
+    )
+
+    coverage = metrics["keyword_coverage"]
+    assert metrics["final_score"] >= 50
+    assert coverage["skill_presence_score"] > coverage["evidence_depth_score"]
+    assert "FastAPI" in coverage["verification_needed"]
+    assert "FastAPI" not in coverage["missing"]
+    assert "Redis" in coverage["verification_needed"]
+    assert "Redis" not in coverage["missing"]
+    assert metrics["verification_priority_summary"]
+    assert any(
+        item["evidence_status"] == "claimed_only"
+        and item["action_type"] == "interview_verification"
+        and item["current_level"] >= 2.0
+        for item in metrics["ability_gap_profile"]["items"]
+    )
+    assert any(
+        task["task_metadata"]["action_type"] == "interview_verification"
+        and task["title"].startswith("准备验证")
+        and "FastAPI" in task["practice_task"]
+        for task in metrics["learning_plan"]["tasks"]
+    )
+
+
+@pytest.mark.unit
+def test_recalculate_final_score_keeps_declared_skill_floor_after_embedding():
+    metrics = matching_engine.evaluate(
+        parsed_resume={"skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"], "projects": []},
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 5},
+        resume_evidence={"skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"]},
+    )
+
+    recalculated = matching_engine.recalculate_final_score(metrics, semantic_score=5)
+
+    assert metrics["declared_skill_score_floor"] is not None
+    assert recalculated >= metrics["declared_skill_score_floor"]
+
+
+@pytest.mark.unit
+def test_aliases_do_not_expand_claimed_only_skill_declarations():
+    metrics = matching_engine.evaluate(
+        parsed_resume={"skills": ["SQL"], "projects": []},
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 5},
+        resume_evidence={"skills": ["SQL"]},
+    )
+
+    coverage = metrics["keyword_coverage"]
+    assert "SQL" in coverage["verification_needed"]
+    assert "PostgreSQL" not in coverage["verification_needed"]
+    assert "MySQL" not in coverage["verification_needed"]
+    assert "SQLAlchemy" not in coverage["verification_needed"]
+
+
+@pytest.mark.unit
+def test_project_evidence_improves_depth_over_skills_only_baseline():
+    skills_only = matching_engine.evaluate(
+        parsed_resume={"skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"], "projects": []},
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 6},
+        resume_evidence={"skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"]},
+    )
+    with_project = matching_engine.evaluate(
+        parsed_resume={
+            "skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"],
+            "projects": [
+                {
+                    "name": "Backend API",
+                    "description": "Built FastAPI REST APIs with PostgreSQL transactions, Redis cache, Docker deployment, and logs.",
+                }
+            ],
+        },
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 7},
+        resume_evidence={
+            "projects": [
+                "Built FastAPI REST APIs with PostgreSQL transactions, Redis cache, Docker deployment, and logs."
+            ],
+            "skills": ["Python", "FastAPI", "Redis", "Docker", "SQL"],
+        },
+    )
+
+    assert with_project["evidence_depth_score"] > skills_only["evidence_depth_score"]
+    assert with_project["final_score"] > skills_only["final_score"]
+    assert any(
+        item["current_level"] > 3.0
+        for item in with_project["ability_gap_profile"]["items"]
+        if item["ability_id"] in {"python_language", "database_modeling", "cache_async", "deployment_ops"}
+    )
+
+
+@pytest.mark.unit
+def test_missing_evidence_flags_do_not_create_claimed_skill_matches():
+    metrics = matching_engine.evaluate(
+        parsed_resume={"skills": ["Python"], "projects": []},
+        target_position="Python后端开发工程师",
+        llm_analysis={"overall_score": 5},
+        resume_evidence={"missing_evidence_flags": ["缺少 Redis 项目证据"]},
+    )
+
+    coverage = metrics["keyword_coverage"]
+    assert "Redis" not in coverage["verification_needed"]
 
 
 @pytest.mark.unit

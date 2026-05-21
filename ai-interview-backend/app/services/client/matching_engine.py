@@ -102,12 +102,18 @@ class MatchingEngine:
             + (llm_score if llm_score is not None else rule_score) * 0.15,
             1,
         )
+        declared_skill_floor = cls._declared_skill_score_floor(keyword_breakdown)
+        if declared_skill_floor is not None:
+            final_score = max(final_score, declared_skill_floor)
         ability_gap_profile = cls._ability_gap_profile(
             profile=profile,
             parsed_resume=parsed_resume,
             target_position=target_position,
             resume_evidence=resume_evidence,
         )
+        learning_priority_summary = cls._learning_priority_summary(ability_gap_profile)
+        learning_gap_summary = cls._learning_gap_summary(ability_gap_profile)
+        verification_priority_summary = cls._verification_priority_summary(ability_gap_profile)
         learning_plan = cls._build_learning_plan(
             ability_gap_profile=ability_gap_profile,
             profile=profile,
@@ -135,13 +141,18 @@ class MatchingEngine:
                 "related_matches": keyword_breakdown["related_matches"][:12],
                 "verification_needed": keyword_breakdown["verification_needed"][:12],
                 "evidence_statuses": keyword_breakdown["evidence_statuses"][:24],
+                "skill_presence_score": keyword_breakdown["skill_presence_score"],
+                "evidence_depth_score": keyword_breakdown["evidence_depth_score"],
             },
             "tfidf_semantic_score": semantic_score,
             "semantic_score": semantic_score,
             "rule_score": rule_score,
             "llm_score_reference": llm_score,
             "final_score": final_score,
-            "score_formula": "20% normalized keyword evidence + 35% semantic similarity (embedding preferred, TF-IDF fallback) + 30% rule score + 15% LLM reference score",
+            "declared_skill_score_floor": declared_skill_floor,
+            "skill_presence_score": keyword_breakdown["skill_presence_score"],
+            "evidence_depth_score": keyword_breakdown["evidence_depth_score"],
+            "score_formula": "20% normalized keyword evidence + 35% semantic similarity (embedding preferred, TF-IDF fallback) + 30% rule score + 15% LLM reference score; declared skill floor prevents skill-list matches from being treated as missing evidence",
             "evidence_basis": cls._evidence_basis(
                 parsed_resume=parsed_resume,
                 matched_keywords=matched_keywords,
@@ -157,7 +168,9 @@ class MatchingEngine:
             "embedding_model": None,
             "embedding_error_code": "not_configured",
             "ability_gap_profile": ability_gap_profile,
-            "learning_priority_summary": cls._learning_priority_summary(ability_gap_profile),
+            "learning_priority_summary": learning_priority_summary,
+            "learning_gap_summary": learning_gap_summary,
+            "verification_priority_summary": verification_priority_summary,
             "learning_plan": learning_plan,
         }
 
@@ -182,13 +195,20 @@ class MatchingEngine:
             llm_component = float(llm_score) if llm_score is not None else float(rule_score)
         except (TypeError, ValueError):
             llm_component = float(rule_score or 0)
-        return round(
+        recalculated = round(
             float(keyword_score) * 0.20
             + semantic * 0.35
             + float(rule_score) * 0.30
             + llm_component * 0.15,
             1,
         )
+        declared_skill_floor = metrics.get("declared_skill_score_floor")
+        try:
+            if declared_skill_floor is not None:
+                recalculated = max(recalculated, float(declared_skill_floor))
+        except (TypeError, ValueError):
+            pass
+        return round(recalculated, 1)
 
     @classmethod
     def _resolve_profile(cls, target_position: str) -> Dict[str, Any]:
@@ -275,10 +295,21 @@ class MatchingEngine:
         claim_parts = [cls._resume_to_text(parsed_resume.get(key) or {}) for key in claim_keys if isinstance(parsed_resume, dict)]
         evidence = resume_evidence if isinstance(resume_evidence, dict) else {}
         proof_parts.extend(cls._resume_to_text(evidence.get(key) or {}) for key in ("projects", "metrics", "followup_candidates"))
-        claim_parts.extend(cls._resume_to_text(evidence.get(key) or {}) for key in ("skills", "ambiguity_flags", "missing_evidence_flags"))
+        claim_parts.extend(cls._resume_to_text(evidence.get(key) or {}) for key in ("skills", "ambiguity_flags"))
         all_text = cls._resume_to_text(parsed_resume or {})
         if evidence:
-            all_text = " ".join([all_text, cls._resume_to_text(evidence)])
+            claimable_evidence = {
+                key: evidence.get(key)
+                for key in (
+                    "projects",
+                    "skills",
+                    "metrics",
+                    "timeline_signals",
+                    "role_scope",
+                    "business_domain_terms",
+                )
+            }
+            all_text = " ".join([all_text, cls._resume_to_text(claimable_evidence)])
         return {
             "proof": " ".join(part for part in proof_parts if part),
             "claim": " ".join(part for part in claim_parts if part),
@@ -297,8 +328,6 @@ class MatchingEngine:
         values: List[str] = []
         values.extend(profile.get("keywords") or [])
         values.extend(profile.get("core_skills") or [])
-        if target_position:
-            values.append(target_position)
         ordered: List[str] = []
         for value in values:
             item = str(value).strip()
@@ -334,7 +363,7 @@ class MatchingEngine:
         direct_terms = [term for term in [base] if cls._contains_term(sections.get("proof", ""), term)]
         related_terms = [term for term in aliases if cls._contains_term(sections.get("proof", ""), term)]
         claimed_terms = [
-            term for term in terms
+            term for term in [base]
             if cls._contains_term(sections.get("claim", ""), term)
             or (cls._contains_term(sections.get("all", ""), term) and term not in direct_terms and term not in related_terms)
         ]
@@ -344,11 +373,11 @@ class MatchingEngine:
             matched_term = direct_terms[0]
         elif related_terms:
             status = "indirect"
-            weight = 0.75
+            weight = 0.8
             matched_term = related_terms[0]
         elif claimed_terms:
             status = "claimed_only"
-            weight = 0.45
+            weight = 0.65
             matched_term = claimed_terms[0]
         else:
             status = "missing"
@@ -376,8 +405,27 @@ class MatchingEngine:
         verification = [item["keyword"] for item in statuses if item["status"] == "claimed_only"]
         missing = [item["keyword"] for item in statuses if item["status"] == "missing"]
         weighted_score = round(sum(item["weight"] for item in statuses) / max(len(statuses), 1) * 100, 1)
+        total = max(len(statuses), 1)
+        skill_presence_score = round(
+            (
+                len(direct)
+                + len(related)
+                + len(verification)
+            )
+            / total
+            * 100,
+            1,
+        )
+        evidence_depth_score = round(
+            (len(direct) + len(related) * 0.8)
+            / total
+            * 100,
+            1,
+        )
         return {
             "weighted_score": weighted_score,
+            "skill_presence_score": skill_presence_score,
+            "evidence_depth_score": evidence_depth_score,
             "matched": [*direct, *related, *verification],
             "direct_matches": direct,
             "related_matches": related,
@@ -385,6 +433,15 @@ class MatchingEngine:
             "missing": missing,
             "evidence_statuses": statuses,
         }
+
+    @staticmethod
+    def _declared_skill_score_floor(keyword_breakdown: Dict[str, Any]) -> Optional[float]:
+        skill_presence = float(keyword_breakdown.get("skill_presence_score") or 0)
+        if skill_presence < 25:
+            return None
+        evidence_depth = float(keyword_breakdown.get("evidence_depth_score") or 0)
+        floor = 40 + skill_presence * 0.35 + evidence_depth * 0.15
+        return round(min(max(floor, 0), 68), 1)
 
     @classmethod
     def _ability_model(cls, profile: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -457,13 +514,16 @@ class MatchingEngine:
             proof_ratio = (len(direct_keywords) + len(related_keywords) * 0.75) / max(len(keywords), 1)
             claimed_ratio = len(verification_keywords) / max(len(keywords), 1)
             hint_bonus = min(len(matched_hints) * 0.35, 0.8)
-            current_level = 1.0 + proof_ratio * 3.0 + claimed_ratio * 1.0 + hint_bonus
+            current_level = 1.0 + proof_ratio * 3.0 + claimed_ratio * 1.4 + hint_bonus
+            if verification_keywords:
+                declared_floor = min(2.8, 1.7 + claimed_ratio * 2.0)
+                current_level = max(current_level, declared_floor)
             if matched_keywords and proof_ratio >= 0.75:
                 current_level += 0.3
             if not matched_keywords and not matched_hints:
                 current_level = 1.0
             if verification_keywords and not direct_keywords and not related_keywords:
-                current_level = min(current_level, 2.3)
+                current_level = min(current_level, 2.8)
             current_level = round(min(max(current_level, 1.0), 5.0), 1)
             gap = round(max(required_level - current_level, 0.0), 1)
             match_score = round(min(current_level / max(required_level, 1.0), 1.0) * 100, 1)
@@ -476,6 +536,7 @@ class MatchingEngine:
                 verification_keywords=verification_keywords,
                 missing_keywords=missing_keywords,
             )
+            action_type = cls._ability_action_type(evidence_status, gap)
             weighted_total += match_score * weight
             weight_sum += weight
             results.append(
@@ -495,6 +556,9 @@ class MatchingEngine:
                     "verification_keywords": verification_keywords[:8],
                     "missing_keywords": missing_keywords[:8],
                     "evidence_status": evidence_status,
+                    "action_type": action_type,
+                    "skill_presence_score": keyword_breakdown["skill_presence_score"],
+                    "evidence_depth_score": keyword_breakdown["evidence_depth_score"],
                     "verification_priority": cls._verification_priority(evidence_status, priority_score),
                     "interview_probe_reason": cls._interview_probe_reason(
                         ability_name=str(ability.get("name") or "岗位能力"),
@@ -535,11 +599,49 @@ class MatchingEngine:
         summary: List[str] = []
         for item in (ability_gap_profile or {}).get("top_gaps") or []:
             name = item.get("name") or "岗位能力"
-            missing = "、".join((item.get("missing_keywords") or [])[:4]) or "补充可验证证据"
+            action_type = item.get("action_type") or "learning_gap"
+            if action_type == "interview_verification":
+                terms = "、".join((item.get("verification_keywords") or item.get("matched_keywords") or [])[:4]) or name
+                summary.append(
+                    f"优先验证{name}：简历已声明 {terms}，当前 {item.get('current_level')} / 要求 {item.get('required_level')}；建议准备真实项目、职责边界和结果证据。"
+                )
+                continue
+            if action_type == "evidence_completion":
+                terms = "、".join((item.get("related_matches") or item.get("direct_matches") or item.get("matched_keywords") or [])[:4]) or "已有相关经历"
+                summary.append(
+                    f"补充{name}证据深度：已有 {terms}，当前 {item.get('current_level')} / 要求 {item.get('required_level')}；建议补清个人动作、技术取舍和结果。"
+                )
+                continue
+            missing = "、".join((item.get("missing_keywords") or [])[:4]) or "岗位核心基础"
             summary.append(
                 f"优先补强{name}：当前 {item.get('current_level')} / 要求 {item.get('required_level')}，建议围绕 {missing} 准备学习任务和项目证据。"
             )
         return summary[:5]
+
+    @staticmethod
+    def _verification_priority_summary(ability_gap_profile: Dict[str, Any]) -> List[str]:
+        summary: List[str] = []
+        for item in (ability_gap_profile or {}).get("top_gaps") or []:
+            if item.get("action_type") != "interview_verification":
+                continue
+            name = item.get("name") or "岗位能力"
+            terms = "、".join((item.get("verification_keywords") or item.get("matched_keywords") or [])[:4]) or name
+            summary.append(f"{name}：已声明 {terms}，需要面试确认真实使用场景、责任边界和掌握深度。")
+        return summary[:6]
+
+    @staticmethod
+    def _learning_gap_summary(ability_gap_profile: Dict[str, Any]) -> List[str]:
+        summary: List[str] = []
+        for item in (ability_gap_profile or {}).get("top_gaps") or []:
+            if item.get("action_type") not in {"learning_gap", "evidence_completion"}:
+                continue
+            name = item.get("name") or "岗位能力"
+            if item.get("action_type") == "evidence_completion":
+                summary.append(f"{name}：已有相关线索，但需要补充项目细节、结果或交付证据。")
+            else:
+                missing = "、".join((item.get("missing_keywords") or [])[:4]) or name
+                summary.append(f"{name}：简历暂未覆盖 {missing}，建议学习并补项目证据。")
+        return summary[:6]
 
     @classmethod
     def _build_learning_plan(
@@ -602,6 +704,8 @@ class MatchingEngine:
         ability_name = str(item.get("name") or "岗位能力")
         missing_keywords = cls._clean_string_list(item.get("missing_keywords"))
         matched_keywords = cls._clean_string_list(item.get("matched_keywords"))
+        verification_keywords = cls._clean_string_list(item.get("verification_keywords"))
+        action_type = item.get("action_type") or "learning_gap"
         route = cls._learning_route(
             profile=profile,
             ability_name=ability_name,
@@ -611,7 +715,12 @@ class MatchingEngine:
         )
         material_type = route.get("material_type") or route["task_type"]
         material = route["material"]
-        focus_terms = missing_keywords[:4] or matched_keywords[:4] or [ability_name]
+        if action_type == "interview_verification":
+            focus_terms = verification_keywords[:4] or matched_keywords[:4] or [ability_name]
+        elif action_type == "evidence_completion":
+            focus_terms = matched_keywords[:4] or missing_keywords[:4] or [ability_name]
+        else:
+            focus_terms = missing_keywords[:4] or matched_keywords[:4] or [ability_name]
         focus_text = "、".join(focus_terms)
         priority_score = cls._bounded_float(item.get("priority_score"), default=0.0, lower=0.0, upper=100.0)
         practice_task = route.get("practice_task") or cls._learning_task_practice(
@@ -621,12 +730,23 @@ class MatchingEngine:
         )
         deliverable = cls._learning_task_deliverable(route=route, ability_name=ability_name)
         acceptance_criteria = route.get("acceptance_criteria") or cls._learning_task_acceptance(route=route)
+        title_prefix = "准备验证" if action_type == "interview_verification" else "补充证据" if action_type == "evidence_completion" else "补强"
+        if action_type == "interview_verification":
+            practice_task = (
+                f"围绕 {focus_text} 准备 1 个真实使用场景：写清项目背景、个人动作、技术/业务取舍、结果和可追问细节。"
+            )
+            deliverable = f"形成一份不少于 300 字的 {ability_name} 面试证据卡，用于证明技能声明的实际使用深度。"
+            acceptance_criteria = [
+                "能说明该技能出现在哪个真实项目或任务中。",
+                "能讲清个人负责范围、关键判断和遇到的问题。",
+                "能回答一轮追问，并承认尚未覆盖的边界。",
+            ]
 
         return {
             "task_id": f"{profile.get('job_id') or 'custom'}_{ability_id}_{rank}",
             "ability_id": ability_id,
             "ability_name": ability_name,
-            "title": f"补强{ability_name}",
+            "title": f"{title_prefix}{ability_name}",
             "material_type": material_type,
             "route_source": route["route_source"],
             "route_stage": route["route_stage"],
@@ -644,6 +764,7 @@ class MatchingEngine:
             "required_level": item.get("required_level"),
             "gap": item.get("gap"),
             "task_metadata": {
+                "action_type": action_type,
                 "route_stage_title": route["title"],
                 "learning_loop": AI_LEARNING_LOOP,
                 "source_route_files": ["python后端学习路线.md", "python基础学习路线.md"]
@@ -763,6 +884,16 @@ class MatchingEngine:
         if verification_keywords:
             return "claimed_only"
         return "missing"
+
+    @staticmethod
+    def _ability_action_type(evidence_status: str, gap: float) -> str:
+        if evidence_status == "claimed_only":
+            return "interview_verification"
+        if evidence_status == "indirect" or (evidence_status == "direct" and gap > 0):
+            return "evidence_completion"
+        if evidence_status == "missing":
+            return "learning_gap"
+        return "strength"
 
     @staticmethod
     def _verification_priority(evidence_status: str, priority_score: float) -> str:

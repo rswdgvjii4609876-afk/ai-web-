@@ -229,8 +229,33 @@ export function validateLearningTaskPayload(payload) {
 export function taskFromAbilityGap(item, context = {}) {
   const abilityName = safeText(item?.name || item?.ability_name || item?.ability_id, '岗位能力')
   const missingKeywords = Array.isArray(item?.missing_keywords) ? item.missing_keywords.join('、') : ''
+  const actionType = item?.action_type || item?.task_metadata?.action_type || 'learning_gap'
+  const titlePrefix = actionType === 'interview_verification'
+    ? '准备验证'
+    : actionType === 'evidence_completion'
+      ? '补充证据'
+      : '补强'
+  const learningMaterial = actionType === 'interview_verification'
+    ? '围绕已声明技能准备真实项目、职责边界、技术取舍和结果证据'
+    : missingKeywords ? `优先复习：${missingKeywords}` : '岗位画像知识库、学习路线和项目复盘材料'
+  const practiceTask = actionType === 'interview_verification'
+    ? `围绕“${abilityName}”准备一个真实使用场景：说明项目背景、个人动作、遇到的问题、结果和可追问细节。`
+    : actionType === 'evidence_completion'
+      ? `围绕“${abilityName}”补充项目证据：写清个人负责范围、关键动作、结果或交付物。`
+      : `围绕“${abilityName}”完成一次知识梳理，并补充一个能放进简历或面试表达的例子。`
+  const acceptanceCriteria = actionType === 'interview_verification'
+    ? [
+        '能说明该技能出现在哪个真实项目或任务中',
+        '能讲清个人负责范围、关键判断和遇到的问题',
+        '能回答一轮追问，并说明尚未覆盖的边界'
+      ]
+    : [
+        '能用自己的话讲清核心概念',
+        '能给出项目或练习证据',
+        '能在模拟面试中回答一轮追问'
+      ]
   return normalizeLearningTask({
-    title: `补强：${abilityName}`,
+    title: `${titlePrefix}：${abilityName}`,
     ability_name: abilityName,
     target_position: context.target_position,
     source_type: context.source_type || 'ability_gap',
@@ -242,14 +267,10 @@ export function taskFromAbilityGap(item, context = {}) {
     route_stage: item?.route_stage,
     task_type: item?.task_type,
     estimated_minutes: item?.estimated_minutes,
-    task_metadata: item?.task_metadata,
-    learning_material: missingKeywords ? `优先复习：${missingKeywords}` : '岗位画像知识库、学习路线和项目复盘材料',
-    practice_task: `围绕“${abilityName}”完成一次知识梳理，并补充一个能放进简历或面试表达的例子。`,
-    acceptance_criteria: [
-      '能用自己的话讲清核心概念',
-      '能给出项目或练习证据',
-      '能在模拟面试中回答一轮追问'
-    ],
+    task_metadata: { ...(item?.task_metadata || {}), action_type: actionType },
+    learning_material: learningMaterial,
+    practice_task: practiceTask,
+    acceptance_criteria: acceptanceCriteria,
     evidence_basis: item?.evidence_basis || item?.reason || ''
   })
 }

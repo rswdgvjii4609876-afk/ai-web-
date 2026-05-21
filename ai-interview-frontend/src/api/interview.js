@@ -1,7 +1,9 @@
 import api, { fetchWithAuthRetry } from './request'
 
+const startInterviewTimeout = Number(import.meta.env.VITE_START_INTERVIEW_TIMEOUT || 180000)
+
 export function startInterview(data) {
-  return api.post('/interviews/start', data)
+  return api.post('/interviews/start', data, { timeout: startInterviewTimeout })
 }
 
 export function submitAnswer(interviewId, answer, questionIndex) {

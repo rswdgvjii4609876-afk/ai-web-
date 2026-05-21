@@ -344,13 +344,26 @@
           </template>
         </div>
 
-        <div class="form-group">
-          <label>测评难度</label>
-          <select v-model="difficulty">
-            <option value="easy">简单 - 基础求职准备</option>
-            <option value="medium">中等 - 岗位能力追问</option>
-            <option value="hard">困难 - 压力场景与综合判断</option>
-          </select>
+        <div class="difficulty-section">
+          <div class="difficulty-head">
+            <label>测评难度</label>
+            <p>选择面试官的提问标准。难度越高，越偏向项目深挖、系统设计和工程取舍。</p>
+          </div>
+          <div class="difficulty-cards">
+            <button
+              v-for="item in difficultyOptions"
+              :key="item.level"
+              type="button"
+              :class="['difficulty-card', difficulty === item.level ? 'active' : '']"
+              @click="difficulty = item.level"
+            >
+              <span class="difficulty-title">{{ item.public_label }}</span>
+              <strong>{{ item.company_archetype }}</strong>
+              <small>{{ item.question_strategy_summary }}</small>
+              <em>{{ item.rubric_summary }}</em>
+              <b>{{ item.pressure }}</b>
+            </button>
+          </div>
         </div>
         <div class="form-group">
           <label>题目数量</label>
@@ -439,6 +452,7 @@ import PrivacyConsentNotice from '../components/PrivacyConsentNotice.vue'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
 import { buildAiConfigErrorTips } from '../utils/aiConfigError'
 import { normalizeAiModel } from '../utils/aiRuntimeOptions'
+import { INTERVIEW_DIFFICULTY_PROFILES, getInterviewDifficultyProfile } from '../utils/interviewDifficulty'
 
 const router = useRouter()
 const route = useRoute()
@@ -449,6 +463,7 @@ const step = ref(1)
 const file = ref(null)
 const targetPosition = ref(initialTargetPosition || 'Python后端开发工程师')
 const difficulty = ref('medium')
+const difficultyOptions = Object.values(INTERVIEW_DIFFICULTY_PROFILES)
 const totalQuestions = ref(5)
 const multiInterviewerEnabled = ref(false)
 const uploading = ref(false)
@@ -653,6 +668,16 @@ function startProgressAnimation() {
     { target: 80, speed: 500, title: 'AI 正在分析简历质量...' },
     { target: 92, speed: 800, title: '即将完成...' }
   ]
+  if (multiInterviewerEnabled.value) {
+    stages.splice(
+      0,
+      stages.length,
+      { target: 30, speed: 150, title: '正在启动多面试官协同评估...' },
+      { target: 60, speed: 200, title: '正在准备岗位证据链和追问方向...' },
+      { target: 85, speed: 350, title: '正在生成面试题；超时会自动切换快速题目...' },
+      { target: 95, speed: 600, title: '即将进入多面试官模式...' }
+    )
+  }
   let stageIdx = 0
 
   function tick() {
@@ -943,7 +968,9 @@ const startTips = [
 
 function startStartingAnimation() {
   startProgress.value = 0
-  startTip.value = startTips[0]
+  startTip.value = multiInterviewerEnabled.value
+    ? '多面试官模式正在快速启动；模型慢时会自动使用兜底题目。'
+    : startTips[0]
   let tipIdx = 0
   startTipTimer = setInterval(() => {
     tipIdx = (tipIdx + 1) % startTips.length
@@ -980,6 +1007,10 @@ function stopStartingAnimation() {
 
 function cacheInterviewMeta(interviewId, data) {
   const blueprint = data?.interview_blueprint || {}
+  const difficultyProfile = getInterviewDifficultyProfile(
+    data?.difficulty_profile?.level || difficulty.value,
+    data?.difficulty_profile || null
+  )
   const highRiskClaims = Array.isArray(data?.high_risk_claims)
     ? data.high_risk_claims
     : Array.isArray(blueprint?.high_risk_claims)
@@ -989,7 +1020,17 @@ function cacheInterviewMeta(interviewId, data) {
       : []
   const meta = {
     interviewId,
-    interviewMode: data?.interview_mode || (multiInterviewerEnabled.value ? 'panel' : 'single'),
+    requestedInterviewMode: data?.requested_interview_mode || (multiInterviewerEnabled.value ? 'panel' : 'single'),
+    effectiveInterviewMode: data?.effective_interview_mode || data?.interview_mode || (multiInterviewerEnabled.value ? 'panel' : 'single'),
+    interviewMode: data?.effective_interview_mode || data?.interview_mode || (multiInterviewerEnabled.value ? 'panel' : 'single'),
+    panelStatus: data?.panel_status || '',
+    panelFallbackReason: data?.fallback_reason || '',
+    panelGenerationStrategy: data?.generation_strategy || '',
+    difficulty: difficultyProfile.level,
+    difficultyProfile,
+    companyArchetype: data?.company_archetype || difficultyProfile.company_archetype,
+    questionStrategySummary: data?.question_strategy_summary || difficultyProfile.question_strategy_summary,
+    rubricSummary: data?.rubric_summary || difficultyProfile.rubric_summary,
     totalQuestions: data?.total_questions || totalQuestions.value,
     knowledgeBaseTitle: data?.knowledge_base_title || selectedKnowledgeBase.value?.title || '',
     targetPosition: targetPosition.value,
@@ -1012,6 +1053,13 @@ function buildStartErrorTips(message) {
 
   const aiConfigTips = buildAiConfigErrorTips(text)
   if (aiConfigTips.length) return aiConfigTips
+
+  if (text.includes('请求超时') || text.toLowerCase().includes('timeout')) {
+    return [
+      '多面试官启动可能仍在服务器处理中，请先到工作台查看是否已经生成新的面试记录。',
+      '不要连续重复点击开始面试；如果没有新记录，再稍后重试或先关闭多面试官模式。'
+    ]
+  }
 
   if (
     text.includes('数据库写入异常') ||
@@ -1099,6 +1147,7 @@ function buildStartErrorTips(message) {
 }
 
 async function handleStart() {
+  if (starting.value) return
   error.value = ''
   if (!privacyBaseAgreed.value) {
     error.value = '请先阅读并同意《隐私协议与个人信息处理说明》'
@@ -1131,7 +1180,8 @@ async function handleStart() {
       path: `/interview/${data.interview_id}`,
       query: {
         mode: interviewMeta.interviewMode,
-        total: String(interviewMeta.totalQuestions)
+        total: String(interviewMeta.totalQuestions),
+        difficulty: interviewMeta.difficulty
       }
     })
   } catch (e) {
@@ -1147,6 +1197,67 @@ async function handleStart() {
 <style scoped>
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: #374151; }
+.difficulty-section {
+  margin-bottom: 16px;
+}
+.difficulty-head label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+.difficulty-head p {
+  margin: 0 0 10px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.difficulty-cards {
+  display: grid;
+  gap: 10px;
+}
+.difficulty-card {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #dbe4f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+  display: grid;
+  gap: 5px;
+  cursor: pointer;
+}
+.difficulty-card.active {
+  border-color: #4f46e5;
+  background: #eef2ff;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+}
+.difficulty-title {
+  display: inline-flex;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: white;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 700;
+}
+.difficulty-card strong {
+  color: #111827;
+  font-size: 14px;
+}
+.difficulty-card small,
+.difficulty-card em {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+  font-style: normal;
+}
+.difficulty-card b {
+  color: #0f172a;
+  font-size: 12px;
+}
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
