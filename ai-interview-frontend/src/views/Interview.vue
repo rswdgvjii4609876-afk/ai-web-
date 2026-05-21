@@ -52,7 +52,9 @@
       </div>
     </div>
 
-    <div v-if="!preparing && !loadError && hasBlueprintCard" class="blueprint-card">
+    <div v-if="!preparing && !loadError" class="interview-workspace">
+      <aside class="interview-left-panel" aria-label="面试状态">
+    <div v-if="hasBlueprintCard" class="blueprint-card">
       <div class="blueprint-card-top">
         <div>
           <strong>当前训练重点</strong>
@@ -74,13 +76,13 @@
       </p>
     </div>
 
-    <div v-if="!preparing && !loadError" class="difficulty-status-card">
+    <div class="difficulty-status-card">
       <strong>{{ difficultyProfile.public_label }} · {{ difficultyProfile.company_archetype }}</strong>
       <span>{{ difficultyProfile.question_strategy_summary }}</span>
       <em>评分标尺：{{ difficultyProfile.rubric_summary }}</em>
     </div>
 
-    <div v-if="!preparing && !loadError && isPanelMode" class="panel-status-card">
+    <div v-if="isPanelMode" class="panel-status-card">
       <div class="panel-status-top">
         <div>
           <strong>当前模式：多角色协同评估</strong>
@@ -107,7 +109,10 @@
       </details>
     </div>
 
-    <div v-if="!preparing && !loadError" ref="chatArea" class="chat-area">
+      </aside>
+
+      <main class="interview-center-panel" aria-label="面试交流">
+    <div ref="chatArea" class="chat-area">
       <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
         <div v-if="msg.role === 'interviewer'" class="avatar-col">
           <svg viewBox="0 0 40 40" width="36" height="36" class="ai-avatar">
@@ -166,6 +171,7 @@
         </div>
         <div class="bubble thinking-bubble">
           <span class="dot-animation">AI 思考中<span class="dots"></span></span>
+          <small v-if="streamStatus" class="stream-status-text">{{ safeText(streamStatus) }}</small>
         </div>
       </div>
     </div>
@@ -271,13 +277,24 @@
         v-model="answer"
         placeholder="输入你的回答..."
         rows="3"
+        :maxlength="ANSWER_MAX_LENGTH"
         :disabled="thinking"
         @keydown.enter.exact.prevent="handleSubmit"
         @keydown.shift.enter.exact="null"
       ></textarea>
-      <button class="btn-primary" :disabled="!answer.trim() || thinking" @click="handleSubmit">
-        {{ thinking ? '评估中...' : '发送 (Enter)' }}
-      </button>
+      <div class="answer-input-meta">
+        <span :class="{ danger: answerTooLong }">{{ answerLength }}/{{ ANSWER_MAX_LENGTH }}</span>
+        <span v-if="answerTooLong" class="danger">回答超过字数上限，请压缩后提交。</span>
+        <span v-else-if="streamStatus">{{ safeText(streamStatus) }}</span>
+      </div>
+      <div class="input-actions">
+        <button class="btn-primary" :disabled="!answer.trim() || answerTooLong || thinking" @click="handleSubmit">
+          {{ thinking ? '评估中...' : '发送 (Enter)' }}
+        </button>
+        <button v-if="thinking" class="btn-secondary" type="button" @click="cancelCurrentAnswerStream">
+          停止等待
+        </button>
+      </div>
     </div>
 
     <div v-if="!preparing && !loadError && finished" class="input-area finished">
@@ -289,6 +306,49 @@
       >
         查看评估报告
       </router-link>
+    </div>
+      </main>
+
+      <aside class="interview-right-panel" aria-label="评分记录">
+        <section class="score-history-card" :class="{ collapsed: scorePanelCollapsed }">
+          <button class="score-history-header" type="button" @click="scorePanelCollapsed = !scorePanelCollapsed">
+            <span>评分记录</span>
+            <strong>{{ scorePanelCollapsed ? '展开' : '收起' }}</strong>
+          </button>
+          <div v-if="!scorePanelCollapsed" class="score-history-body">
+            <p v-if="!roundScoreHistory.length" class="score-history-empty">
+              回答一题后，这里会显示每轮评分和可展开详情。
+            </p>
+            <article v-for="item in roundScoreHistory" :key="item.id" class="score-history-item">
+              <button
+                class="score-history-summary"
+                type="button"
+                :aria-expanded="!!expandedScoreItems[item.id]"
+                @click="toggleScoreItem(item.id)"
+              >
+                <span>{{ item.label }}</span>
+                <strong>{{ formatScoreText(item.score) }}</strong>
+              </button>
+              <p v-if="item.feedback" class="score-history-feedback">{{ safeText(item.feedback) }}</p>
+              <div v-if="expandedScoreItems[item.id]" class="score-history-detail">
+                <p v-if="item.questionTargetGap">
+                  <b>验证重点：</b>{{ safeText(item.questionTargetGap) }}
+                </p>
+                <ul v-if="item.unresolvedGaps.length">
+                  <li v-for="(gap, index) in item.unresolvedGaps" :key="`score-gap-${item.id}-${index}`">
+                    {{ safeText(gap) }}
+                  </li>
+                </ul>
+                <ul v-if="item.points.length">
+                  <li v-for="(point, index) in item.points" :key="`score-point-${item.id}-${index}`">
+                    {{ safeText(point) }}
+                  </li>
+                </ul>
+              </div>
+            </article>
+          </div>
+        </section>
+      </aside>
     </div>
   </div>
 </template>
@@ -305,6 +365,7 @@ import { getInterviewDifficultyProfile } from '../utils/interviewDifficulty'
 const route = useRoute()
 const authStore = useAuthStore()
 const interviewId = route.params.id
+const ANSWER_MAX_LENGTH = 5000
 
 const messages = ref([])
 const answer = ref('')
@@ -315,12 +376,19 @@ const totalQuestions = ref(5)
 const chatArea = ref(null)
 const streamingText = ref('')
 const streamError = ref('')
+const streamStatus = ref('')
+const activeAnswerController = ref(null)
 const loadError = ref('')
 const latestRoundSummary = ref(null)
 const roundSummaryExpanded = ref(false)
 const roundSummaryDismissed = ref(true)
+const roundScoreHistory = ref([])
+const scorePanelCollapsed = ref(false)
+const expandedScoreItems = ref({})
 const interviewMeta = ref(null)
 const loadErrorIsAiConfig = computed(() => isAiConfigError(loadError.value))
+const answerLength = computed(() => answer.value.length)
+const answerTooLong = computed(() => answerLength.value > ANSWER_MAX_LENGTH)
 const panelRoleHints = ['岗位匹配', '经历追问', '沟通表达', '证据核查', '改进建议']
 
 const preparing = ref(true)
@@ -375,10 +443,42 @@ const panelFallbackNotice = computed(() => {
 })
 const roundSummaryScoreText = computed(() => {
   const value = latestRoundSummary.value?.score
+  return formatScoreText(value)
+})
+
+function formatScoreText(value) {
   if (value === null || value === undefined || value === '') return '-/10'
   const score = Number(value)
   return Number.isFinite(score) ? `${score.toFixed(1)}/10` : `${value}/10`
-})
+}
+
+function scoreSummaryId(summary) {
+  const index = Number(summary?.questionIndex)
+  if (Number.isInteger(index) && index >= 0) return `round-${index + 1}`
+  return `round-${roundScoreHistory.value.length + 1}`
+}
+
+function upsertRoundSummary(summary) {
+  if (!summary) return
+  const id = scoreSummaryId(summary)
+  const index = Number(summary.questionIndex)
+  const label = Number.isInteger(index) && index >= 0 ? `第 ${index + 1} 题` : `第 ${roundScoreHistory.value.length + 1} 题`
+  const item = { ...summary, id, label }
+  const existing = roundScoreHistory.value.findIndex(entry => entry.id === id)
+  if (existing >= 0) {
+    roundScoreHistory.value.splice(existing, 1, item)
+  } else {
+    roundScoreHistory.value.push(item)
+  }
+  latestRoundSummary.value = item
+}
+
+function toggleScoreItem(id) {
+  expandedScoreItems.value = {
+    ...expandedScoreItems.value,
+    [id]: !expandedScoreItems.value[id]
+  }
+}
 
 function loadInterviewMeta() {
   const storageKey = `interview_meta_${interviewId}`
@@ -457,6 +557,24 @@ function hydrateMessages(data) {
     roundSummaryExpanded.value = false
     roundSummaryDismissed.value = true
   }
+  roundScoreHistory.value = []
+  safeList
+    .filter(item => item.role === 'candidate' && ((item.score !== null && item.score !== undefined) || item.feedback))
+    .forEach(item => {
+      upsertRoundSummary(normalizeRoundSummary({
+        question_index: item.question_index,
+        score: item.score,
+        feedback: item.feedback || '上一轮回答已有评分反馈。',
+        evidence_summary: [],
+        unresolved_gaps: [],
+        evidence_strength_delta: [],
+        claim_confidence_change: [],
+        question_target_evidence: []
+      }))
+    })
+  if (roundScoreHistory.value.length) {
+    latestRoundSummary.value = roundScoreHistory.value[roundScoreHistory.value.length - 1]
+  }
   const indices = safeList.map(item => item.question_index).filter(index => index != null)
   if (indices.length && !finished.value) {
     currentIndex.value = Math.max(...indices)
@@ -507,6 +625,7 @@ function normalizeRoundSummary(data) {
   }
 
   return {
+    questionIndex: data.question_index ?? data.questionIndex ?? null,
     feedback: data.feedback || moderator.reasoning_summary || '',
     score: data.score ?? null,
     modeLabel: isPanelMode.value ? '证据追问闭环' : '单面试官闭环',
@@ -567,6 +686,14 @@ function safeText(text) {
   return renderContent(text)
 }
 
+function formatStreamError(error) {
+  const message = error?.message || String(error || '')
+  if (/Expecting .*delimiter|JSONDecodeError|json parser|JSON\.parse|unterminated string/i.test(message)) {
+    return '本轮评分生成异常，请重试或刷新查看记录。'
+  }
+  return message || '回答提交失败'
+}
+
 function safeJoin(items, separator = '；') {
   if (!Array.isArray(items)) return ''
   return items.map((item) => safeText(item)).filter(Boolean).join(separator)
@@ -618,6 +745,10 @@ onMounted(async () => {
 
 async function handleSubmit() {
   if (!answer.value.trim() || thinking.value) return
+  if (answerTooLong.value) {
+    streamError.value = `回答不能超过 ${ANSWER_MAX_LENGTH} 字，请压缩后提交。`
+    return
+  }
 
   const myAnswer = answer.value.trim()
   answer.value = ''
@@ -627,9 +758,13 @@ async function handleSubmit() {
   thinking.value = true
   streamingText.value = ''
   streamError.value = ''
+  streamStatus.value = ''
   roundSummaryExpanded.value = false
   roundSummaryDismissed.value = true
   let rawStreamText = ''
+  let answerPersisted = false
+  const streamController = new AbortController()
+  activeAnswerController.value = streamController
 
   try {
     await submitAnswerStream(
@@ -649,7 +784,9 @@ async function handleSubmit() {
         scrollToBottom()
       },
       data => {
-        latestRoundSummary.value = normalizeRoundSummary(data)
+        answerPersisted = true
+        const roundSummary = normalizeRoundSummary(data)
+        upsertRoundSummary(roundSummary)
         roundSummaryExpanded.value = false
         roundSummaryDismissed.value = false
 
@@ -664,6 +801,7 @@ async function handleSubmit() {
         }
 
         streamingText.value = ''
+        streamStatus.value = ''
         rawStreamText = ''
 
         const lastCandidate = [...messages.value].reverse().find(item => item.role === 'candidate')
@@ -678,26 +816,56 @@ async function handleSubmit() {
           messages.value.push({ role: 'interviewer', content: data.next_question })
         }
         scrollToBottom()
-      }
+      },
+      data => {
+        streamStatus.value = data?.content || ''
+      },
+      { controller: streamController }
     )
   } catch (e) {
+    thinking.value = false
+    streamStatus.value = ''
     streamingText.value = ''
-    streamError.value = e.message || '回答提交失败'
+    streamError.value = formatStreamError(e)
     const optimisticIndex = messages.value.indexOf(optimisticMessage)
     if (optimisticIndex >= 0) {
       messages.value.splice(optimisticIndex, 1)
     }
     try {
-      const data = await getMessages(interviewId)
+      const data = await withTimeout(getMessages(interviewId), 8000, '刷新面试记录超时')
+      const msgList = Array.isArray(data) ? data : (data?.items || data || [])
+      const safeList = Array.isArray(msgList) ? msgList : []
+      answerPersisted = answerPersisted || safeList.some(item => item.role === 'candidate' && item.content === myAnswer)
       hydrateMessages(data)
     } catch (refreshError) {
       console.error('Refresh interview messages after stream failure failed:', refreshError)
+    }
+    if (!answerPersisted) {
+      answer.value = myAnswer
     }
     messages.value.push({ role: 'interviewer', content: `出错了：${safeText(streamError.value)}` })
     scrollToBottom()
   } finally {
     thinking.value = false
+    streamStatus.value = ''
+    if (activeAnswerController.value === streamController) {
+      activeAnswerController.value = null
+    }
   }
+}
+
+function cancelCurrentAnswerStream() {
+  if (!activeAnswerController.value) return
+  streamStatus.value = '已停止等待，正在恢复输入状态。'
+  activeAnswerController.value.abort()
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeoutId
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId))
 }
 </script>
 
@@ -707,8 +875,41 @@ async function handleSubmit() {
   flex-direction: column;
   height: calc(100dvh - 73px);
   min-height: 520px;
-  max-width: 800px;
+  width: 100%;
+  max-width: 1480px;
   margin: 0 auto;
+  background: #f8fafc;
+}
+
+.interview-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(260px, 320px);
+  gap: 14px;
+  padding: 16px 20px;
+}
+
+.interview-left-panel,
+.interview-right-panel,
+.interview-center-panel {
+  min-height: 0;
+  min-width: 0;
+}
+
+.interview-left-panel,
+.interview-right-panel {
+  overflow-y: auto;
+}
+
+.interview-center-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
 .interview-load-error {
@@ -830,6 +1031,12 @@ async function handleSubmit() {
   background: #ffffff;
   border: 1px solid #e5e7eb;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+}
+
+.interview-left-panel .blueprint-card,
+.interview-left-panel .difficulty-status-card,
+.interview-left-panel .panel-status-card {
+  margin: 0 0 12px;
 }
 
 .blueprint-card-top {
@@ -1153,6 +1360,100 @@ async function handleSubmit() {
   border-top: 1px solid rgba(14, 165, 233, 0.12);
 }
 
+.interview-center-panel > .round-feedback-panel {
+  display: none;
+}
+
+.score-history-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.score-history-header,
+.score-history-summary {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+}
+
+.score-history-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid #eef2ff;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.score-history-header strong {
+  color: #075985;
+  font-size: 12px;
+}
+
+.score-history-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.score-history-empty {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.score-history-item {
+  padding: 10px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.score-history-summary {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.score-history-summary strong {
+  flex-shrink: 0;
+  color: #4f46e5;
+}
+
+.score-history-feedback,
+.score-history-detail {
+  margin-top: 8px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.score-history-detail {
+  max-height: 220px;
+  overflow-y: auto;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.score-history-detail p {
+  margin: 0 0 8px;
+}
+
+.score-history-detail ul {
+  margin: 8px 0 0 16px;
+  padding: 0;
+}
+
 .message {
   display: flex;
   align-items: flex-start;
@@ -1241,6 +1542,14 @@ async function handleSubmit() {
   font-style: italic;
 }
 
+.stream-status-text {
+  display: block;
+  margin-top: 4px;
+  color: #475569;
+  font-size: 12px;
+  font-style: normal;
+}
+
 .dot-animation .dots::after {
   content: '';
   animation: dots 1.5s steps(4, end) infinite;
@@ -1300,18 +1609,65 @@ async function handleSubmit() {
   padding: 16px 20px;
   background: white;
   border-top: 1px solid #e5e7eb;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: flex-end;
 }
 
 .input-area textarea {
-  flex: 1;
+  grid-column: 1 / 2;
   resize: none;
   font-family: inherit;
 }
 
+.answer-input-meta {
+  grid-column: 1 / 2;
+  margin-top: -6px;
+  color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.answer-input-meta .danger {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.input-actions {
+  grid-column: 2 / 3;
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-actions .btn-primary,
+.input-actions .btn-secondary {
+  flex: 1;
+}
+
+.btn-secondary {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 700;
+  padding: 10px 18px;
+}
+
+.btn-secondary:hover {
+  background: #f8fafc;
+}
+
 .input-area.finished {
+  display: flex;
   justify-content: center;
   align-items: center;
   padding: 24px;
@@ -1329,6 +1685,31 @@ async function handleSubmit() {
     min-height: 460px;
   }
 
+  .interview-workspace {
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    overflow-y: auto;
+  }
+
+  .interview-left-panel,
+  .interview-right-panel {
+    overflow: visible;
+  }
+
+  .interview-center-panel {
+    min-height: 560px;
+    overflow: visible;
+  }
+
+  .interview-right-panel {
+    display: none;
+  }
+
+  .interview-center-panel > .round-feedback-panel {
+    display: block;
+  }
+
   .interview-header {
     gap: 10px;
     flex-wrap: wrap;
@@ -1343,8 +1724,18 @@ async function handleSubmit() {
   }
 
   .input-area {
+    display: flex;
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .input-actions {
+    width: 100%;
+    flex-direction: row;
+  }
+
+  .answer-input-meta {
+    margin-top: -4px;
   }
 
   .round-feedback-panel {

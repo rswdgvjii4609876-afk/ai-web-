@@ -42,6 +42,10 @@ FINE_TUNING_SAMPLE_SCHEMA_VERSION = "ai-interview.fine-tuning-sample.v1"
 FINE_TUNING_READINESS_REPORT_VERSION = "ai-interview.fine-tuning-readiness-report.v1"
 USER_DELETED_COMPLETED_INTERVIEW_REASON = "user_deleted_completed_interview_retained_for_review"
 START_PANEL_QUESTION_TIMEOUT_SECONDS = 25
+ANSWER_EVALUATION_TIMEOUT_SECONDS = 45
+ANSWER_REPORT_TIMEOUT_SECONDS = 45
+ANSWER_STREAM_TOTAL_TIMEOUT_SECONDS = 140
+ANSWER_STREAM_HEARTBEAT_SECONDS = 8
 DIRECT_IDENTIFIER_REPLACEMENTS = (
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[REDACTED_EMAIL]"),
     (re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}(?!\d)"), "[REDACTED_PHONE]"),
@@ -2361,6 +2365,79 @@ class InterviewService:
         return InterviewService._sanitize_question_public_fields(next_meta)
 
     @staticmethod
+    def _is_recoverable_evaluation_error(exc: Exception) -> bool:
+        return isinstance(exc, (json.JSONDecodeError, ValueError, asyncio.TimeoutError)) and not isinstance(exc, ValidationError)
+
+    @staticmethod
+    async def _await_answer_evaluation(coro):
+        return await asyncio.wait_for(coro, timeout=ANSWER_EVALUATION_TIMEOUT_SECONDS)
+
+    @staticmethod
+    def _evaluation_fallback_reason(exc: Exception, default: str = "answer_evaluation_json_malformed") -> str:
+        if isinstance(exc, asyncio.TimeoutError):
+            return "answer_evaluation_timeout"
+        return default
+
+    @staticmethod
+    def _build_deterministic_answer_evaluation_fallback(
+        *,
+        question: str,
+        answer: str,
+        question_meta: Optional[Dict[str, Any]],
+        reason: str,
+        exc: Exception,
+    ) -> Dict[str, Any]:
+        answer_text = str(answer or "").strip()
+        target_gap = str((question_meta or {}).get("question_target_gap") or "").strip()
+        target_evidence = InterviewService._unique_strings(
+            (question_meta or {}).get("question_target_evidence") or [],
+            limit=4,
+        )
+        base_score = 5.0
+        if len(answer_text) >= 260:
+            base_score += 0.8
+        elif len(answer_text) >= 100:
+            base_score += 0.4
+        elif len(answer_text) < 30:
+            base_score -= 0.6
+        if re.search(r"(我|本人|主导|负责|设计|实现|优化|排查|上线|复盘|指标|结果|用户|性能)", answer_text):
+            base_score += 0.4
+        score = round(max(4.0, min(base_score, 6.5)), 1)
+        followup_question = "请继续补充一个具体例子，按背景、你的职责、采取的行动、最终结果和复盘改进展开。"
+        if target_gap:
+            followup_question = f"围绕“{target_gap}”，请补充一个具体例子，说明你的职责、行动、结果和复盘。"
+        feedback = (
+            "本轮回答已记录。AI 结构化评分暂不可用，系统已使用保守兜底评分；"
+            "建议继续补充背景、个人职责、行动过程、结果指标和复盘改进。"
+        )
+        return {
+            "score": score,
+            "feedback": feedback,
+            "follow_up": True,
+            "strengths": ["回答已完成记录，可继续进入下一题。"],
+            "gaps": [target_gap or "仍需补充更具体的职责、行动和结果证据。"],
+            "unresolved_gaps": [target_gap or "具体职责、行动过程、结果指标仍需进一步验证。"],
+            "next_focus": target_gap or "补充可验证项目证据",
+            "selected_followups": [followup_question],
+            "evidence_strength_delta": [],
+            "claim_confidence_change": [],
+            "next_best_followup": {
+                "question": followup_question,
+                "reason": "结构化评分兜底后，优先追问可验证事实链。",
+                "target_gap": target_gap or "可验证项目证据",
+                "target_evidence": target_evidence,
+                "evidence_source_ids": (question_meta or {}).get("question_target_evidence_ids") or [],
+                "evidence_source_summary": target_evidence,
+            },
+            "metadata": {
+                "evaluation_fallback": True,
+                "fallback_reason": reason,
+                "parser_error_class": exc.__class__.__name__,
+                "question_preview_hash": sha256(str(question or "").encode("utf-8")).hexdigest()[:12],
+            },
+        }
+
+    @staticmethod
     async def _evaluate_round(
         interview_mode: str,
         question: str,
@@ -2375,40 +2452,71 @@ class InterviewService:
         evaluation_mode = interview_mode
         try:
             if interview_mode == "panel":
-                evaluation = await AIService.evaluate_answer_with_panel(
-                    question=question,
-                    answer=answer,
-                    resume_context=resume_context,
-                    chat_history=chat_history,
-                    knowledge_base=knowledge_base,
-                    question_meta=question_meta,
-                    panel_snapshot=panel_snapshot,
-                    ai_config=ai_config,
+                evaluation = await InterviewService._await_answer_evaluation(
+                    AIService.evaluate_answer_with_panel(
+                        question=question,
+                        answer=answer,
+                        resume_context=resume_context,
+                        chat_history=chat_history,
+                        knowledge_base=knowledge_base,
+                        question_meta=question_meta,
+                        panel_snapshot=panel_snapshot,
+                        ai_config=ai_config,
+                    )
                 )
             else:
-                evaluation = await AIService.evaluate_answer(
-                    question=question,
-                    answer=answer,
-                    resume_context=resume_context,
-                    chat_history=chat_history,
-                    knowledge_base=knowledge_base,
-                    question_meta=question_meta,
-                    ai_config=ai_config,
+                evaluation = await InterviewService._await_answer_evaluation(
+                    AIService.evaluate_answer(
+                        question=question,
+                        answer=answer,
+                        resume_context=resume_context,
+                        chat_history=chat_history,
+                        knowledge_base=knowledge_base,
+                        question_meta=question_meta,
+                        ai_config=ai_config,
+                    )
                 )
         except Exception as exc:
-            if interview_mode != "panel":
+            if not InterviewService._is_recoverable_evaluation_error(exc):
                 raise
-            logger.warning("Panel evaluation failed, fallback to single mode: %s", exc)
-            evaluation_mode = "single_fallback"
-            evaluation = await AIService.evaluate_answer(
-                question=question,
-                answer=answer,
-                resume_context=resume_context,
-                chat_history=chat_history,
-                knowledge_base=knowledge_base,
-                question_meta=question_meta,
-                ai_config=ai_config,
-            )
+            if interview_mode != "panel":
+                logger.warning("Single evaluation JSON failed, using deterministic fallback: %s", exc)
+                return "deterministic_fallback", InterviewService._build_deterministic_answer_evaluation_fallback(
+                    question=question,
+                    answer=answer,
+                    question_meta=question_meta,
+                    reason=InterviewService._evaluation_fallback_reason(exc),
+                    exc=exc,
+                )
+            logger.warning("Panel evaluation JSON failed, fallback to single mode: %s", exc)
+            try:
+                evaluation_mode = "single_fallback"
+                evaluation = await InterviewService._await_answer_evaluation(
+                    AIService.evaluate_answer(
+                        question=question,
+                        answer=answer,
+                        resume_context=resume_context,
+                        chat_history=chat_history,
+                        knowledge_base=knowledge_base,
+                        question_meta=question_meta,
+                        ai_config=ai_config,
+                    )
+                )
+            except Exception as single_exc:
+                if not InterviewService._is_recoverable_evaluation_error(single_exc):
+                    raise
+                logger.warning("Single fallback evaluation JSON failed, using deterministic fallback: %s", single_exc)
+                evaluation_mode = "deterministic_fallback"
+                evaluation = InterviewService._build_deterministic_answer_evaluation_fallback(
+                    question=question,
+                    answer=answer,
+                    question_meta=question_meta,
+                    reason=InterviewService._evaluation_fallback_reason(
+                        single_exc,
+                        default="panel_and_single_evaluation_json_malformed",
+                    ),
+                    exc=single_exc,
+                )
         return evaluation_mode, evaluation
 
     @staticmethod
@@ -4249,6 +4357,7 @@ class InterviewService:
             evaluation,
             fallback_question=current_question,
         )
+        evaluation_metadata = evaluation.get("metadata") or {}
 
         score = float(evaluation.get("score", 5.0))
         feedback = (evaluation.get("feedback") or "").strip()
@@ -4307,6 +4416,9 @@ class InterviewService:
             "claim_confidence_change": evaluation.get("claim_confidence_change") or [],
             "unresolved_gaps": evaluation.get("unresolved_gaps") or [],
             "next_best_followup": evaluation.get("next_best_followup"),
+            "evaluation_mode": evaluation_mode,
+            "fallback_reason": evaluation_metadata.get("fallback_reason"),
+            "report_status": None,
         }
 
         if is_finished:
@@ -4325,60 +4437,106 @@ class InterviewService:
             qa_data = InterviewService._build_qa_data(completed_questions)
             report_signals = InterviewService._build_report_signals(completed_questions)
             report_diagnostics: List[Dict[str, Any]] = []
+            report_status = "pending"
+            report = InterviewService._fallback_report_from_signals(
+                report_signals=report_signals,
+                reason="report_generation_pending",
+                detail="面试已完成，报告正在生成；如生成超时，系统会保留基础报告供查看。",
+            )
+            interview.report = json.dumps(
+                {
+                    **InterviewService._merge_report_defaults(
+                        report=report,
+                        report_signals=report_signals,
+                        interview_mode=interview.interview_mode,
+                    ),
+                    "report_status": report_status,
+                },
+                ensure_ascii=False,
+            )
+            response["report_status"] = report_status
+            await db.commit()
             try:
                 if interview.interview_mode == "panel":
-                    report = await AIService.generate_panel_report(
-                        parsed_resume=parsed_resume,
-                        target_position=interview.target_position,
-                        questions_and_scores=qa_data,
-                        knowledge_base=knowledge_base_context,
-                        panel_snapshot=interview.panel_snapshot,
-                        report_signals=report_signals,
-                        ai_config=ai_config,
+                    report = await asyncio.wait_for(
+                        AIService.generate_panel_report(
+                            parsed_resume=parsed_resume,
+                            target_position=interview.target_position,
+                            questions_and_scores=qa_data,
+                            knowledge_base=knowledge_base_context,
+                            panel_snapshot=interview.panel_snapshot,
+                            report_signals=report_signals,
+                            ai_config=ai_config,
+                        ),
+                        timeout=ANSWER_REPORT_TIMEOUT_SECONDS,
                     )
                 else:
-                    report = await AIService.generate_report(
-                        parsed_resume=parsed_resume,
-                        target_position=interview.target_position,
-                        questions_and_scores=qa_data,
-                        knowledge_base=knowledge_base_context,
-                        panel_snapshot=interview.panel_snapshot,
-                        report_signals=report_signals,
-                        ai_config=ai_config,
+                    report = await asyncio.wait_for(
+                        AIService.generate_report(
+                            parsed_resume=parsed_resume,
+                            target_position=interview.target_position,
+                            questions_and_scores=qa_data,
+                            knowledge_base=knowledge_base_context,
+                            panel_snapshot=interview.panel_snapshot,
+                            report_signals=report_signals,
+                            ai_config=ai_config,
+                        ),
+                        timeout=ANSWER_REPORT_TIMEOUT_SECONDS,
                     )
+                report_status = "ready"
             except Exception as exc:
-                logger.warning("Primary report generation failed, fallback to single report: %s", exc)
-                report_diagnostics.append(
-                    {
-                        "reason": "primary_report_generation_failed",
-                        "detail": str(exc),
-                    }
-                )
-                try:
-                    report = await AIService.generate_report(
-                        parsed_resume=parsed_resume,
-                        target_position=interview.target_position,
-                        questions_and_scores=qa_data,
-                        knowledge_base=knowledge_base_context,
-                        panel_snapshot=interview.panel_snapshot,
-                        report_signals=report_signals,
-                        ai_config=ai_config,
-                    )
-                    if isinstance(report, dict):
-                        report["fallback_mode"] = "single_report_fallback"
-                except Exception as fallback_exc:
-                    logger.warning("Fallback report generation failed, using diagnostic report: %s", fallback_exc)
+                if isinstance(exc, asyncio.TimeoutError):
+                    logger.warning("Primary report generation timed out, using diagnostic report")
+                    report_status = "degraded_timeout"
                     report_diagnostics.append(
                         {
-                            "reason": "fallback_report_generation_failed",
-                            "detail": str(fallback_exc),
+                            "reason": "primary_report_generation_timeout",
+                            "detail": "报告生成超过时间预算，已使用面试记录生成基础报告。",
                         }
                     )
                     report = InterviewService._fallback_report_from_signals(
                         report_signals=report_signals,
-                        reason="report_generation_unavailable",
-                        detail="主报告和备用报告生成均失败，已使用面试记录生成基础报告。",
+                        reason="report_generation_timeout",
+                        detail="报告生成超过时间预算，已使用面试记录生成基础报告。",
                     )
+                else:
+                    logger.warning("Primary report generation failed, fallback to single report: %s", exc)
+                    report_diagnostics.append(
+                        {
+                            "reason": "primary_report_generation_failed",
+                            "detail": str(exc),
+                        }
+                    )
+                    try:
+                        report = await asyncio.wait_for(
+                            AIService.generate_report(
+                                parsed_resume=parsed_resume,
+                                target_position=interview.target_position,
+                                questions_and_scores=qa_data,
+                                knowledge_base=knowledge_base_context,
+                                panel_snapshot=interview.panel_snapshot,
+                                report_signals=report_signals,
+                                ai_config=ai_config,
+                            ),
+                            timeout=ANSWER_REPORT_TIMEOUT_SECONDS,
+                        )
+                        report_status = "single_report_fallback"
+                        if isinstance(report, dict):
+                            report["fallback_mode"] = "single_report_fallback"
+                    except Exception as fallback_exc:
+                        logger.warning("Fallback report generation failed, using diagnostic report: %s", fallback_exc)
+                        report_status = "degraded_timeout" if isinstance(fallback_exc, asyncio.TimeoutError) else "degraded_error"
+                        report_diagnostics.append(
+                            {
+                                "reason": "fallback_report_generation_failed",
+                                "detail": str(fallback_exc),
+                            }
+                        )
+                        report = InterviewService._fallback_report_from_signals(
+                            report_signals=report_signals,
+                            reason="report_generation_unavailable",
+                            detail="主报告和备用报告生成均失败，已使用面试记录生成基础报告。",
+                        )
 
             report = InterviewService._merge_report_defaults(
                 report=report,
@@ -4408,6 +4566,8 @@ class InterviewService:
                 if interview.interview_mode == "panel"
                 else "单面试官模式"
             )
+            report["report_status"] = report_status
+            response["report_status"] = report_status
             interview.report = json.dumps(report, ensure_ascii=False)
         else:
             next_question_meta = dict(questions[next_index])
@@ -4445,6 +4605,19 @@ class InterviewService:
         return response
 
     @staticmethod
+    def _format_answer_stream_error(exc: Exception) -> str:
+        if isinstance(exc, asyncio.TimeoutError):
+            return "本轮评估耗时较长，系统已停止等待。请刷新查看记录；如果回答未保存，可直接重试。"
+        if InterviewService._is_recoverable_evaluation_error(exc):
+            return "本轮评分生成异常，请刷新查看记录或稍后重试。"
+        if isinstance(exc, ValidationError):
+            return str(getattr(exc, "detail", "") or "答题失败，请稍后重试")
+        message = str(exc or "").strip()
+        if re.search(r"Expecting .* delimiter|JSONDecodeError|json parser|JSON\.parse|unterminated string", message, re.I):
+            return "本轮评分生成异常，请刷新查看记录或稍后重试。"
+        return message or "答题失败，请稍后重试"
+
+    @staticmethod
     async def submit_answer_stream(
         db: AsyncSession,
         user_id: int,
@@ -4453,8 +4626,38 @@ class InterviewService:
         question_index: Optional[int] = None,
         ai_config: Optional[Dict] = None,
     ):
+        def _event(payload: Dict[str, Any]) -> str:
+            return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        is_final_round = False
         try:
-            result = await InterviewService.submit_answer(
+            precheck = await db.execute(
+                select(
+                    Interview.current_question_index,
+                    Interview.total_questions,
+                    Interview.questions_data,
+                ).where(
+                    Interview.id == interview_id,
+                    Interview.user_id == user_id,
+                    Interview.user_deleted_at.is_(None),
+                )
+            )
+            row = precheck.first()
+            if row:
+                current = int(row.current_question_index or 0)
+                total = int(row.total_questions or 0)
+                questions_len = len(row.questions_data or [])
+                effective_total = min(total or questions_len, questions_len or total)
+                is_final_round = effective_total > 0 and int(question_index or current) >= effective_total - 1
+        except Exception as precheck_exc:
+            logger.warning("Submit answer stream precheck failed: %s", precheck_exc)
+
+        yield _event({"type": "stream_version", "version": "answer_stream_v2"})
+        yield _event({"type": "status", "stage": "received", "content": "已收到回答，正在准备评分。"})
+        yield _event({"type": "status", "stage": "evaluating", "content": "正在评估本轮回答，请稍候。"})
+
+        task = asyncio.create_task(
+            InterviewService.submit_answer(
                 db=db,
                 user_id=user_id,
                 interview_id=interview_id,
@@ -4462,13 +4665,46 @@ class InterviewService:
                 question_index=question_index,
                 ai_config=ai_config,
             )
+        )
+        try:
+            deadline = asyncio.get_running_loop().time() + ANSWER_STREAM_TOTAL_TIMEOUT_SECONDS
+            while not task.done():
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                    raise asyncio.TimeoutError()
+                done, _ = await asyncio.wait(
+                    {task},
+                    timeout=min(ANSWER_STREAM_HEARTBEAT_SECONDS, remaining),
+                )
+                if not done:
+                    stage = "generating_report" if is_final_round else "evaluating"
+                    content = "正在生成最终报告，若模型较慢会自动保留基础报告。" if is_final_round else "仍在评估本轮回答，系统会在超时前自动兜底。"
+                    yield _event(
+                        {
+                            "type": "heartbeat",
+                            "stage": stage,
+                            "content": content,
+                            "remaining_seconds": max(0, int(remaining)),
+                        }
+                    )
+            result = task.result()
         except Exception as exc:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(exc)}, ensure_ascii=False)}\n\n"
+            try:
+                await db.rollback()
+            except Exception as rollback_exc:
+                logger.warning("Submit answer stream rollback failed: %s", rollback_exc)
+            error_message = InterviewService._format_answer_stream_error(exc)
+            yield _event({"type": "error", "content": error_message})
             return
 
         for chunk in InterviewService._chunk_text(result.get("feedback", "")):
-            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
-        yield f"data: {json.dumps({'type': 'done', **result}, ensure_ascii=False)}\n\n"
+            yield _event({"type": "chunk", "content": chunk})
+        yield _event({"type": "done", **result})
 
     @staticmethod
     async def get_report(

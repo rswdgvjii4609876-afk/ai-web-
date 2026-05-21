@@ -10,6 +10,9 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+import app.services.client.ai_service as ai_service_module
+import app.services.client.interview_service as interview_service_module
+from app.core.config import settings
 from app.exceptions.http_exceptions import NotFoundError, ValidationError
 from app.schemas.client.interview import AnswerSubmit, InterviewStartResponse
 from app.services.client.ai_service import AIService
@@ -1147,10 +1150,9 @@ def test_report_signals_exclude_role_reference_claim_confidence_items():
     assert "Redis incident handling" not in "\n".join(signals["claim_confidence_summary"])
 
 
-@pytest.mark.asyncio
-async def test_evaluate_round_falls_back_to_single_when_panel_evaluation_fails(monkeypatch):
+def test_evaluate_round_falls_back_to_single_when_panel_evaluation_fails(monkeypatch):
     async def _raise_panel(**kwargs):
-        raise RuntimeError("panel failed")
+        raise json.JSONDecodeError("Expecting ',' delimiter", "", 85)
 
     async def _single_eval(**kwargs):
         return {
@@ -1167,21 +1169,244 @@ async def test_evaluate_round_falls_back_to_single_when_panel_evaluation_fails(m
     monkeypatch.setattr(AIService, "evaluate_answer_with_panel", _raise_panel)
     monkeypatch.setattr(AIService, "evaluate_answer", _single_eval)
 
-    mode, evaluation = await InterviewService._evaluate_round(
-        interview_mode="panel",
-        question="Tell me about the migration project.",
-        answer="I helped drive the migration.",
-        resume_context={},
-        chat_history=[],
-        knowledge_base=None,
-        question_meta={"question_target_gap": "ownership clarity", "question_target_evidence_ids": [31]},
-        panel_snapshot={"mode": "panel"},
-        ai_config=None,
-    )
+    async def _run():
+        return await InterviewService._evaluate_round(
+            interview_mode="panel",
+            question="Tell me about the migration project.",
+            answer="I helped drive the migration.",
+            resume_context={},
+            chat_history=[],
+            knowledge_base=None,
+            question_meta={"question_target_gap": "ownership clarity", "question_target_evidence_ids": [31]},
+            panel_snapshot={"mode": "panel"},
+            ai_config=None,
+        )
+
+    mode, evaluation = asyncio.run(_run())
 
     assert mode == "single_fallback"
     assert evaluation["feedback"] == "Need more concrete ownership evidence."
     assert evaluation["next_best_followup"]["target_gap"] == "ownership clarity"
+
+
+def test_evaluate_round_uses_deterministic_fallback_when_single_json_fails(monkeypatch):
+    async def _raise_single(**kwargs):
+        raise json.JSONDecodeError("Expecting ',' delimiter", "", 85)
+
+    monkeypatch.setattr(AIService, "evaluate_answer", _raise_single)
+
+    async def _run():
+        return await InterviewService._evaluate_round(
+            interview_mode="single",
+            question="Tell me about the migration project.",
+            answer="I designed the rollout, implemented the API changes, and reviewed the result after launch.",
+            resume_context={},
+            chat_history=[],
+            knowledge_base=None,
+            question_meta={
+                "question_target_gap": "ownership clarity",
+                "question_target_evidence": ["migration project"],
+                "question_target_evidence_ids": [31],
+            },
+            panel_snapshot=None,
+            ai_config=None,
+        )
+
+    mode, evaluation = asyncio.run(_run())
+
+    assert mode == "deterministic_fallback"
+    assert evaluation["metadata"]["fallback_reason"] == "answer_evaluation_json_malformed"
+    assert evaluation["metadata"]["evaluation_fallback"] is True
+    assert evaluation["score"] >= 5.0
+    assert "ownership clarity" in evaluation["next_best_followup"]["target_gap"]
+
+
+def test_evaluate_round_uses_deterministic_fallback_when_panel_and_single_json_fail(monkeypatch):
+    async def _raise_json(**kwargs):
+        raise json.JSONDecodeError("Expecting ',' delimiter", "", 85)
+
+    monkeypatch.setattr(AIService, "evaluate_answer_with_panel", _raise_json)
+    monkeypatch.setattr(AIService, "evaluate_answer", _raise_json)
+
+    async def _run():
+        return await InterviewService._evaluate_round(
+            interview_mode="panel",
+            question="Tell me about the migration project.",
+            answer="I drove the migration and summarized the rollback plan.",
+            resume_context={},
+            chat_history=[],
+            knowledge_base=None,
+            question_meta={"question_target_gap": "risk awareness"},
+            panel_snapshot={"mode": "panel"},
+            ai_config=None,
+        )
+
+    mode, evaluation = asyncio.run(_run())
+
+    assert mode == "deterministic_fallback"
+    assert evaluation["metadata"]["fallback_reason"] == "panel_and_single_evaluation_json_malformed"
+    assert evaluation["unresolved_gaps"]
+
+
+def test_evaluate_round_timeout_uses_deterministic_fallback(monkeypatch):
+    async def _raise_timeout(**kwargs):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(AIService, "evaluate_answer", _raise_timeout)
+
+    async def _run():
+        return await InterviewService._evaluate_round(
+            interview_mode="single",
+            question="Tell me about the migration project.",
+            answer="I owned the rollout plan, implemented the API, and reviewed the launch metrics.",
+            resume_context={},
+            chat_history=[],
+            knowledge_base=None,
+            question_meta={"question_target_gap": "execution evidence"},
+            panel_snapshot=None,
+            ai_config=None,
+        )
+
+    mode, evaluation = asyncio.run(_run())
+
+    assert mode == "deterministic_fallback"
+    assert evaluation["metadata"]["fallback_reason"] == "answer_evaluation_timeout"
+    assert evaluation["metadata"]["evaluation_fallback"] is True
+
+
+@pytest.mark.unit
+def test_runtime_client_uses_explicit_http_timeout(monkeypatch):
+    captured = {}
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(ai_service_module, "AsyncOpenAI", _FakeAsyncOpenAI)
+    monkeypatch.setattr(settings, "USER_LLM_HTTP_TIMEOUT_SECONDS", 33.0)
+
+    AIService._resolve_runtime(
+        {
+            "api_key": "test-key",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "base_url": "https://api.deepseek.com",
+        }
+    )
+
+    assert captured["timeout"] == 33.0
+
+
+@pytest.mark.unit
+def test_submit_answer_stream_emits_version_status_and_heartbeat(monkeypatch):
+    class _PrecheckResult:
+        def first(self):
+            return SimpleNamespace(
+                current_question_index=0,
+                total_questions=2,
+                questions_data=[{"question": "q1"}, {"question": "q2"}],
+            )
+
+    class _Db:
+        def __init__(self):
+            self.rolled_back = False
+
+        async def execute(self, _statement):
+            return _PrecheckResult()
+
+        async def rollback(self):
+            self.rolled_back = True
+
+    async def _slow_submit_answer(**_kwargs):
+        await asyncio.sleep(1)
+
+    def _payload(event: str):
+        assert event.startswith("data: ")
+        return json.loads(event.removeprefix("data: ").strip())
+
+    monkeypatch.setattr(interview_service_module, "ANSWER_STREAM_HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(interview_service_module, "ANSWER_STREAM_TOTAL_TIMEOUT_SECONDS", 0.04)
+    monkeypatch.setattr(InterviewService, "submit_answer", staticmethod(_slow_submit_answer))
+
+    async def _run():
+        events = []
+        async for event in InterviewService.submit_answer_stream(
+            db=_Db(),
+            user_id=7,
+            interview_id=1,
+            answer="A long answer",
+            question_index=0,
+            ai_config=None,
+        ):
+            events.append(_payload(event))
+            if events[-1]["type"] == "error":
+                break
+        return events
+
+    events = asyncio.run(_run())
+
+    assert events[0]["type"] == "stream_version"
+    assert events[0]["version"] == "answer_stream_v2"
+    assert any(item["type"] == "status" and item["stage"] == "received" for item in events)
+    assert any(item["type"] == "heartbeat" and item["stage"] == "evaluating" for item in events)
+    assert events[-1]["type"] == "error"
+    assert "Expecting" not in events[-1]["content"]
+
+
+@pytest.mark.unit
+def test_long_answer_compaction_preserves_raw_signal_without_full_replay():
+    long_answer = (
+        "Opening context: I was responsible for the migration design. "
+        + "I implemented retry handling, wrote the rollout checklist, and measured error rates. " * 80
+        + "Closing context: the release finished with a documented rollback plan."
+    )
+
+    compact = AIService._compact_answer_for_llm(long_answer, limit=1200)
+
+    assert len(compact) < len(long_answer)
+    assert str(len(long_answer)) in compact
+    assert "Opening context" in compact
+    assert "Closing context" in compact
+    assert "implemented retry handling" in compact
+
+
+@pytest.mark.unit
+def test_history_text_compacts_long_candidate_messages():
+    long_answer = "I owned the project. " + ("I implemented the parser and measured latency. " * 90)
+    history = [
+        {"role": "interviewer", "content": "Describe the project."},
+        {"role": "candidate", "content": long_answer},
+    ]
+
+    text = AIService._history_text(history)
+
+    assert "Describe the project" in text
+    assert "Candidate:" in text
+    assert len(text) < len(long_answer)
+    assert str(len(long_answer.strip())) in text
+
+
+def test_evaluate_round_does_not_swallow_ai_config_validation_error(monkeypatch):
+    async def _raise_validation(**kwargs):
+        raise ValidationError(message="请先在个人中心保存可用的 AI API Key")
+
+    monkeypatch.setattr(AIService, "evaluate_answer", _raise_validation)
+
+    async def _run():
+        await InterviewService._evaluate_round(
+            interview_mode="single",
+            question="Tell me about the migration project.",
+            answer="I handled it.",
+            resume_context={},
+            chat_history=[],
+            knowledge_base=None,
+            question_meta={},
+            panel_snapshot=None,
+            ai_config=None,
+        )
+
+    with pytest.raises(ValidationError, match="API Key"):
+        asyncio.run(_run())
 
 
 class _FakeScalarResult:

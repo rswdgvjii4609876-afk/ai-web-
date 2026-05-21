@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     OPENAI_FINE_TUNE_BASE_MODEL: str = ""
     OPENAI_FINE_TUNE_SUFFIX: str = "zhiqi-sft"
+    USER_LLM_HTTP_TIMEOUT_SECONDS: float = 60.0
 
     # DeepSeek
     DEEPSEEK_API_KEY: str = "your-deepseek-api-key"

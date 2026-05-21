@@ -20,6 +20,34 @@ from app.services.client.resume_evaluation_snapshot import snapshot_from_payload
 from app.services.common.deepseek_config_service import DeepSeekConfigService
 logger = logging.getLogger(__name__)
 PANEL_OUTPUT_VERSION = "panel_structured_v1"
+LLM_CURRENT_ANSWER_BUDGET = 2200
+LLM_HISTORY_MESSAGE_BUDGET = 900
+LLM_RESUME_FIELD_BUDGET = 700
+LLM_REPORT_ANSWER_BUDGET = 1400
+LLM_REPORT_FIELD_BUDGET = 500
+LLM_KEY_SENTENCE_TERMS = (
+    "主导",
+    "负责",
+    "设计",
+    "实现",
+    "优化",
+    "排查",
+    "上线",
+    "复盘",
+    "结果",
+    "指标",
+    "提升",
+    "降低",
+    "用户",
+    "性能",
+    "并发",
+    "缓存",
+    "数据库",
+    "接口",
+    "部署",
+    "取舍",
+    "风险",
+)
 PANEL_ROLE_ALIAS = {
     "technical_deep_dive": "technical",
     "project_follow_up": "project",
@@ -69,6 +97,14 @@ RESUME_EVIDENCE_AMBIGUITY_TERMS = [
     "参与", "协助", "支持", "了解", "熟悉", "接触", "配合", "相关", "负责部分", "等",
 ]
 class AIService:
+    @staticmethod
+    def _runtime_http_timeout_seconds() -> float:
+        try:
+            value = float(getattr(settings, "USER_LLM_HTTP_TIMEOUT_SECONDS", 60.0) or 60.0)
+        except (TypeError, ValueError):
+            value = 60.0
+        return max(10.0, value)
+
     @staticmethod
     async def test_runtime_connection(ai_config: Optional[Dict] = None) -> Dict[str, Any]:
         client, model, source, provider_label, request_kwargs = AIService._resolve_runtime(ai_config)
@@ -122,6 +158,7 @@ class AIService:
                 AsyncOpenAI(
                     api_key=ai_config["api_key"],
                     base_url=ai_config.get("base_url") or default_base_url,
+                    timeout=AIService._runtime_http_timeout_seconds(),
                 ),
                 model,
                 ai_config.get("source") or "user",
@@ -1202,7 +1239,81 @@ class AIService:
         text = (value or "").strip()
         if len(text) <= limit:
             return text
-        return text[:limit].rstrip() + "..."
+        if limit <= 80:
+            return text[:limit].rstrip() + "..."
+        marker = f"\n...[已压缩，原文 {len(text)} 字，保留开头和结尾]...\n"
+        head_len = max(40, int((limit - len(marker)) * 0.58))
+        tail_len = max(30, limit - len(marker) - head_len)
+        return f"{text[:head_len].rstrip()}{marker}{text[-tail_len:].lstrip()}"
+
+    @staticmethod
+    def _split_sentences(text: str) -> List[str]:
+        normalized = re.sub(r"\s+", " ", str(text or "").strip())
+        if not normalized:
+            return []
+        parts = re.split(r"(?<=[。！？!?；;])\s*|\n+", normalized)
+        return [part.strip() for part in parts if part and part.strip()]
+
+    @staticmethod
+    def _extract_key_answer_sentences(answer: str, limit: int = 6) -> List[str]:
+        selected: List[str] = []
+        seen = set()
+        for sentence in AIService._split_sentences(answer):
+            if len(sentence) < 12:
+                continue
+            if not any(term in sentence for term in LLM_KEY_SENTENCE_TERMS):
+                continue
+            key = sentence[:120]
+            if key in seen:
+                continue
+            seen.add(key)
+            selected.append(AIService._trim_text(sentence, 240))
+            if len(selected) >= limit:
+                break
+        return selected
+
+    @staticmethod
+    def _compact_answer_for_llm(answer: str, limit: int = LLM_CURRENT_ANSWER_BUDGET) -> str:
+        text = str(answer or "").strip()
+        if len(text) <= limit:
+            return text
+        head_budget = max(500, int(limit * 0.38))
+        tail_budget = max(420, int(limit * 0.28))
+        key_sentence_budget = max(420, limit - head_budget - tail_budget - 240)
+        key_sentences: List[str] = []
+        used = 0
+        for sentence in AIService._extract_key_answer_sentences(text):
+            next_used = used + len(sentence) + 2
+            if next_used > key_sentence_budget:
+                break
+            key_sentences.append(sentence)
+            used = next_used
+        key_block = "\n".join(f"- {sentence}" for sentence in key_sentences) or "- 未提取到明显行动/结果句，请结合首尾内容保守评分。"
+        return (
+            f"[长回答已为 LLM 评分做保真压缩；原始回答已完整保存，原文字数 {len(text)}。"
+            "不得因为压缩或回答较长本身扣分，也不得根据压缩说明补造事实。]\n"
+            f"[回答开头]\n{AIService._trim_text(text[: max(head_budget * 2, head_budget)], head_budget)}\n"
+            f"[关键行动/结果句，均摘自原回答]\n{key_block}\n"
+            f"[回答结尾]\n{AIService._trim_text(text[-max(tail_budget * 2, tail_budget):], tail_budget)}"
+        )
+
+    @staticmethod
+    def _compact_json_value(value: Any, limit: int = LLM_RESUME_FIELD_BUDGET, depth: int = 0) -> Any:
+        if depth > 3:
+            return AIService._trim_text(str(value), min(limit, 240))
+        if isinstance(value, str):
+            return AIService._trim_text(value, limit)
+        if isinstance(value, list):
+            return [AIService._compact_json_value(item, max(160, limit // 2), depth + 1) for item in value[:8]]
+        if isinstance(value, dict):
+            compact: Dict[str, Any] = {}
+            for index, (key, item) in enumerate(value.items()):
+                if index >= 12:
+                    break
+                compact[key] = AIService._compact_json_value(item, max(160, limit // 2), depth + 1)
+            return compact
+        return value
+
     @staticmethod
     def _resume_snapshot(parsed_resume: dict) -> str:
         compact = {
@@ -1213,7 +1324,7 @@ class AIService:
             "projects": parsed_resume.get("projects", [])[:4],
             "summary": parsed_resume.get("summary"),
         }
-        return json.dumps(compact, ensure_ascii=False)
+        return json.dumps(AIService._compact_json_value(compact), ensure_ascii=False)
     @staticmethod
     def _resume_text_chunks(parsed_resume: Optional[dict]) -> List[str]:
         resume = parsed_resume or {}
@@ -1975,7 +2086,12 @@ class AIService:
         lines = []
         for item in list(chat_history or [])[-limit:]:
             role = "Interviewer" if item.get("role") == "interviewer" else "Candidate"
-            lines.append(f"{role}: {item.get('content', '')}")
+            content = item.get("content", "")
+            if role == "Candidate":
+                content = AIService._compact_answer_for_llm(content, limit=LLM_HISTORY_MESSAGE_BUDGET)
+            else:
+                content = AIService._trim_text(content, LLM_HISTORY_MESSAGE_BUDGET)
+            lines.append(f"{role}: {content}")
         return "\n".join(lines)
     @staticmethod
     def _slice_line(item: Dict, limit: int = 220) -> str:
@@ -3292,6 +3408,7 @@ class AIService:
         ai_config: Optional[Dict] = None,
     ) -> dict:
         selected_slices = (question_meta or {}).get("selected_slices") or None
+        compact_answer = AIService._compact_answer_for_llm(answer)
         messages = [
             {
                 "role": "system",
@@ -3316,7 +3433,7 @@ class AIService:
                     f"Resume JSON: {AIService._resume_snapshot(resume_context)}\n"
                     f"Chat history:\n{AIService._history_text(chat_history)}\n"
                     f"Question: {question}\n"
-                    f"Candidate answer: {answer}\n"
+                    f"Candidate answer for evaluation: {compact_answer}\n"
                     f"Question intent: {(question_meta or {}).get('intent') or '-'}\n"
                     f"Evaluation focus: {', '.join((question_meta or {}).get('evaluation_focus') or []) or '-'}\n"
                     f"Difficulty bar: {(question_meta or {}).get('company_archetype') or '-'} / {(question_meta or {}).get('rubric_summary') or '-'}\n"
@@ -3351,6 +3468,7 @@ class AIService:
         ai_config: Optional[Dict] = None,
     ) -> dict:
         selected_slices = (question_meta or {}).get("selected_slices") or None
+        compact_answer = AIService._compact_answer_for_llm(answer)
         messages = [
             {
                 "role": "system",
@@ -3385,7 +3503,7 @@ class AIService:
                     f"Resume JSON: {AIService._resume_snapshot(resume_context)}\n"
                     f"Chat history:\n{AIService._history_text(chat_history)}\n"
                     f"Current question: {question}\n"
-                    f"Candidate answer: {answer}\n"
+                    f"Candidate answer for evaluation: {compact_answer}\n"
                     f"Lead role: {(question_meta or {}).get('lead_role') or '-'}\n"
                     f"Support roles: {', '.join((question_meta or {}).get('support_roles') or []) or '-'}\n"
                     f"Intent: {(question_meta or {}).get('intent') or '-'}\n"
@@ -3443,9 +3561,16 @@ class AIService:
     def _qa_text(questions_and_scores: Sequence[Dict]) -> str:
         lines = []
         for item in questions_and_scores:
-            lines.append(f"Question: {item.get('question')}")
+            lines.append(f"Question: {AIService._trim_text(item.get('question'), LLM_REPORT_FIELD_BUDGET)}")
             lines.append(f"Answer: {item.get('answer') or '未回答'}")
             lines.append(f"Score: {item.get('score')}")
+            lines[-2] = (
+                "Answer: "
+                + AIService._compact_answer_for_llm(
+                    item.get("answer") or "未回答",
+                    limit=LLM_REPORT_ANSWER_BUDGET,
+                )
+            )
             if item.get("category"):
                 lines.append(f"Category: {item.get('category')}")
             if item.get("lead_role"):
@@ -3453,19 +3578,23 @@ class AIService:
             if item.get("evaluation_focus"):
                 lines.append(f"Evaluation focus: {', '.join(item.get('evaluation_focus') or [])}")
             if item.get("selected_followups"):
-                lines.append(f"Selected followups: {', '.join(item.get('selected_followups') or [])}")
+                lines.append(
+                    "Selected followups: "
+                    + AIService._trim_text(", ".join(item.get("selected_followups") or []), LLM_REPORT_FIELD_BUDGET)
+                )
             if item.get("used_slice_ids"):
                 lines.append(
                     f"Retrieved slice ids: {', '.join(str(v) for v in item.get('used_slice_ids') or [])}"
                 )
             if item.get("question_target_gap"):
-                lines.append(f"Question target gap: {item.get('question_target_gap')}")
+                lines.append(f"Question target gap: {AIService._trim_text(item.get('question_target_gap'), LLM_REPORT_FIELD_BUDGET)}")
             if item.get("question_target_evidence"):
                 lines.append(
-                    f"Question target evidence: {', '.join(item.get('question_target_evidence') or [])}"
+                    "Question target evidence: "
+                    + AIService._trim_text(", ".join(item.get("question_target_evidence") or []), LLM_REPORT_FIELD_BUDGET)
                 )
             if item.get("question_reason"):
-                lines.append(f"Question reason: {item.get('question_reason')}")
+                lines.append(f"Question reason: {AIService._trim_text(item.get('question_reason'), LLM_REPORT_FIELD_BUDGET)}")
             evaluation = item.get("evaluation") or {}
             if evaluation.get("strengths"):
                 lines.append(f"Strengths: {', '.join(evaluation.get('strengths') or [])}")

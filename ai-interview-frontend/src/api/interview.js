@@ -1,6 +1,7 @@
 import api, { fetchWithAuthRetry } from './request'
 
 const startInterviewTimeout = Number(import.meta.env.VITE_START_INTERVIEW_TIMEOUT || 180000)
+const answerStreamTimeout = Number(import.meta.env.VITE_ANSWER_STREAM_TIMEOUT || 160000)
 
 export function startInterview(data) {
   return api.post('/interviews/start', data, { timeout: startInterviewTimeout })
@@ -38,62 +39,110 @@ async function readResponseError(response) {
   return `请求失败（HTTP ${response.status}）`
 }
 
-export async function submitAnswerStream(interviewId, answer, questionIndex, onChunk, onDone) {
-  const response = await fetchWithAuthRetry(`/interviews/${interviewId}/answer/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      answer,
-      question_index: questionIndex
+export async function submitAnswerStream(interviewId, answer, questionIndex, onChunk, onDone, onStatus, options = {}) {
+  const controller = options.controller || new AbortController()
+  const timeoutMs = Number(options.timeout || answerStreamTimeout)
+  const timeoutId = setTimeout(() => {
+    controller.abort()
+  }, timeoutMs)
+  let reader = null
+  let sawDone = false
+  let streamVersionSeen = false
+
+  try {
+    const response = await fetchWithAuthRetry(`/interviews/${interviewId}/answer/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        answer,
+        question_index: questionIndex
+      }),
+      signal: controller.signal
     })
-  })
 
-  if (!response.ok) {
-    throw new Error(await readResponseError(response))
-  }
-  if (!response.body) {
-    throw new Error('流式答题连接不可用，请稍后重试')
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  const handleLine = line => {
-    if (!line.startsWith('data: ')) return
-    let data
-    try {
-      data = JSON.parse(line.slice(6))
-    } catch {
-      throw new Error('流式响应格式异常，请稍后重试')
+    if (!response.ok) {
+      throw new Error(await readResponseError(response))
     }
-    if (data.type === 'chunk') {
-      onChunk(data.content)
-    } else if (data.type === 'done') {
-      onDone(data)
-    } else if (data.type === 'error') {
-      throw new Error(data.content)
+    if (!response.body) {
+      throw new Error('流式答题连接不可用，请稍后重试')
     }
-  }
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) {
-      buffer += decoder.decode()
-      if (buffer.trim()) {
-        for (const line of buffer.split('\n')) handleLine(line.trimEnd())
+    reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    const handleLine = line => {
+      if (!line.startsWith('data: ')) return
+      let data
+      try {
+        data = JSON.parse(line.slice(6))
+      } catch {
+        throw new Error('流式响应格式异常，请稍后重试')
       }
-      break
+      if (data.type === 'stream_version') {
+        streamVersionSeen = true
+      } else if (data.type === 'chunk') {
+        onChunk(data.content)
+      } else if (data.type === 'done') {
+        sawDone = true
+        onDone(data)
+      } else if (data.type === 'status') {
+        if (!streamVersionSeen) {
+          onStatus?.({
+            ...data,
+            content: '当前服务可能仍是旧版流式接口；如果持续卡住，请部署最新后端并刷新页面。'
+          })
+          return
+        }
+        onStatus?.(data)
+      } else if (data.type === 'heartbeat') {
+        onStatus?.(data)
+      } else if (data.type === 'error') {
+        throw new Error(data.content)
+      }
     }
-    buffer += decoder.decode(value, { stream: true })
 
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) {
+        buffer += decoder.decode()
+        if (buffer.trim()) {
+          for (const line of buffer.split('\n')) handleLine(line.trimEnd())
+        }
+        break
+      }
+      buffer += decoder.decode(value, { stream: true })
 
-    for (const line of lines) {
-      handleLine(line.trimEnd())
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        handleLine(line.trimEnd())
+      }
+    }
+
+    if (!sawDone) {
+      throw new Error(
+        streamVersionSeen
+          ? '本轮评估连接提前结束，请刷新查看记录或重试。'
+          : '当前服务可能仍是旧版或流式响应被代理缓冲，请刷新页面；若仍卡住，请重新部署后端。'
+      )
+    }
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('本轮评估已停止等待。请刷新查看记录；如果回答未保存，可直接重试。')
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+    if (!sawDone && reader) {
+      try {
+        await reader.cancel()
+      } catch {
+        // Ignore cleanup errors.
+      }
     }
   }
 }
