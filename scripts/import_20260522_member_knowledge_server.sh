@@ -4,6 +4,7 @@ set -euo pipefail
 PACKAGE_SOURCE="/app/app/data/knowledge_packages/member_submissions/2026-05-22"
 APP_ROOT="/opt/apps/ai-interview"
 RUN_MODE="dry-run"
+RUN_STARTED="$(date -u +%Y%m%d_%H%M%S)"
 
 usage() {
   cat <<'USAGE'
@@ -85,6 +86,11 @@ while [ "$#" -gt 0 ]; do
 done
 
 cd "$APP_ROOT"
+LOG_DIR="$APP_ROOT/ai-interview-backend/logs/member_knowledge_imports"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/20260522_${RUN_MODE}_${RUN_STARTED}.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "log_file=$LOG_FILE"
 
 if [ "$RUN_MODE" = "verify-only" ]; then
   run_final_verification
