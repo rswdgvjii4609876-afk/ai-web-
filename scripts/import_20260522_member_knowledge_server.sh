@@ -97,7 +97,7 @@ docker compose exec -T app python -m app.scripts.check_member_knowledge_usage \
 docker compose exec -T app python -m app.scripts.audit_position_knowledge_sync --strict
 
 echo "[verification] Active legacy member supplement profiles should be 0"
-docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "
 select count(*) as active_member_supplements
 from position_knowledge_bases
 where scope = 'public'
@@ -106,7 +106,7 @@ where scope = 'public'
 "
 
 echo "[verification] Enabled interview_experience slice counts for 2026-05-22 target positions"
-docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "
 select kb.target_position, kb.title, count(s.id) as interview_experience_slices
 from position_knowledge_bases kb
 left join position_knowledge_base_slices s
