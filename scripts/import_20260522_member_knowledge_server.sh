@@ -29,11 +29,10 @@ USAGE
 }
 
 run_final_verification() {
-  echo "[verification] Usage check and final strict audit"
+  echo "[verification] Usage check"
   docker compose exec -T app python -m app.scripts.check_member_knowledge_usage \
     --source "$PACKAGE_SOURCE" \
     --database
-  docker compose exec -T app python -m app.scripts.audit_position_knowledge_sync --strict
 
   echo "[verification] Active legacy member supplement profiles should be 0"
   docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "
@@ -58,6 +57,9 @@ where kb.scope = 'public'
 group by kb.id
 order by kb.target_position;
 "
+
+  echo "[verification] Final strict audit"
+  docker compose exec -T app python -m app.scripts.audit_position_knowledge_sync --strict
 }
 
 while [ "$#" -gt 0 ]; do
