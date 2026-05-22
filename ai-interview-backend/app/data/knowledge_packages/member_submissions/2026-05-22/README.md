@@ -13,6 +13,16 @@
 
 ## 服务器导入命令
 
+推荐先使用仓库根目录的一键脚本：
+
+```bash
+cd /opt/apps/ai-interview
+scripts/import_20260522_member_knowledge_server.sh
+scripts/import_20260522_member_knowledge_server.sh --execute
+```
+
+如需手工分步执行，可使用下面命令：
+
 ```bash
 cd /opt/apps/ai-interview
 git pull
