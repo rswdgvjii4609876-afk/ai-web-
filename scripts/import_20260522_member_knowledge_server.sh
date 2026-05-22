@@ -96,4 +96,28 @@ docker compose exec -T app python -m app.scripts.check_member_knowledge_usage \
   --database
 docker compose exec -T app python -m app.scripts.audit_position_knowledge_sync --strict
 
+echo "[verification] Active legacy member supplement profiles should be 0"
+docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+select count(*) as active_member_supplements
+from position_knowledge_bases
+where scope = 'public'
+  and is_active = true
+  and title like '成员资料补充：%';
+"
+
+echo "[verification] Enabled interview_experience slice counts for 2026-05-22 target positions"
+docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+select kb.target_position, kb.title, count(s.id) as interview_experience_slices
+from position_knowledge_bases kb
+left join position_knowledge_base_slices s
+  on s.knowledge_base_id = kb.id
+ and s.source_section = 'interview_experience'
+ and s.is_enabled = true
+where kb.scope = 'public'
+  and kb.is_active = true
+  and kb.target_position in ('产品助理', '运营助理', '新媒体运营', '人力资源专员', '招聘助理', '行政管理助理')
+group by kb.id
+order by kb.target_position;
+"
+
 echo "2026-05-22 member knowledge import and canonical merge completed."
