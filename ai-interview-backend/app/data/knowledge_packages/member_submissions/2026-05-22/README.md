@@ -53,6 +53,7 @@ docker compose exec -T app python -m app.scripts.audit_position_knowledge_sync -
 - 上述岗位存在 enabled `interview_experience` 切片。
 - 后续可重复运行 `scripts/import_20260522_member_knowledge_server.sh --verify-only` 复查数据库状态。
 - 每次脚本执行都会写入 `ai-interview-backend/logs/member_knowledge_imports/20260522_<mode>_<timestamp>.log`，可用于回看导入与验收输出。
+- `--execute` 和 `--verify-only` 都包含包级硬验收；如果 active 补充画像未归零，或 6 个目标岗位缺少 enabled `interview_experience` 切片，脚本会直接失败。
 
 ## 边界
 

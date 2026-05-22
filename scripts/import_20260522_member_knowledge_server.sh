@@ -36,7 +36,7 @@ run_final_verification() {
     --database
 
   echo "[verification] Active legacy member supplement profiles should be 0"
-  docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "
+  docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
 select count(*) as active_member_supplements
 from position_knowledge_bases
 where scope = 'public'
@@ -45,7 +45,7 @@ where scope = 'public'
 "
 
   echo "[verification] Enabled interview_experience slice counts for 2026-05-22 target positions"
-  docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "
+  docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -c "
 select kb.target_position, kb.title, count(s.id) as interview_experience_slices
 from position_knowledge_bases kb
 left join position_knowledge_base_slices s
@@ -57,6 +57,53 @@ where kb.scope = 'public'
   and kb.target_position in ('产品助理', '运营助理', '新媒体运营', '人力资源专员', '招聘助理', '行政管理助理')
 group by kb.id
 order by kb.target_position;
+"
+
+  echo "[verification] Package-specific hard checks"
+  docker compose exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" "$@"' sh -v ON_ERROR_STOP=1 -c "
+do \$\$
+declare
+  active_supplement_count integer;
+  missing_slice_positions text;
+begin
+  select count(*) into active_supplement_count
+  from position_knowledge_bases
+  where scope = 'public'
+    and is_active = true
+    and title like '成员资料补充：%';
+
+  if active_supplement_count <> 0 then
+    raise exception 'active member supplement profiles remain: %', active_supplement_count;
+  end if;
+
+  with expected(target_position) as (
+    values ('产品助理'), ('运营助理'), ('新媒体运营'), ('人力资源专员'), ('招聘助理'), ('行政管理助理')
+  ),
+  counts as (
+    select e.target_position, count(s.id) as slice_count
+    from expected e
+    left join position_knowledge_bases kb
+      on kb.target_position = e.target_position
+     and kb.scope = 'public'
+     and kb.is_active = true
+     and kb.title not like '成员资料补充：%'
+     and kb.title not like '历史补充资料（已合并）：%'
+    left join position_knowledge_base_slices s
+      on s.knowledge_base_id = kb.id
+     and s.source_section = 'interview_experience'
+     and s.is_enabled = true
+    group by e.target_position
+  )
+  select string_agg(target_position || '=' || slice_count::text, ', ' order by target_position)
+    into missing_slice_positions
+  from counts
+  where slice_count = 0;
+
+  if missing_slice_positions is not null then
+    raise exception 'missing enabled interview_experience slices for 2026-05-22 positions: %', missing_slice_positions;
+  end if;
+end
+\$\$;
 "
 
   echo "[verification] Final strict audit"
