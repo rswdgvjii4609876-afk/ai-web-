@@ -38,6 +38,13 @@ def test_member_knowledge_packages_validate_and_build_canonical_merge_content():
     assert python_plan.enabled_experiences >= 1
 
 
+def test_package_paths_accept_member_interview_experience_package_filename(tmp_path):
+    package_path = tmp_path / "member_interview_experience_package.json"
+    package_path.write_text("{}", encoding="utf-8")
+
+    assert _package_paths(tmp_path) == [package_path]
+
+
 def test_select_single_canonical_profile_requires_exact_active_title():
     canonical_title = canonical_profile_title("Python后端开发工程师")
     candidates = [

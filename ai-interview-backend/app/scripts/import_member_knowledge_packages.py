@@ -20,20 +20,16 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
-from sqlalchemy import select
-
-from app.db.session import async_session
-from app.models.position_knowledge_base import PositionKnowledgeBase
-from app.services.client.position_knowledge_base_slice_service import (
-    position_knowledge_base_slice_service,
-)
+if TYPE_CHECKING:
+    from app.models.position_knowledge_base import PositionKnowledgeBase
 
 
 APP_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = APP_DIR / "data" / "knowledge_packages" / "member_submissions" / "2026-05-12"
 PACKAGE_VERSION = "knowledge_package_v1"
+PACKAGE_FILENAME_PATTERNS = ("*_knowledge_package.json", "member_interview_experience_package.json")
 MEMBER_TITLE_PREFIX = "成员资料补充："
 MERGED_HISTORY_PREFIX = "历史补充资料（已合并）："
 CANONICAL_TITLE_PREFIX = "职启智评岗位画像："
@@ -133,9 +129,15 @@ def _package_paths(source: Path) -> list[Path]:
         return [source]
     if not source.exists():
         raise PackageValidationError(f"资料包路径不存在：{source}")
-    paths = sorted(path for path in source.glob("*_knowledge_package.json") if path.is_file())
+    paths_by_name: dict[str, Path] = {}
+    for pattern in PACKAGE_FILENAME_PATTERNS:
+        for path in source.glob(pattern):
+            if path.is_file():
+                paths_by_name[str(path.resolve())] = path
+    paths = sorted(paths_by_name.values())
     if not paths:
-        raise PackageValidationError(f"目录中没有 *_knowledge_package.json 资料包：{source}")
+        patterns = ", ".join(PACKAGE_FILENAME_PATTERNS)
+        raise PackageValidationError(f"目录中没有可导入资料包（{patterns}）：{source}")
     return paths
 
 
@@ -397,6 +399,10 @@ def print_plan(plans: list[ImportPlan], mode: str = "merge") -> None:
 
 
 async def _find_canonical_public_profile(db, plan: ImportPlan) -> PositionKnowledgeBase | None:
+    from sqlalchemy import select
+
+    from app.models.position_knowledge_base import PositionKnowledgeBase
+
     result = await db.execute(
         select(PositionKnowledgeBase)
         .where(
@@ -420,6 +426,13 @@ async def _import_plan_as_separate_profile(
     *,
     allow_active_legacy_public: bool = False,
 ) -> tuple[str, int]:
+    from sqlalchemy import select
+
+    from app.models.position_knowledge_base import PositionKnowledgeBase
+    from app.services.client.position_knowledge_base_slice_service import (
+        position_knowledge_base_slice_service,
+    )
+
     result = await db.execute(
         select(PositionKnowledgeBase).where(
             PositionKnowledgeBase.scope == "public",
@@ -456,6 +469,11 @@ async def _merge_plan_into_canonical_profile(
     *,
     create_missing_canonical: bool = False,
 ) -> tuple[str, int, dict[str, int]]:
+    from app.models.position_knowledge_base import PositionKnowledgeBase
+    from app.services.client.position_knowledge_base_slice_service import (
+        position_knowledge_base_slice_service,
+    )
+
     action = "merged"
     try:
         item = await _find_canonical_public_profile(db, plan)
@@ -505,6 +523,8 @@ async def import_plans(
     create_missing_canonical: bool = False,
     allow_active_legacy_public: bool = False,
 ) -> None:
+    from app.db.session import async_session
+
     async with async_session() as db:
         created = 0
         updated = 0
