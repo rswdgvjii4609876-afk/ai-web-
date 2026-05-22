@@ -14,7 +14,7 @@ Default mode is dry-run:
   - pull latest code
   - rebuild services
   - run alembic
-  - audit current position knowledge state
+  - audit current position knowledge state without blocking remediation
   - validate the 2026-05-22 package
   - run import dry-run
   - run merge dry-run
@@ -54,7 +54,7 @@ docker compose up -d --build
 docker compose exec -T app alembic upgrade head
 
 echo "[3/8] Audit current position knowledge state"
-docker compose exec -T app python -m app.scripts.audit_position_knowledge_sync --strict
+docker compose exec -T app python -m app.scripts.audit_position_knowledge_sync
 
 echo "[4/8] Validate 2026-05-22 package"
 docker compose exec -T app python -m app.scripts.import_member_knowledge_packages \
