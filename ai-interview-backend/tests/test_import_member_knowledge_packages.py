@@ -10,6 +10,7 @@ from app.scripts.import_member_knowledge_packages import (
     select_single_canonical_profile,
     CanonicalProfileError,
     _package_paths,
+    parse_args,
 )
 
 
@@ -43,6 +44,18 @@ def test_package_paths_accept_member_interview_experience_package_filename(tmp_p
     package_path.write_text("{}", encoding="utf-8")
 
     assert _package_paths(tmp_path) == [package_path]
+
+
+def test_parse_args_allows_active_created_canonical_only_when_explicit():
+    args = parse_args([
+        "--source",
+        "dummy",
+        "--create-missing-canonical",
+        "--activate-created-canonical",
+    ])
+
+    assert args.create_missing_canonical is True
+    assert args.activate_created_canonical is True
 
 
 def test_select_single_canonical_profile_requires_exact_active_title():

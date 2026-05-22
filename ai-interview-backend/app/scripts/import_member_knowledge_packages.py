@@ -468,6 +468,7 @@ async def _merge_plan_into_canonical_profile(
     plan: ImportPlan,
     *,
     create_missing_canonical: bool = False,
+    activate_created_canonical: bool = False,
 ) -> tuple[str, int, dict[str, int]]:
     from app.models.position_knowledge_base import PositionKnowledgeBase
     from app.services.client.position_knowledge_base_slice_service import (
@@ -489,10 +490,14 @@ async def _merge_plan_into_canonical_profile(
             knowledge_content="",
             focus_points=None,
             interviewer_prompt=None,
-            is_active=False,
+            is_active=activate_created_canonical,
         )
         db.add(item)
-        action = "created_inactive_review_candidate_and_merged"
+        action = (
+            "created_active_canonical_and_merged"
+            if activate_created_canonical
+            else "created_inactive_review_candidate_and_merged"
+        )
         await db.flush()
         await db.refresh(item)
 
@@ -521,6 +526,7 @@ async def import_plans(
     mode: str = "merge",
     *,
     create_missing_canonical: bool = False,
+    activate_created_canonical: bool = False,
     allow_active_legacy_public: bool = False,
 ) -> None:
     from app.db.session import async_session
@@ -547,6 +553,7 @@ async def import_plans(
                     db,
                     plan,
                     create_missing_canonical=create_missing_canonical,
+                    activate_created_canonical=activate_created_canonical,
                 )
                 if action.startswith("created_"):
                     created += 1
@@ -593,6 +600,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--activate-created-canonical",
+        action="store_true",
+        help=(
+            "When used with --create-missing-canonical, publish newly created canonical profiles as active. "
+            "Use only after package review confirms the new target positions should be usable immediately."
+        ),
+    )
+    parser.add_argument(
         "--allow-active-legacy-public",
         action="store_true",
         help=(
@@ -621,6 +636,7 @@ def main(argv: list[str] | None = None) -> int:
                 plans,
                 mode=mode,
                 create_missing_canonical=args.create_missing_canonical,
+                activate_created_canonical=args.activate_created_canonical,
                 allow_active_legacy_public=args.allow_active_legacy_public,
             )
         )
