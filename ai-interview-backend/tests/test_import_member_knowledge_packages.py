@@ -160,6 +160,19 @@ def test_merge_knowledge_content_is_idempotent_for_20260522_package():
     assert second_stats == {"sections_added": 0, "interview_experiences_added": 0}
 
 
+def test_merge_knowledge_content_is_idempotent_for_20260523_package():
+    plans = build_import_plans(_package_paths(Path("app/data/knowledge_packages/member_submissions/2026-05-23")))
+    plan = next(item for item in plans if item.target_position == "招聘助理")
+
+    first_merged, first_stats = merge_knowledge_content("", plan.knowledge_content, plan.source_title)
+    second_merged, second_stats = merge_knowledge_content(first_merged, plan.knowledge_content, plan.source_title)
+
+    assert first_stats["sections_added"] > 0
+    assert first_stats["interview_experiences_added"] == plan.enabled_experiences
+    assert second_merged == first_merged
+    assert second_stats == {"sections_added": 0, "interview_experiences_added": 0}
+
+
 def test_merge_interview_experience_section_deduplicates_by_question_and_source():
     existing = """### 面经 1：招聘漏斗是什么？
 - 真实问题：招聘漏斗是什么？

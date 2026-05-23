@@ -33,8 +33,44 @@ package_source() {
   echo "/app/app/data/knowledge_packages/member_submissions/${PACKAGE_DATE}"
 }
 
+host_package_source() {
+  echo "$APP_ROOT/ai-interview-backend/app/data/knowledge_packages/member_submissions/${PACKAGE_DATE}"
+}
+
 package_json_path() {
   echo "$(package_source)/member_interview_experience_package.json"
+}
+
+host_package_json_path() {
+  echo "$(host_package_source)/member_interview_experience_package.json"
+}
+
+assert_host_package_exists() {
+  local host_json
+  host_json="$(host_package_json_path)"
+  if [ ! -f "$host_json" ]; then
+    cat >&2 <<ERR
+Package file does not exist on the server host:
+  $host_json
+
+This script imports package files from the server checkout, then copies them into the app container.
+Make sure the ${PACKAGE_DATE} package directory has been committed/pushed and pulled on this server,
+or copy it to:
+  $(host_package_source)
+ERR
+    exit 3
+  fi
+}
+
+sync_package_to_container() {
+  local host_source
+  local container_source
+  host_source="$(host_package_source)"
+  container_source="$(package_source)"
+  assert_host_package_exists
+  echo "[package] Sync ${PACKAGE_DATE} package into app container"
+  docker compose exec -T app mkdir -p "$container_source"
+  docker compose cp "$host_source/." "app:$container_source/"
 }
 
 package_expected_sql_values() {
@@ -81,6 +117,8 @@ run_final_verification() {
   local package_source
   local expected_values
   package_source="$(package_source)"
+
+  sync_package_to_container
 
   echo "[verification] Package positions"
   print_package_positions
@@ -249,6 +287,7 @@ echo "package_date=$PACKAGE_DATE"
 echo "run_mode=$RUN_MODE"
 
 if [ "$RUN_MODE" = "verify-only" ]; then
+  assert_host_package_exists
   run_final_verification
   echo "result=VERIFY_PASS"
   exit 0
@@ -258,6 +297,7 @@ PACKAGE_SOURCE="$(package_source)"
 
 echo "[1/8] Pull latest code"
 git pull
+assert_host_package_exists
 
 echo "[2/8] Rebuild and migrate"
 docker compose up -d --build
@@ -267,6 +307,7 @@ echo "[3/8] Audit current position knowledge state"
 docker compose exec -T app python -m app.scripts.audit_position_knowledge_sync
 
 echo "[4/8] Validate ${PACKAGE_DATE} package"
+sync_package_to_container
 print_package_positions
 docker compose exec -T app python -m app.scripts.import_member_knowledge_packages \
   --source "$PACKAGE_SOURCE" \

@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -35,17 +36,21 @@ def test_extract_docx_images_writes_markdown_manifest_and_valid_package(tmp_path
         fake_ocr,
     )
 
-    manifest = extract_member_interview_experience(source, out_dir)
+    manifest = extract_member_interview_experience(source, out_dir, package_date="2026-05-23")
 
     assert manifest["image_count"] == 1
+    assert manifest["source_date"] == "2026-05-23"
     assert (out_dir / "source_images").is_dir()
     markdown = (out_dir / "extracted_interview_experience.md").read_text(encoding="utf-8")
     assert "![01_" in markdown
     assert "候选人失联" in markdown
+    assert "2026-05-23 图片型面试经验抽取记录" in markdown
+    assert "2026-05-19" not in markdown
 
     package_path = out_dir / "member_interview_experience_package.json"
     package = json.loads(package_path.read_text(encoding="utf-8"))
     assert package["version"] == "knowledge_package_v1"
+    assert "2026-05-23" in package["description"]
     assert package["items"][0]["target_position"] == "人力资源专员"
     plans = build_import_plans([package_path])
     assert plans[0].enabled_experiences == 1
@@ -69,9 +74,9 @@ def test_extract_low_confidence_ocr_is_kept_for_review(tmp_path, monkeypatch):
 
     manifest = json.loads((out_dir / "extraction_manifest.json").read_text(encoding="utf-8"))
     assert manifest["records"][0]["audit_status"] == "待核验"
+    assert manifest["records"][0]["entered_package"] is False
     package = json.loads((out_dir / "member_interview_experience_package.json").read_text(encoding="utf-8"))
-    experience = package["items"][0]["interview_experiences"][0]
-    assert experience["audit_status"] == "待核验"
+    assert package["items"] == []
 
 
 def test_extract_override_can_mark_image_as_rejected(tmp_path, monkeypatch):
@@ -114,6 +119,93 @@ def test_extract_override_can_mark_image_as_rejected(tmp_path, monkeypatch):
     extract_member_interview_experience(source, out_dir)
 
     package_path = out_dir / "member_interview_experience_package.json"
-    plans = build_import_plans([package_path])
-    assert plans[0].total_experiences == 1
-    assert plans[0].enabled_experiences == 0
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    assert package["items"] == []
+    manifest = json.loads((out_dir / "extraction_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["records"][0]["audit_status"] == "不采用"
+    assert manifest["records"][0]["entered_package"] is False
+
+
+def test_dry_run_counts_docx_media_without_writing_outputs(tmp_path):
+    source = tmp_path / "raw"
+    source.mkdir()
+    docx_path = source / "面试经历.docx"
+    with ZipFile(docx_path, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" />")
+        archive.writestr("word/media/", b"")
+        archive.writestr("word/media/image1.png", b"fake-image-1")
+        archive.writestr("word/media/image2.jpeg", b"fake-image-2")
+    out_dir = tmp_path / "package"
+
+    manifest = extract_member_interview_experience(
+        source,
+        out_dir,
+        package_date="2026-05-23",
+        dry_run=True,
+    )
+
+    assert manifest["source_date"] == "2026-05-23"
+    assert manifest["media_image_count"] == 2
+    assert manifest["skipped_directory_entries"] == 1
+    assert manifest["image_count"] == 2
+    assert manifest["docx_files"] == [str(docx_path.resolve())]
+    assert not out_dir.exists()
+
+
+def test_extract_reuses_previous_visual_transcription_by_hash(tmp_path, monkeypatch):
+    source = tmp_path / "raw"
+    source.mkdir()
+    _make_docx(source / "面试经历.docx")
+    out_dir = tmp_path / "package"
+    previous = tmp_path / "2026-05-22"
+    previous.mkdir()
+    digest = hashlib.sha256(b"fake-image-bytes").hexdigest()
+    (previous / "extraction_manifest.json").write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "sha256": digest,
+                        "ocr_text": "产品助理面试题：如何做需求优先级排序？",
+                        "cleaned_text": "产品助理面试题：如何做需求优先级排序？",
+                        "ocr_confidence": None,
+                        "target_position": "产品助理",
+                        "audit_status": "可入库",
+                        "experiences": [
+                            {
+                                "target_position": "产品助理",
+                                "question": "如何做需求优先级排序？",
+                                "answer_points": "结合用户价值、业务目标、实现成本和风险进行排序，并说明取舍。",
+                                "audit_status": "可入库",
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_ocr(image_path, *, lang):
+        return "", None, "ocr_unavailable"
+
+    monkeypatch.setattr(
+        "app.scripts.extract_member_interview_experience._run_tesseract_ocr",
+        fake_ocr,
+    )
+
+    manifest = extract_member_interview_experience(
+        source,
+        out_dir,
+        package_date="2026-05-23",
+        reuse_overrides_from=previous,
+    )
+
+    assert manifest["reused_hash_count"] == 1
+    assert manifest["new_image_count"] == 0
+    assert manifest["records"][0]["override_source"] == "hash_override"
+    package = json.loads((out_dir / "member_interview_experience_package.json").read_text(encoding="utf-8"))
+    assert package["items"][0]["target_position"] == "产品助理"
+    assert package["items"][0]["interview_experiences"][0]["question"] == "如何做需求优先级排序？"

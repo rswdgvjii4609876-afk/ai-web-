@@ -41,6 +41,8 @@ docs/competition/datasets/raw-data-resume/
 docs/competition/datasets/raw-data-resume-converted/
 ai-interview-backend/docker-compose-linux-x86_64
 ai-interview-backend/app/data/knowledge_packages/member_submissions/20*/
+!ai-interview-backend/app/data/knowledge_packages/member_submissions/2026-05-23/
+!ai-interview-backend/app/data/knowledge_packages/member_submissions/2026-05-23/**
 ai-interview-backend/logs/semi_synthetic_resume_runs/
 
 # Archived competition materials kept outside the repository
