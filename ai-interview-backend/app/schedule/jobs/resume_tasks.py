@@ -8,9 +8,9 @@ logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, max_retries=2, name="app.schedule.jobs.resume_tasks.process_resume")
-def process_resume_task(self, resume_id: int, ai_config: dict | None = None):
+def process_resume_task(self, resume_id: int, runtime_options: dict | None = None):
     try:
-        asyncio.run(resume_service.process_resume(resume_id, ai_config=ai_config))
+        asyncio.run(resume_service.process_resume(resume_id, runtime_options=runtime_options))
         return {"status": "success", "resume_id": resume_id}
     except Exception as exc:
         logger.exception("Resume processing task failed for resume %s: %s", resume_id, exc)

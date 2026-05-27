@@ -1,6 +1,6 @@
 from urllib.parse import quote
 
-from pydantic import field_validator
+from pydantic import ConfigDict, field_validator
 from pydantic_settings import BaseSettings
 
 _PLACEHOLDER_VALUES = {
@@ -15,6 +15,8 @@ _PLACEHOLDER_VALUES = {
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     # Environment
     ENV: str = "development"
 
@@ -107,6 +109,7 @@ class Settings(BaseSettings):
     OPENAI_FINE_TUNE_BASE_MODEL: str = ""
     OPENAI_FINE_TUNE_SUFFIX: str = "zhiqi-sft"
     USER_LLM_HTTP_TIMEOUT_SECONDS: float = 60.0
+    USER_LLM_ALLOWED_BASE_URLS: str = ""
 
     # DeepSeek
     DEEPSEEK_API_KEY: str = "your-deepseek-api-key"
@@ -125,10 +128,6 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return 1025
         return value
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

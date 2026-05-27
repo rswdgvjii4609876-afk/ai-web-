@@ -3,6 +3,7 @@ SMTP邮件发送服务
 支持使用自定义SMTP服务器发送邮件
 """
 import asyncio
+import logging
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -11,6 +12,8 @@ from typing import Dict, Any, List, Optional
 from jinja2 import Template
 from app.core.config import settings
 from app.services.common.thread_pool import thread_pool_service
+
+logger = logging.getLogger(__name__)
 
 
 class EmailTemplateLoader:
@@ -102,18 +105,18 @@ def _send_email_sync(
             if settings.MAIL_ENCRYPTION.lower() in ['tls', 'starttls']:
                 server.starttls()
 
-        # 启用调试输出
-        server.set_debuglevel(1)
-
         # 登录
         if settings.MAIL_USERNAME and settings.MAIL_PASSWORD:
             server.login(settings.MAIL_USERNAME, settings.MAIL_PASSWORD)
-            print(f"SMTP 登录成功: {settings.MAIL_USERNAME}")
+            logger.info("SMTP login succeeded")
 
         # 发送邮件
         result = server.send_message(message)
-        print(f"SMTP 发送结果: {result}")
-        print(f"邮件已从 {settings.MAIL_FROM_ADDRESS} 发送至 {to_emails}")
+        logger.info(
+            "SMTP email sent: recipient_count=%s rejected_count=%s",
+            len(to_emails),
+            len(result or {}),
+        )
         server.quit()
 
         return {
@@ -123,19 +126,16 @@ def _send_email_sync(
         }
 
     except smtplib.SMTPAuthenticationError as e:
-        error_msg = f"SMTP 认证失败: {str(e)}"
-        print(error_msg)
-        raise Exception(error_msg)
+        logger.exception("SMTP authentication failed")
+        raise Exception("SMTP 认证失败") from e
 
     except smtplib.SMTPException as e:
-        error_msg = f"SMTP 错误: {str(e)}"
-        print(error_msg)
-        raise Exception(error_msg)
+        logger.exception("SMTP delivery failed")
+        raise Exception("SMTP 邮件发送失败") from e
 
     except Exception as e:
-        error_msg = f"邮件发送失败: {str(e)}"
-        print(error_msg)
-        raise Exception(error_msg)
+        logger.exception("Email delivery failed")
+        raise Exception("邮件发送失败") from e
 
 
 async def send_email(

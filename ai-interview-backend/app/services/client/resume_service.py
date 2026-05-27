@@ -219,6 +219,7 @@ class ResumeService:
     async def process_resume(
         resume_id: int,
         ai_config: Optional[Dict] = None,
+        runtime_options: Optional[Dict] = None,
     ) -> None:
         async with async_session() as db:
             result = await db.execute(select(Resume).where(Resume.id == resume_id))
@@ -227,17 +228,27 @@ class ResumeService:
                 logger.warning("Resume %s not found for async processing", resume_id)
                 return
 
-            await ResumeService._process_resume_record(db, resume, ai_config=ai_config)
+            await ResumeService._process_resume_record(
+                db,
+                resume,
+                ai_config=ai_config,
+                runtime_options=runtime_options,
+            )
 
     @staticmethod
     async def _process_resume_record(
         db: AsyncSession,
         resume: Resume,
         ai_config: Optional[Dict] = None,
+        runtime_options: Optional[Dict] = None,
     ) -> None:
         if ai_config is None:
             try:
-                ai_config = await ResumeService._build_runtime_config(db, resume)
+                ai_config = await ResumeService._build_runtime_config(
+                    db,
+                    resume,
+                    runtime_options=runtime_options,
+                )
             except ValidationError as exc:
                 await ResumeService._mark_resume_failed(db, resume, exc.detail)
                 return
@@ -476,14 +487,27 @@ class ResumeService:
         return payload
 
     @staticmethod
-    async def _build_runtime_config(db: AsyncSession, resume: Resume) -> Dict:
+    async def _build_runtime_config(
+        db: AsyncSession,
+        resume: Resume,
+        runtime_options: Optional[Dict] = None,
+    ) -> Dict:
         user = await db.get(User, resume.user_id)
         if not user:
             raise ValidationError(message="上传简历的用户不存在")
-        return deepseek_config_service.build_runtime_config(
+        runtime_options = runtime_options or {}
+        config = deepseek_config_service.build_runtime_config(
             user,
             require_personal_key=True,
+            provider=runtime_options.get("provider"),
         )
+        model = (runtime_options.get("model") or "").strip()
+        if model:
+            config["model"] = deepseek_config_service.normalize_model(
+                config.get("provider"),
+                model,
+            )
+        return config
 
     @staticmethod
     async def _update_status(db: AsyncSession, resume: Resume, status: str) -> None:

@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 from app.db.session import async_session
 from app.services.client.interview_service import interview_service
+from app.services.client.training_sample_export_service import training_sample_export_service
 from app.services.client.openai_fine_tuning_service import (
     DEFAULT_CONSTRUCTED_SAMPLES_PATH,
     DEFAULT_MIN_REAL_AUTHORIZED_SAMPLES,
@@ -27,7 +28,7 @@ async def _load_real_records_from_db(limit: int | None = None) -> List[Dict[str,
             include_user_email=False,
             limit=limit,
         )
-    bundle = interview_service.build_fine_tuning_dataset_bundle(samples)
+    bundle = training_sample_export_service.build_fine_tuning_dataset_bundle(samples)
     return load_jsonl_records(bundle["files"].get("fine_tuning_sft.jsonl") or "")
 
 

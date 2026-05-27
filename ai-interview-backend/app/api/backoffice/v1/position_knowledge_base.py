@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.backoffice.deps import get_current_admin
+from app.api.backoffice.deps import get_current_admin, require_content_manager_admin
 from app.db.session import get_db
 from app.models.admin import Admin
 from app.schemas.client.position_knowledge_base import (
@@ -29,7 +29,7 @@ async def get_public_knowledge_bases(
 async def create_public_knowledge_base(
     data: PositionKnowledgeBaseCreate,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await position_knowledge_base_service.create_public_item(
         db=db,
@@ -56,7 +56,7 @@ async def get_public_knowledge_base_slices(
 async def rebuild_public_knowledge_base_slices(
     knowledge_base_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await position_knowledge_base_service.rebuild_public_item_slices(
         db=db,
@@ -70,7 +70,7 @@ async def update_public_knowledge_base(
     knowledge_base_id: int,
     data: PositionKnowledgeBaseUpdate,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await position_knowledge_base_service.update_public_item(
         db=db,
@@ -84,7 +84,7 @@ async def update_public_knowledge_base(
 async def delete_public_knowledge_base(
     knowledge_base_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await position_knowledge_base_service.delete_public_item(
         db=db,

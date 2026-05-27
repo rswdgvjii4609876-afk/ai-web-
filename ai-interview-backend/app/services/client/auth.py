@@ -1,4 +1,5 @@
 from typing import Optional, Dict
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from datetime import datetime, timedelta, UTC
@@ -11,8 +12,11 @@ from app.exceptions.http_exceptions import APIException
 from app.services.client.redis_verification import redis_verification_service
 from app.services.client.privacy_consent_service import privacy_consent_service
 from app.schedule.jobs.email_tasks import send_verification_email_task
+from app.utils.email_normalization import normalize_email
 import asyncio
 import re
+
+logger = logging.getLogger(__name__)
 
 
 class ClientAuthService(AuthBase):
@@ -21,20 +25,22 @@ class ClientAuthService(AuthBase):
         try:
             return await asyncio.to_thread(User.get_password_hash, password)
         except Exception as exc:
+            logger.exception("Password hash component failed")
             raise APIException(
                 status_code=500,
-                message=f"密码哈希组件异常，请检查后端 bcrypt 依赖是否已安装: {exc}"
-            )
+                message="密码服务暂时不可用，请稍后重试"
+            ) from exc
 
     @staticmethod
     def _hash_refresh_token(refresh_token: str) -> str:
         try:
             return AuthBase.hash_refresh_token(refresh_token)
         except Exception as exc:
+            logger.exception("Refresh token hash component failed")
             raise APIException(
                 status_code=500,
-                message=f"令牌哈希组件异常，请检查后端 bcrypt 依赖是否已安装: {exc}"
-            )
+                message="令牌服务暂时不可用，请稍后重试"
+            ) from exc
 
     @staticmethod
     def validate_password(password: str) -> bool:
@@ -56,7 +62,8 @@ class ClientAuthService(AuthBase):
     @staticmethod
     async def authenticate_user(db: AsyncSession, email: str, password: str) -> Optional[User]:
         """用户身份验证"""
-        user_query = select(User).where(User.email == email)
+        normalized_email = normalize_email(email)
+        user_query = select(User).where(User.email == normalized_email)
         result = await db.execute(user_query)
         user = result.scalar_one_or_none()
 
@@ -66,10 +73,11 @@ class ClientAuthService(AuthBase):
         try:
             is_valid = await asyncio.to_thread(user.verify_password, password)
         except Exception as exc:
+            logger.exception("Password verify component failed")
             raise APIException(
                 status_code=500,
-                message=f"密码校验组件异常，请检查后端 bcrypt 依赖是否已安装: {exc}"
-            )
+                message="密码服务暂时不可用，请稍后重试"
+            ) from exc
 
         if not is_valid:
             return None
@@ -144,6 +152,9 @@ class ClientAuthService(AuthBase):
         if not user_data.get("privacy_agreed"):
             raise APIException(status_code=400, message="请先阅读并同意《隐私协议与个人信息处理说明》")
 
+        normalized_email = normalize_email(user_data.get("email"))
+        user_data = {**user_data, "email": normalized_email}
+
         async with transaction(db):
             # 检查邮箱是否已存在
             existing_user = await db.execute(
@@ -196,10 +207,11 @@ class ClientAuthService(AuthBase):
                         user_data.get("first_name")
                     )
                 except Exception as exc:
+                    logger.exception("Verification email task dispatch failed")
                     raise APIException(
                         status_code=500,
-                        message=f"验证码邮件任务投递失败，请检查 Redis / Celery / SMTP 配置: {exc}"
-                    )
+                        message="验证码邮件暂时无法发送，请稍后重试"
+                    ) from exc
 
                 return {
                     "user_id": user.id,
@@ -213,6 +225,7 @@ class ClientAuthService(AuthBase):
     @staticmethod
     async def send_verification_code(db: AsyncSession, email: str, code_type: str) -> Dict:
         """发送验证码"""
+        email = normalize_email(email)
         # 检查用户是否存在
         user_query = select(User).where(User.email == email)
         result = await db.execute(user_query)
@@ -240,10 +253,11 @@ class ClientAuthService(AuthBase):
                 user.first_name if user else None
             )
         except Exception as exc:
+            logger.exception("Verification email task dispatch failed")
             raise APIException(
                 status_code=500,
-                message=f"验证码邮件任务投递失败，请检查 Redis / Celery / SMTP 配置: {exc}"
-            )
+                message="验证码邮件暂时无法发送，请稍后重试"
+            ) from exc
 
         return {
             "message": "验证码已发送至您的邮箱",
@@ -254,6 +268,7 @@ class ClientAuthService(AuthBase):
     @staticmethod
     async def verify_email_and_login(db: AsyncSession, email: str, code: str) -> Dict:
         """验证邮箱并自动登录"""
+        email = normalize_email(email)
         # 验证验证码
         await redis_verification_service.verify_code(email, code, "registration")
 
@@ -300,6 +315,7 @@ class ClientAuthService(AuthBase):
     @staticmethod
     async def login(db: AsyncSession, email: str, password: str, remember_me: bool = False) -> Dict:
         """用户登录"""
+        email = normalize_email(email)
         async with transaction(db):
             user = await ClientAuthService.authenticate_user(db, email, password)
             if not user:
@@ -332,15 +348,13 @@ class ClientAuthService(AuthBase):
         if not payload:
             raise APIException(status_code=401, message="无效的刷新令牌")
 
-        user_id = payload.get("sub")
-        token_query = select(Token).where(
-            (Token.user_id == user_id) &
-            (Token.is_active == True)
-        )
-        result = await db.execute(token_query)
-        token = result.scalar_one_or_none()
+        try:
+            user_id = int(payload.get("sub"))
+        except (TypeError, ValueError):
+            raise APIException(status_code=401, message="无效的刷新令牌")
+        token = await ClientAuthService._find_active_refresh_token(db, user_id, refresh_token)
 
-        if not token or not AuthBase.verify_refresh_token_hash(refresh_token, token.token):
+        if not token:
             raise APIException(status_code=401, message="无效或已过期的刷新令牌")
 
         # 检查用户状态
@@ -373,21 +387,20 @@ class ClientAuthService(AuthBase):
         if not payload:
             return  # 忽略无效令牌
 
-        user_id = payload.get("sub")
-        token_query = select(Token).where(
-            (Token.user_id == user_id) &
-            (Token.is_active == True)
-        )
-        result = await db.execute(token_query)
-        token = result.scalar_one_or_none()
+        try:
+            user_id = int(payload.get("sub"))
+        except (TypeError, ValueError):
+            return
+        token = await ClientAuthService._find_active_refresh_token(db, user_id, refresh_token)
 
-        if token and AuthBase.verify_refresh_token_hash(refresh_token, token.token):
+        if token:
             token.is_active = False
             await db.commit()
 
     @staticmethod
     async def verify_password_reset_code(db: AsyncSession, email: str, code: str) -> str:
         """验证密码重置验证码"""
+        email = normalize_email(email)
         # 验证验证码
         await redis_verification_service.verify_code(email, code, "password-reset")
 
@@ -418,9 +431,13 @@ class ClientAuthService(AuthBase):
         ClientAuthService.validate_password(new_password)
 
         user_id = payload.get("sub")
+        try:
+            user_id_int = int(user_id)
+        except (TypeError, ValueError):
+            raise APIException(status_code=401, message="无效的重置令牌")
         async with transaction(db):
             # 获取用户
-            user = await db.execute(select(User).where(User.id == user_id))
+            user = await db.execute(select(User).where(User.id == user_id_int))
             user = user.scalar_one_or_none()
 
             if not user:
@@ -436,6 +453,41 @@ class ClientAuthService(AuthBase):
                     (Token.is_active == True)
                 ).values(is_active=False)
             )
+
+    @staticmethod
+    async def _find_active_refresh_token(
+        db: AsyncSession,
+        user_id: int,
+        refresh_token: str,
+    ) -> Optional[Token]:
+        now = datetime.now(UTC)
+        hashed_token = ClientAuthService._hash_refresh_token(refresh_token)
+        result = await db.execute(
+            select(Token).where(
+                Token.user_id == user_id,
+                Token.token == hashed_token,
+                Token.is_active.is_(True),
+                Token.expires_at > now,
+            )
+        )
+        token = result.scalar_one_or_none()
+        if token:
+            return token
+
+        legacy_result = await db.execute(
+            select(Token).where(
+                Token.user_id == user_id,
+                Token.is_active.is_(True),
+                Token.expires_at > now,
+            )
+        )
+        for candidate in legacy_result.scalars().all():
+            try:
+                if AuthBase.verify_refresh_token_hash(refresh_token, candidate.token):
+                    return candidate
+            except Exception:
+                logger.warning("Skip invalid legacy refresh token hash: token_id=%s", candidate.id)
+        return None
 
 
 client_auth_service = ClientAuthService()

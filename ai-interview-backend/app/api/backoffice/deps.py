@@ -22,7 +22,15 @@ async def get_current_admin(
             headers={"WWW-Authenticate": "Bearer"},
         )
     admin_id = payload.get("sub")
-    admin_query = select(Admin).where(Admin.id == int(admin_id))
+    try:
+        admin_id_int = int(admin_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    admin_query = select(Admin).where(Admin.id == admin_id_int)
     result = await db.execute(admin_query)
     admin = result.scalar_one_or_none()
     if admin is None or not admin.is_active:
@@ -67,4 +75,12 @@ async def require_admin_manager_admin(
 ) -> Admin:
     if not _has_admin_permission(current_admin, "can_manage_admins"):
         _forbid("Not enough permissions to manage users or admins")
+    return current_admin
+
+
+async def require_content_manager_admin(
+    current_admin: Admin = Depends(get_current_admin),
+) -> Admin:
+    if not _has_admin_permission(current_admin, "can_manage_admins"):
+        _forbid("Not enough permissions to manage public content")
     return current_admin

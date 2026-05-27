@@ -60,12 +60,14 @@ class PositionKnowledgeBaseService:
         }
 
     @staticmethod
-    async def _safe_rebuild_slices(db: AsyncSession, item: PositionKnowledgeBase) -> None:
+    async def _safe_rebuild_slices(db: AsyncSession, item: PositionKnowledgeBase) -> Dict[str, Optional[str]]:
         try:
             async with db.begin_nested():
                 await position_knowledge_base_slice_service.rebuild_for_knowledge_base(db, item)
+            return {"slice_build_status": "rebuilt", "slice_build_error": None}
         except Exception as exc:
             logger.warning("Slice rebuild skipped for knowledge_base=%s: %s", item.id, exc)
+            return {"slice_build_status": "failed", "slice_build_error": str(exc)[:240]}
 
     @staticmethod
     async def _get_user_visible_item(
@@ -187,10 +189,13 @@ class PositionKnowledgeBaseService:
         db.add(item)
         await db.flush()
         await db.refresh(item)
-        await PositionKnowledgeBaseService._safe_rebuild_slices(db, item)
+        slice_build = await PositionKnowledgeBaseService._safe_rebuild_slices(db, item)
         await db.commit()
         await db.refresh(item)
-        return PositionKnowledgeBaseService._serialize(item, current_user_id=user_id)
+        return {
+            **PositionKnowledgeBaseService._serialize(item, current_user_id=user_id),
+            **slice_build,
+        }
 
     @staticmethod
     async def update_item(
@@ -231,10 +236,13 @@ class PositionKnowledgeBaseService:
         for key, value in update_data.items():
             setattr(item, key, value)
 
-        await PositionKnowledgeBaseService._safe_rebuild_slices(db, item)
+        slice_build = await PositionKnowledgeBaseService._safe_rebuild_slices(db, item)
         await db.commit()
         await db.refresh(item)
-        return PositionKnowledgeBaseService._serialize(item, current_user_id=user_id)
+        return {
+            **PositionKnowledgeBaseService._serialize(item, current_user_id=user_id),
+            **slice_build,
+        }
 
     @staticmethod
     async def delete_item(
@@ -295,10 +303,13 @@ class PositionKnowledgeBaseService:
         db.add(item)
         await db.flush()
         await db.refresh(item)
-        await PositionKnowledgeBaseService._safe_rebuild_slices(db, item)
+        slice_build = await PositionKnowledgeBaseService._safe_rebuild_slices(db, item)
         await db.commit()
         await db.refresh(item)
-        return PositionKnowledgeBaseService._serialize(item, admin_view=True)
+        return {
+            **PositionKnowledgeBaseService._serialize(item, admin_view=True),
+            **slice_build,
+        }
 
     @staticmethod
     async def update_public_item(
@@ -337,10 +348,13 @@ class PositionKnowledgeBaseService:
         for key, value in update_data.items():
             setattr(item, key, value)
 
-        await PositionKnowledgeBaseService._safe_rebuild_slices(db, item)
+        slice_build = await PositionKnowledgeBaseService._safe_rebuild_slices(db, item)
         await db.commit()
         await db.refresh(item)
-        return PositionKnowledgeBaseService._serialize(item, admin_view=True)
+        return {
+            **PositionKnowledgeBaseService._serialize(item, admin_view=True),
+            **slice_build,
+        }
 
     @staticmethod
     async def delete_public_item(

@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, File, UploadFile
 from pydantic import BaseModel
@@ -35,7 +35,13 @@ from app.services.common.deepseek_config_service import deepseek_config_service
 router = APIRouter()
 
 
-@router.post("/register", response_model=AuthToken)
+class RegisterApiResponse(BaseModel):
+    code: int
+    message: str
+    data: Union[AuthToken, RegisterResponse]
+
+
+@router.post("/register", response_model=RegisterApiResponse)
 async def register(
     user_data: UserRegister,
     db: AsyncSession = Depends(get_db),
@@ -130,7 +136,7 @@ async def reset_password(
     await client_auth_service.reset_password(
         db, request.reset_token, request.new_password
     )
-    return ApiResponse.success_without_data(message="密码重置成功，请重新登录")
+    return ApiResponse.success(data={"message": "密码重置成功，请重新登录"})
 
 
 def _serialize_user_profile(current_user: User) -> dict:
@@ -276,9 +282,14 @@ async def update_profile(
         current_user.ai_provider = deepseek_config_service.normalize_provider(ai_provider)
 
     if "deepseek_base_url" in update_data:
-        update_data["deepseek_base_url"] = (
-            update_data["deepseek_base_url"].strip() or None
+        cleaned_base_url = (
+            update_data["deepseek_base_url"].strip()
             if update_data["deepseek_base_url"] is not None
+            else ""
+        )
+        update_data["deepseek_base_url"] = (
+            deepseek_config_service.normalize_base_url("deepseek", cleaned_base_url)
+            if cleaned_base_url
             else None
         )
     if "deepseek_model" in update_data:
@@ -293,9 +304,14 @@ async def update_profile(
             else None
         )
     if "openai_base_url" in update_data:
-        update_data["openai_base_url"] = (
-            update_data["openai_base_url"].strip() or None
+        cleaned_base_url = (
+            update_data["openai_base_url"].strip()
             if update_data["openai_base_url"] is not None
+            else ""
+        )
+        update_data["openai_base_url"] = (
+            deepseek_config_service.normalize_base_url("openai", cleaned_base_url)
+            if cleaned_base_url
             else None
         )
     if "openai_model" in update_data:

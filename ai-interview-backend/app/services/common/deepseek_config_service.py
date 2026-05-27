@@ -1,6 +1,9 @@
 import base64
 import hashlib
+import ipaddress
+import socket
 from typing import Dict, Optional
+from urllib.parse import urlparse
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -12,6 +15,11 @@ from app.models.user import User
 class DeepSeekConfigService:
     SUPPORTED_PROVIDERS = {"deepseek", "openai"}
     DEEPSEEK_CHAT_MODELS = {"deepseek-v4-pro", "deepseek-v4-flash"}
+    OFFICIAL_HOSTS = {
+        "deepseek": {"api.deepseek.com"},
+        "openai": {"api.openai.com"},
+    }
+    BLOCKED_HOSTS = {"localhost", "metadata.google.internal"}
 
     @staticmethod
     def _normalized_secret() -> str:
@@ -76,6 +84,89 @@ class DeepSeekConfigService:
         return settings.DEEPSEEK_BASE_URL
 
     @staticmethod
+    def _allowed_custom_hosts() -> set[str]:
+        hosts: set[str] = set()
+        for raw_item in (settings.USER_LLM_ALLOWED_BASE_URLS or "").split(","):
+            item = raw_item.strip()
+            if not item:
+                continue
+            parsed = urlparse(item if "://" in item else f"https://{item}")
+            host = (parsed.hostname or item).strip().lower().rstrip(".")
+            if host:
+                hosts.add(host)
+        return hosts
+
+    @staticmethod
+    def _is_private_or_reserved_host(host: str) -> bool:
+        normalized_host = (host or "").strip().lower().rstrip(".")
+        if not normalized_host:
+            return True
+        if normalized_host in DeepSeekConfigService.BLOCKED_HOSTS:
+            return True
+        if normalized_host.endswith(".local"):
+            return True
+
+        try:
+            addresses = [ipaddress.ip_address(normalized_host)]
+        except ValueError:
+            try:
+                infos = socket.getaddrinfo(normalized_host, None)
+                addresses = [
+                    ipaddress.ip_address(info[4][0])
+                    for info in infos
+                    if info and info[4] and info[4][0]
+                ]
+            except OSError:
+                return True
+
+        if not addresses:
+            return True
+        return any(
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_reserved
+            or address.is_unspecified
+            for address in addresses
+        )
+
+    @staticmethod
+    def normalize_base_url(provider: Optional[str], base_url: Optional[str]) -> str:
+        normalized_provider = DeepSeekConfigService.normalize_provider(provider)
+        default_url = DeepSeekConfigService.default_base_url(normalized_provider)
+        cleaned = (base_url or default_url or "").strip().rstrip("/")
+        parsed = urlparse(cleaned)
+        host = (parsed.hostname or "").strip().lower().rstrip(".")
+        if parsed.scheme != "https" or not host:
+            raise ValidationError(message="AI 服务 Base URL 必须使用 HTTPS 域名")
+
+        official_hosts = DeepSeekConfigService.OFFICIAL_HOSTS.get(normalized_provider, set())
+        allowed_hosts = official_hosts | DeepSeekConfigService._allowed_custom_hosts()
+        if host not in allowed_hosts:
+            raise ValidationError(message="AI 服务 Base URL 不在允许列表中")
+        if host not in official_hosts and DeepSeekConfigService._is_private_or_reserved_host(host):
+            raise ValidationError(message="AI 服务 Base URL 不能指向内网、回环或云元数据地址")
+        return cleaned
+
+    @staticmethod
+    def _profile_base_url(provider: str, value: Optional[str]) -> str:
+        try:
+            return DeepSeekConfigService.normalize_base_url(provider, value)
+        except ValidationError:
+            return DeepSeekConfigService.normalize_base_url(
+                provider,
+                DeepSeekConfigService.default_base_url(provider),
+            )
+
+    @staticmethod
+    def _runtime_base_url_or_none(provider: str, value: Optional[str]) -> Optional[str]:
+        try:
+            return DeepSeekConfigService.normalize_base_url(provider, value)
+        except ValidationError:
+            return None
+
+    @staticmethod
     def default_model(provider: Optional[str]) -> str:
         normalized = DeepSeekConfigService.normalize_provider(provider)
         if normalized == "openai":
@@ -112,13 +203,19 @@ class DeepSeekConfigService:
             "ai_provider": selected_provider,
             "deepseek_use_personal_api": selected_provider == "deepseek" and has_deepseek_key,
             "deepseek_has_personal_api_key": has_deepseek_key,
-            "deepseek_base_url": getattr(user, "deepseek_base_url", None) or settings.DEEPSEEK_BASE_URL,
+            "deepseek_base_url": DeepSeekConfigService._profile_base_url(
+                "deepseek",
+                getattr(user, "deepseek_base_url", None),
+            ),
             "deepseek_model": DeepSeekConfigService.normalize_model(
                 "deepseek",
                 getattr(user, "deepseek_model", None),
             ),
             "openai_has_personal_api_key": has_openai_key,
-            "openai_base_url": getattr(user, "openai_base_url", None) or settings.OPENAI_BASE_URL,
+            "openai_base_url": DeepSeekConfigService._profile_base_url(
+                "openai",
+                getattr(user, "openai_base_url", None),
+            ),
             "openai_model": DeepSeekConfigService.normalize_model(
                 "openai",
                 getattr(user, "openai_model", None),
@@ -160,8 +257,11 @@ class DeepSeekConfigService:
             "provider_label": provider_label,
             "source": f"user_{provider}",
             "api_key": api_key,
-            "base_url": getattr(user, field_names["base_url"], None)
-            or DeepSeekConfigService.default_base_url(provider),
+            "base_url": DeepSeekConfigService.normalize_base_url(
+                provider,
+                getattr(user, field_names["base_url"], None)
+                or DeepSeekConfigService.default_base_url(provider),
+            ),
             "model": DeepSeekConfigService.normalize_model(
                 provider,
                 getattr(user, field_names["model"], None),
@@ -180,13 +280,17 @@ class DeepSeekConfigService:
             getattr(user, "deepseek_api_key_encrypted", None)
         )
         if deepseek_key:
+            deepseek_base_url = DeepSeekConfigService._runtime_base_url_or_none(
+                "deepseek",
+                getattr(user, "deepseek_base_url", None) or settings.DEEPSEEK_BASE_URL,
+            )
+        if deepseek_key and deepseek_base_url:
             candidates.append(
                 {
                     "provider": "deepseek",
                     "provider_label": "DeepSeek",
                     "api_key": deepseek_key,
-                    "base_url": getattr(user, "deepseek_base_url", None)
-                    or settings.DEEPSEEK_BASE_URL,
+                    "base_url": deepseek_base_url,
                     "model": settings.DEEPSEEK_EMBEDDING_MODEL,
                 }
             )
@@ -195,13 +299,17 @@ class DeepSeekConfigService:
             getattr(user, "openai_api_key_encrypted", None)
         )
         if openai_key:
+            openai_base_url = DeepSeekConfigService._runtime_base_url_or_none(
+                "openai",
+                getattr(user, "openai_base_url", None) or settings.OPENAI_BASE_URL,
+            )
+        if openai_key and openai_base_url:
             candidates.append(
                 {
                     "provider": "openai",
                     "provider_label": "OpenAI",
                     "api_key": openai_key,
-                    "base_url": getattr(user, "openai_base_url", None)
-                    or settings.OPENAI_BASE_URL,
+                    "base_url": openai_base_url,
                     "model": settings.OPENAI_EMBEDDING_MODEL,
                 }
             )

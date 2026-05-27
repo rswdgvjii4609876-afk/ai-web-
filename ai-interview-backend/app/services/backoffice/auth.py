@@ -1,4 +1,5 @@
 from typing import Optional, Dict
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from datetime import datetime, timedelta, UTC
@@ -8,14 +9,17 @@ from app.core.security import AuthBase
 from app.core.config import settings
 from app.db.session import transaction
 from app.exceptions.http_exceptions import APIException
+from app.utils.email_normalization import normalize_email
 import asyncio
+
+logger = logging.getLogger(__name__)
 
 
 class BackofficeAuthService(AuthBase):
     @staticmethod
     async def authenticate_admin(db: AsyncSession, email: str, password: str) -> Optional[Admin]:
         """管理员认证"""
-        admin_query = select(Admin).where(Admin.email == email)
+        admin_query = select(Admin).where(Admin.email == normalize_email(email))
         result = await db.execute(admin_query)
         admin = result.scalar_one_or_none()
 
@@ -25,7 +29,8 @@ class BackofficeAuthService(AuthBase):
         try:
             is_valid = await asyncio.to_thread(admin.verify_password, password)
         except Exception as exc:
-            raise APIException(status_code=500, message=f"管理员密码校验组件异常: {exc}")
+            logger.exception("Admin password verify component failed")
+            raise APIException(status_code=500, message="管理员密码服务暂时不可用") from exc
 
         if not is_valid:
             return None
@@ -34,6 +39,7 @@ class BackofficeAuthService(AuthBase):
     @staticmethod
     async def login(db: AsyncSession, email: str, password: str) -> Dict:
         """管理员登录"""
+        email = normalize_email(email)
         async with transaction(db):
             admin = await BackofficeAuthService.authenticate_admin(db, email, password)
             if not admin:
@@ -80,15 +86,13 @@ class BackofficeAuthService(AuthBase):
         if not payload:
             raise APIException(status_code=401, message="Invalid refresh token")
 
-        admin_id = payload.get("sub")
-        token_query = select(AdminToken).where(
-            (AdminToken.admin_id == admin_id) &
-            (AdminToken.is_active == True)
-        )
-        result = await db.execute(token_query)
-        token = result.scalar_one_or_none()
+        try:
+            admin_id = int(payload.get("sub"))
+        except (TypeError, ValueError):
+            raise APIException(status_code=401, message="Invalid refresh token")
+        token = await BackofficeAuthService._find_active_refresh_token(db, admin_id, refresh_token)
 
-        if not token or not AuthBase.verify_refresh_token_hash(refresh_token, token.token):
+        if not token:
             raise APIException(status_code=401, message="Invalid or expired refresh token")
 
         token.last_used_at = datetime.now(UTC)
@@ -108,17 +112,50 @@ class BackofficeAuthService(AuthBase):
         if not payload:
             return  # 忽略无效token
 
-        admin_id = payload.get("sub")
-        token_query = select(AdminToken).where(
-            (AdminToken.admin_id == admin_id) &
-            (AdminToken.is_active == True)
-        )
-        result = await db.execute(token_query)
-        token = result.scalar_one_or_none()
+        try:
+            admin_id = int(payload.get("sub"))
+        except (TypeError, ValueError):
+            return
+        token = await BackofficeAuthService._find_active_refresh_token(db, admin_id, refresh_token)
 
-        if token and AuthBase.verify_refresh_token_hash(refresh_token, token.token):
+        if token:
             token.is_active = False
             await db.commit()
+
+    @staticmethod
+    async def _find_active_refresh_token(
+        db: AsyncSession,
+        admin_id: int,
+        refresh_token: str,
+    ) -> Optional[AdminToken]:
+        now = datetime.now(UTC)
+        hashed_token = AuthBase.hash_refresh_token(refresh_token)
+        result = await db.execute(
+            select(AdminToken).where(
+                AdminToken.admin_id == admin_id,
+                AdminToken.token == hashed_token,
+                AdminToken.is_active.is_(True),
+                AdminToken.expires_at > now,
+            )
+        )
+        token = result.scalar_one_or_none()
+        if token:
+            return token
+
+        legacy_result = await db.execute(
+            select(AdminToken).where(
+                AdminToken.admin_id == admin_id,
+                AdminToken.is_active.is_(True),
+                AdminToken.expires_at > now,
+            )
+        )
+        for candidate in legacy_result.scalars().all():
+            try:
+                if AuthBase.verify_refresh_token_hash(refresh_token, candidate.token):
+                    return candidate
+            except Exception:
+                logger.warning("Skip invalid legacy admin refresh token hash: token_id=%s", candidate.id)
+        return None
 
 
 backoffice_auth_service = BackofficeAuthService()

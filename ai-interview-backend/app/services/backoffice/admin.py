@@ -6,6 +6,7 @@ from app.exceptions.http_exceptions import APIException
 from typing import List, Optional
 from fastapi import status
 from app.core.security import AuthBase
+from app.utils.email_normalization import normalize_email
 
 
 class AdminService:
@@ -13,7 +14,8 @@ class AdminService:
     async def create_admin(db: AsyncSession, admin_data: AdminCreate) -> AdminResponse:
         """创建新管理员"""
         # 检查邮箱是否已存在
-        email_query = select(Admin).where(Admin.email == admin_data.email)
+        normalized_email = normalize_email(admin_data.email)
+        email_query = select(Admin).where(Admin.email == normalized_email)
         result = await db.execute(email_query)
         if result.scalar_one_or_none():
             raise APIException(
@@ -24,7 +26,7 @@ class AdminService:
         # 创建新管理员
         hashed_password = AuthBase.hash_token(admin_data.password)
         admin = Admin(
-            email=admin_data.email,
+            email=normalized_email,
             first_name=admin_data.first_name,
             last_name=admin_data.last_name,
             password=hashed_password,
@@ -63,7 +65,7 @@ class AdminService:
     @staticmethod
     async def get_admin_by_email(db: AsyncSession, email: str) -> Optional[Admin]:
         """通过邮箱获取管理员"""
-        admin_query = select(Admin).where(Admin.email == email)
+        admin_query = select(Admin).where(Admin.email == normalize_email(email))
         result = await db.execute(admin_query)
         return result.scalar_one_or_none()
     
@@ -120,6 +122,8 @@ class AdminService:
         update_data = {}
         
         # 检查邮箱是否需要更新且是否已存在
+        if "email" in admin_data:
+            admin_data["email"] = normalize_email(admin_data["email"])
         if "email" in admin_data and admin_data["email"] != admin.email:
             email_query = select(Admin).where(
                 Admin.email == admin_data["email"],

@@ -1,5 +1,5 @@
 import json
-import random
+import secrets
 from datetime import datetime, UTC
 from typing import Optional, Dict
 from app.services.common.redis import redis_client
@@ -17,7 +17,7 @@ class RedisVerificationService:
     @staticmethod
     def generate_6_digit_code() -> str:
         """生成6位数字验证码"""
-        return f"{random.randint(100000, 999999)}"
+        return f"{secrets.randbelow(900000) + 100000}"
 
     @staticmethod
     async def generate_and_store_code(

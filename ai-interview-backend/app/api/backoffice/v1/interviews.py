@@ -25,6 +25,7 @@ from app.schemas.backoffice.interview import (
 )
 from app.schemas.response import ApiResponse
 from app.services.client.interview_service import interview_service
+from app.services.client.training_sample_export_service import training_sample_export_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ async def list_interviews(
             "overall_score": float(interview.overall_score) if interview.overall_score else None,
             "status": interview.status,
             "data_contribution_consent": bool(interview.data_contribution_consent),
-            "training_sample_review": interview_service.get_training_sample_review(interview.panel_snapshot),
+            "training_sample_review": training_sample_export_service.get_training_sample_review(interview.panel_snapshot),
             "created_at": interview.created_at.isoformat() if interview.created_at else None,
             **_consent_meta(interview),
         }
@@ -234,7 +235,7 @@ async def export_fine_tuning_samples(
             db=db,
             include_user_email=include_user_email,
         )
-        bundle = interview_service.build_fine_tuning_dataset_bundle(samples)
+        bundle = training_sample_export_service.build_fine_tuning_dataset_bundle(samples)
         content = bundle["files"].get("fine_tuning_sft.jsonl") or ""
     except SQLAlchemyError as exc:
         await db.rollback()
@@ -266,7 +267,7 @@ async def export_fine_tuning_readiness_report(
             db=db,
             include_user_email=include_user_email,
         )
-        report = interview_service.build_fine_tuning_readiness_report(samples)
+        report = training_sample_export_service.build_fine_tuning_readiness_report(samples)
         content = report["markdown"]
     except SQLAlchemyError as exc:
         await db.rollback()
@@ -310,7 +311,7 @@ async def get_interview_detail(
             report = json.loads(interview.report)
         except json.JSONDecodeError:
             report = {}
-    training_sample_review = interview_service.get_training_sample_review(interview.panel_snapshot)
+    training_sample_review = training_sample_export_service.get_training_sample_review(interview.panel_snapshot)
 
     return ApiResponse.success(
         data={
@@ -428,7 +429,7 @@ async def get_interview_training_sample(
             body_code=400,
             http_code=400,
         )
-    training_sample_review = interview_service.get_training_sample_review(interview.panel_snapshot)
+    training_sample_review = training_sample_export_service.get_training_sample_review(interview.panel_snapshot)
     if training_sample_review.get("review_status") != "reviewed":
         return ApiResponse.failed(
             message="该面试尚未完成人工复核，不能导出训练样本",
@@ -440,13 +441,13 @@ async def get_interview_training_sample(
         .where(InterviewMessage.interview_id == interview_id)
         .order_by(InterviewMessage.id)
     )
-    sample = interview_service.build_training_sample(
+    sample = training_sample_export_service.build_training_sample(
         interview=interview,
         messages=msg_result.scalars().all(),
         user_email=email,
         include_user_email=include_user_email,
     )
-    if not interview_service.is_export_ready_training_sample(sample):
+    if not training_sample_export_service.is_export_ready_training_sample(sample):
         return ApiResponse.failed(
             message="该面试未满足训练样本导出门禁，不能导出训练样本",
             body_code=400,

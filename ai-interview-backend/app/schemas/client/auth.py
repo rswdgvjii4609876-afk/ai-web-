@@ -1,6 +1,7 @@
 from typing import Optional, List, Literal
-from pydantic import EmailStr, field_validator, Field
+from pydantic import EmailStr, field_validator, Field, model_validator
 from ..base import BaseSchema
+from app.utils.email_normalization import normalize_email
 import re
 
 
@@ -31,6 +32,11 @@ class UserRegister(BaseSchema):
         False,
         description="是否同意将去标识化后的简历与面试信息用于系统评测、比赛材料、质量改进和数据集沉淀。",
     )
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_account_email(cls, v):
+        return normalize_email(v)
 
     @field_validator('password')
     def validate_password(cls, v):
@@ -64,6 +70,11 @@ class Login(BaseSchema):
     email: EmailStr
     password: str
     remember_me: bool = False
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_account_email(cls, v):
+        return normalize_email(v)
 
 
 class UserProfile(BaseSchema):
@@ -113,6 +124,11 @@ class SendVerificationCode(BaseSchema):
         json_schema_extra={"enum": ["registration", "password-reset"]}
     )
 
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_account_email(cls, v):
+        return normalize_email(v)
+
 
 class SendCodeResponse(BaseSchema):
     message: str
@@ -124,6 +140,11 @@ class VerifyEmail(BaseSchema):
     email: EmailStr
     code: str
 
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_account_email(cls, v):
+        return normalize_email(v)
+
     @field_validator('code')
     def validate_code(cls, v):
         if not v.isdigit() or len(v) != 6:
@@ -134,10 +155,20 @@ class VerifyEmail(BaseSchema):
 class SendPasswordResetCode(BaseSchema):
     email: EmailStr
 
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_account_email(cls, v):
+        return normalize_email(v)
+
 
 class VerifyPasswordResetCode(BaseSchema):
     email: EmailStr
     code: str
+
+    @field_validator('email', mode='before')
+    @classmethod
+    def normalize_account_email(cls, v):
+        return normalize_email(v)
 
     @field_validator('code')
     def validate_code(cls, v):
@@ -170,8 +201,8 @@ class ResetPassword(BaseSchema):
 
         return v
 
-    @field_validator('confirm_password')
-    def validate_confirm_password(cls, v, values):
-        if 'new_password' in values and v != values['new_password']:
+    @model_validator(mode='after')
+    def validate_confirm_password(self):
+        if self.confirm_password != self.new_password:
             raise ValueError('确认密码与新密码不一致')
-        return v
+        return self

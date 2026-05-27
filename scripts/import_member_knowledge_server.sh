@@ -12,6 +12,7 @@ Usage:
   scripts/import_member_knowledge_server.sh --package-date YYYY-MM-DD [--execute|--verify-only]
 
 Default mode is dry-run:
+  - this is a deploy preflight dry-run, not a pure database-only check
   - pull latest code
   - rebuild services
   - run alembic
@@ -285,6 +286,9 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 echo "log_file=$LOG_FILE"
 echo "package_date=$PACKAGE_DATE"
 echo "run_mode=$RUN_MODE"
+if [ "$RUN_MODE" = "dry-run" ]; then
+  echo "mode_note=dry-run includes git pull, rebuild and migration preflight before import dry-run"
+fi
 
 if [ "$RUN_MODE" = "verify-only" ]; then
   assert_host_package_exists

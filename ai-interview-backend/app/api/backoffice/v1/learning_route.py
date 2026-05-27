@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.backoffice.deps import get_current_admin
+from app.api.backoffice.deps import get_current_admin, require_content_manager_admin
 from app.db.session import get_db
 from app.models.admin import Admin
 from app.schemas.backoffice.learning_route import (
@@ -45,7 +45,7 @@ async def list_learning_routes(
 async def create_learning_route(
     data: LearningRouteStageCreate,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await learning_route_service.create_route(db=db, data=data.model_dump())
     return ApiResponse.success(data=result)
@@ -55,7 +55,7 @@ async def create_learning_route(
 async def bulk_upsert_learning_routes(
     data: LearningRouteBulkUpsert,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await learning_route_service.bulk_upsert_routes(db=db, payload=data.model_dump())
     return ApiResponse.success(data=result)
@@ -85,7 +85,7 @@ async def update_learning_route(
     route_id: int,
     data: LearningRouteStageUpdate,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await learning_route_service.update_route(
         db=db,
@@ -99,7 +99,7 @@ async def update_learning_route(
 async def duplicate_learning_route(
     route_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await learning_route_service.duplicate_route(db=db, route_id=route_id)
     return ApiResponse.success(data=result)
@@ -109,7 +109,7 @@ async def duplicate_learning_route(
 async def delete_learning_route(
     route_id: int,
     db: AsyncSession = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    current_admin: Admin = Depends(require_content_manager_admin),
 ):
     result = await learning_route_service.delete_route(db=db, route_id=route_id)
     return ApiResponse.success(data=result)

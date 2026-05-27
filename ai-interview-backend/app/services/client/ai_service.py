@@ -16,6 +16,7 @@ from openai import (
 )
 from app.core.config import settings
 from app.exceptions.http_exceptions import ValidationError
+from app.services.client.output_safety_service import output_safety_service
 from app.services.client.resume_evaluation_snapshot import snapshot_from_payload
 from app.services.common.deepseek_config_service import DeepSeekConfigService
 logger = logging.getLogger(__name__)
@@ -608,6 +609,21 @@ class AIService:
             if text:
                 normalized.append(text)
         return normalized[:limit]
+
+    @staticmethod
+    def _public_string(value: Any, fallback: str) -> str:
+        return output_safety_service.sanitize_public_text(value, fallback=fallback)
+
+    @staticmethod
+    def _public_string_list(value: Any, limit: int = 6) -> List[str]:
+        return [
+            item
+            for item in (
+                output_safety_service.sanitize_public_text(text)
+                for text in AIService._string_list(value, limit=limit)
+            )
+            if item
+        ][:limit]
     @staticmethod
     def _safe_float(value: Any, default: float = 0.0) -> float:
         try:
@@ -1125,21 +1141,23 @@ class AIService:
                 raw = {"selected_question": raw}
             if not isinstance(raw, dict):
                 raise ValueError(f"Panel question decision #{index} is invalid")
-            question_text = AIService._string_or_empty(
-                raw.get("selected_question") or raw.get("question")
+            question_text = AIService._public_string(
+                raw.get("selected_question") or raw.get("question"),
+                fallback="题目生成异常：系统已拦截内部调试信息，请重新生成。",
             )
             if not question_text:
                 raise ValueError(f"Panel question decision #{index} is missing selected_question")
-            selected_followups = AIService._string_list(
+            selected_followups = AIService._public_string_list(
                 raw.get("selected_followups") or raw.get("followup_candidates")
             )
-            evaluation_points = AIService._string_list(
+            evaluation_points = AIService._public_string_list(
                 raw.get("evaluation_points") or plan.get("evaluation_focus")
             )
-            reasoning_summary = AIService._string_or_empty(
+            reasoning_summary = AIService._public_string(
                 raw.get("reasoning_summary")
                 or raw.get("panel_reasoning_summary")
-                or moderator_summary
+                or moderator_summary,
+                fallback="系统已隐藏内部评估说明。",
             )
             used_slice_ids = raw.get("used_slice_ids") or raw.get("retrieved_slice_ids") or [
                 item.get("slice_id") for item in (plan.get("selected_slices") or []) if item.get("slice_id")
@@ -2497,10 +2515,23 @@ class AIService:
         normalized = []
         for index, item in enumerate(payload):
             if isinstance(item, str):
-                normalized.append({"index": index, "question": item, "category": "technical"})
+                normalized.append({
+                    "index": index,
+                    "question": AIService._public_string(
+                        item,
+                        fallback="题目生成异常：系统已拦截内部调试信息，请重新生成。",
+                    ),
+                    "category": "technical",
+                })
                 continue
             if isinstance(item, dict):
-                normalized.append(item)
+                next_item = dict(item)
+                if "question" in next_item:
+                    next_item["question"] = AIService._public_string(
+                        next_item.get("question"),
+                        fallback="题目生成异常：系统已拦截内部调试信息，请重新生成。",
+                    )
+                normalized.append(next_item)
         if not normalized:
             raise ValueError("Question payload is empty")
         return normalized
@@ -3330,14 +3361,28 @@ class AIService:
             },
         ]
         result = await AIService._chat(messages, temperature=0.25, ai_config=ai_config)
-        payload = await AIService._extract_or_repair_json(
-            result,
-            "JSON object with resume polish fields",
-            ai_config=ai_config,
-            expected_type="object",
-            required_keys=["overall_strategy", "section_suggestions", "keyword_alignment", "risk_warnings", "missing_evidence_to_prepare", "polished_resume_markdown"],
-            parser_label="resume_polish",
-        )
+        try:
+            payload = await AIService._extract_or_repair_json(
+                result,
+                "JSON object with resume polish fields",
+                ai_config=ai_config,
+                expected_type="object",
+                required_keys=[
+                    "overall_strategy",
+                    "section_suggestions",
+                    "keyword_alignment",
+                    "risk_warnings",
+                    "missing_evidence_to_prepare",
+                    "polished_resume_markdown",
+                ],
+                parser_label="resume_polish",
+            )
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "Resume polish JSON malformed after repair, using deterministic fallback: %s",
+                exc,
+            )
+            payload = {}
         return AIService._normalize_resume_polish_payload(
             payload=payload,
             target_position=target_position,

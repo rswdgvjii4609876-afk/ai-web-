@@ -1,4 +1,5 @@
 import logging
+from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
@@ -19,6 +20,8 @@ from app.services.common.deepseek_config_service import deepseek_config_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+SAFE_RESUME_PDF_TYPES = {"application/pdf", "application/x-pdf", "application/octet-stream"}
+MAX_RESUME_PDF_PAGES = 20
 
 
 def _has_available_resume_worker() -> bool:
@@ -49,6 +52,37 @@ def _build_resume_runtime_config(
     return ai_config
 
 
+def _build_runtime_options(ai_config: dict) -> dict:
+    return {
+        "provider": ai_config.get("provider"),
+        "model": ai_config.get("model"),
+    }
+
+
+def _validate_pdf_upload(content: bytes, content_type: Optional[str]) -> None:
+    normalized_type = (content_type or "").split(";")[0].strip().lower()
+    if normalized_type and normalized_type not in SAFE_RESUME_PDF_TYPES:
+        raise ValidationError(message="仅支持上传 PDF 格式文件")
+    if not content.startswith(b"%PDF-"):
+        raise ValidationError(message="PDF 文件内容校验失败，请上传有效的 PDF 文件")
+    try:
+        from PyPDF2 import PdfReader
+    except ImportError:
+        logger.warning("PyPDF2 is not installed; resume PDF page-count preflight skipped")
+        return
+
+    try:
+        reader = PdfReader(BytesIO(content), strict=False)
+        page_count = len(reader.pages)
+    except Exception as exc:
+        logger.warning("Resume PDF preflight failed: %s", exc)
+        raise ValidationError(message="PDF 文件无法读取，请导出为标准 PDF 后重试") from exc
+    if page_count <= 0:
+        raise ValidationError(message="PDF 文件未检测到有效页面")
+    if page_count > MAX_RESUME_PDF_PAGES:
+        raise ValidationError(message=f"简历 PDF 页数不能超过 {MAX_RESUME_PDF_PAGES} 页")
+
+
 @router.post("/upload")
 async def upload_resume(
     background_tasks: BackgroundTasks,
@@ -72,8 +106,10 @@ async def upload_resume(
     content = await file.read()
     if len(content) > 10 * 1024 * 1024:
         raise ValidationError(message="文件大小不能超过 10MB")
+    _validate_pdf_upload(content, file.content_type)
 
     ai_config = _build_resume_runtime_config(current_user, ai_provider, ai_model)
+    runtime_options = _build_runtime_options(ai_config)
     effective_data_consent = privacy_consent_service.effective_data_contribution_consent(
         current_user,
         data_contribution_consent,
@@ -95,27 +131,27 @@ async def upload_resume(
     logger.info(
         "Resume upload accepted: resume_id=%s provider=%s model=%s",
         result["resume_id"],
-        ai_config.get("provider"),
-        ai_config.get("model"),
+        runtime_options.get("provider"),
+        runtime_options.get("model"),
     )
 
     if _has_available_resume_worker():
         try:
             from app.schedule.jobs.resume_tasks import process_resume_task
 
-            process_resume_task.delay(result["resume_id"], ai_config)
+            process_resume_task.delay(result["resume_id"], runtime_options)
         except Exception as exc:
             logger.exception("Dispatch resume task failed, fallback to background task: %s", exc)
             background_tasks.add_task(
                 resume_service.process_resume,
                 result["resume_id"],
-                ai_config,
+                runtime_options=runtime_options,
             )
     else:
         background_tasks.add_task(
             resume_service.process_resume,
             result["resume_id"],
-            ai_config,
+            runtime_options=runtime_options,
         )
 
     return ApiResponse.success(data=result)

@@ -149,6 +149,42 @@ def test_resume_polish_fallback_uses_ability_gaps_when_ai_payload_sparse():
 
 
 @pytest.mark.unit
+def test_resume_polish_falls_back_when_ai_returns_non_json(monkeypatch):
+    async def _fake_chat(*args, **kwargs):
+        return "I can polish the resume, but this is not JSON."
+
+    monkeypatch.setattr(AIService, "_chat", _fake_chat)
+
+    result = asyncio.run(
+        AIService.polish_resume(
+            parsed_resume={"skills": ["SQL"], "projects": []},
+            analysis={
+                "matching_metrics": {"final_score": 51, "keyword_coverage": 35},
+                "ability_gap_profile": {
+                    "top_gaps": [
+                        {
+                            "name": "SQL data analysis",
+                            "evidence_status": "missing",
+                            "evidence_basis": "No project evidence",
+                        }
+                    ]
+                },
+            },
+            target_position="Data Analyst",
+            resume_evidence={"missing_evidence_flags": ["SQL project evidence"]},
+            polish_mode="job_aligned",
+            ai_config={"provider": "test"},
+        )
+    )
+
+    assert result["version"] == "resume_polish_v1"
+    assert result["baseline"]["final_score"] == 51
+    assert result["section_suggestions"]
+    assert result["section_suggestions"][0]["section"] == "SQL data analysis"
+    assert result["polished_resume_markdown"]
+
+
+@pytest.mark.unit
 def test_resume_polish_ranks_canonical_profile_before_legacy_member_submission():
     member_source = type(
         "KnowledgeSource",
