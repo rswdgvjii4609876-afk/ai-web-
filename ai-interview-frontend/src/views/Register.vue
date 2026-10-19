@@ -8,21 +8,21 @@
       <form v-if="!verificationStep" @submit.prevent="handleRegister">
         <div class="form-row">
           <div class="form-group">
-            <label>名</label>
-            <input v-model="form.first_name" placeholder="名" required />
+            <label for="register-first-name">名</label>
+            <input id="register-first-name" v-model="form.first_name" autocomplete="given-name" placeholder="名" required />
           </div>
           <div class="form-group">
-            <label>姓</label>
-            <input v-model="form.last_name" placeholder="姓" required />
+            <label for="register-last-name">姓</label>
+            <input id="register-last-name" v-model="form.last_name" autocomplete="family-name" placeholder="姓" required />
           </div>
         </div>
         <div class="form-group">
-          <label>邮箱</label>
-          <input v-model="form.email" type="email" placeholder="请输入邮箱" required />
+          <label for="register-email">邮箱</label>
+          <input id="register-email" v-model="form.email" type="email" inputmode="email" autocomplete="email" placeholder="请输入邮箱" required />
         </div>
         <div class="form-group">
-          <label>密码</label>
-          <input v-model="form.password" type="password" placeholder="至少8位，含字母+数字+特殊字符" required />
+          <label for="register-password">密码</label>
+          <input id="register-password" v-model="form.password" type="password" autocomplete="new-password" placeholder="至少8位，含字母+数字+特殊字符" required />
         </div>
         <PrivacyConsentNotice
           title="注册前请确认隐私协议"
@@ -43,8 +43,10 @@
           当前邮箱：<strong>{{ pendingEmail }}</strong>
         </div>
         <div class="form-group">
-          <label>验证码</label>
+          <label for="register-code">验证码</label>
           <input
+            id="register-code"
+            autocomplete="one-time-code"
             v-model="verificationCode"
             inputmode="numeric"
             maxlength="6"

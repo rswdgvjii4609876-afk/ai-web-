@@ -2,6 +2,10 @@
   <div class="container">
     <div class="profile-page">
       <h2 class="page-title">个人设置</h2>
+      <div class="card" style="margin-bottom: 20px; display: flex; gap: 16px; flex-wrap: wrap">
+        <router-link to="/feedback">留言反馈与回复</router-link>
+        <router-link to="/privacy">隐私说明</router-link>
+      </div>
 
       <div class="card avatar-section">
         <div class="avatar-wrapper" @click="$refs.avatarInput.click()">

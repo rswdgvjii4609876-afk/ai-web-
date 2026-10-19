@@ -17,6 +17,7 @@ class RouteConfig:
 
 # 客户端路由配置
 CLIENT_ROUTES = [
+    RouteConfig("app.api.client.v1.feedback", f"{settings.API_V1_STR}/feedback", ["client-feedback"]),
     RouteConfig(
         module_path="app.api.client.v1.auth",
         prefix=f"{settings.API_V1_STR}/auth",
@@ -76,6 +77,7 @@ CLIENT_ROUTES = [
 
 # 后台路由配置
 BACKOFFICE_ROUTES = [
+    RouteConfig("app.api.backoffice.v1.feedback", f"{settings.API_V1_STR}/backoffice/feedback", ["backoffice-feedback"]),
     RouteConfig(
         module_path="app.api.backoffice.v1.auth",
         prefix=f"{settings.API_V1_STR}/backoffice/auth",

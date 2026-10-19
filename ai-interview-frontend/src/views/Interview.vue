@@ -54,6 +54,8 @@
 
     <div v-if="!preparing && !loadError" class="interview-workspace">
       <aside class="interview-left-panel" aria-label="面试状态">
+      <button type="button" class="mobile-focus-toggle btn-secondary" :aria-expanded="mobileFocusOpen" aria-controls="interview-focus-details" @click="mobileFocusOpen = !mobileFocusOpen">{{ mobileFocusOpen ? '收起训练重点' : '查看训练重点' }}</button>
+      <div id="interview-focus-details" :class="{ 'mobile-collapsed': !mobileFocusOpen }">
     <div v-if="hasBlueprintCard" class="blueprint-card">
       <div class="blueprint-card-top">
         <div>
@@ -109,9 +111,10 @@
       </details>
     </div>
 
+      </div>
       </aside>
 
-      <main class="interview-center-panel" aria-label="面试交流">
+      <section class="interview-center-panel" aria-label="面试交流">
     <div ref="chatArea" class="chat-area">
       <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
         <div v-if="msg.role === 'interviewer'" class="avatar-col">
@@ -290,10 +293,12 @@
     <div v-if="!preparing && !loadError && !finished" class="input-area">
       <textarea
         v-model="answer"
+        aria-label="面试回答"
         placeholder="输入你的回答..."
         rows="3"
         :maxlength="ANSWER_MAX_LENGTH"
         :disabled="thinking"
+        @focus="mobileFocusOpen = false"
         @keydown.enter.exact.prevent="handleSubmit"
         @keydown.shift.enter.exact="null"
       ></textarea>
@@ -322,7 +327,7 @@
         查看评估报告
       </router-link>
     </div>
-      </main>
+      </section>
 
       <aside class="interview-right-panel" aria-label="评分记录">
         <section class="score-history-card" :class="{ collapsed: scorePanelCollapsed }">
@@ -397,6 +402,7 @@ const interviewId = route.params.id
 const ANSWER_MAX_LENGTH = 5000
 
 const messages = ref([])
+const mobileFocusOpen = ref(false)
 const answer = ref('')
 const thinking = ref(false)
 const finished = ref(false)
@@ -1829,17 +1835,22 @@ function withTimeout(promise, timeoutMs, message) {
   font-weight: 600;
 }
 
-@media (max-width: 768px) {
+.mobile-focus-toggle { display: none; }
+@media (max-width: 860px) {
+  .mobile-focus-toggle { display: block; width: 100%; text-align: left; }
+  #interview-focus-details.mobile-collapsed { display: none; }
+  #interview-focus-details { max-height: 32dvh; overflow-y: auto; padding-top: 8px; }
   .interview-page {
-    height: calc(100dvh - 122px);
-    min-height: 460px;
+    height: calc(var(--visual-viewport-height, 100dvh) - 64px);
+    min-height: 0;
   }
 
   .interview-workspace {
     display: flex;
     flex-direction: column;
-    padding: 12px;
-    overflow-y: auto;
+    padding: 8px;
+    gap: 8px;
+    overflow: hidden;
   }
 
   .interview-left-panel,
@@ -1848,9 +1859,14 @@ function withTimeout(promise, timeoutMs, message) {
   }
 
   .interview-center-panel {
-    min-height: 560px;
-    overflow: visible;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
+  .interview-left-panel { flex: 0 0 auto; }
+  .chat-area { min-height: 0; padding: 12px; }
+  .input-area { flex-shrink: 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); }
+  .input-area textarea { min-height: 64px; max-height: 20dvh; }
 
   .interview-right-panel {
     display: none;
@@ -1890,6 +1906,10 @@ function withTimeout(promise, timeoutMs, message) {
 
   .round-feedback-panel {
     margin: 0 12px 8px;
+    flex-shrink: 1;
+    min-height: 44px;
+    max-height: 32%;
+    overflow-y: auto;
   }
 
   .round-feedback-bar,
@@ -1909,6 +1929,9 @@ function withTimeout(promise, timeoutMs, message) {
 
   .round-feedback-main span {
     white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
 
   .round-feedback-actions {

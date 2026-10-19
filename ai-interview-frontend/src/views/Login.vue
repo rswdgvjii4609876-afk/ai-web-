@@ -5,12 +5,12 @@
       <p class="subtitle">多岗位 AI 模拟面试与求职能力评估系统</p>
       <form @submit.prevent="handleLogin">
         <div class="form-group">
-          <label>邮箱</label>
-          <input v-model="email" type="email" placeholder="请输入邮箱" required />
+          <label for="login-email">邮箱</label>
+          <input id="login-email" v-model="email" type="email" autocomplete="username" inputmode="email" placeholder="请输入邮箱" required />
         </div>
         <div class="form-group">
-          <label>密码</label>
-          <input v-model="password" type="password" placeholder="请输入密码" required />
+          <label for="login-password">密码</label>
+          <input id="login-password" v-model="password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
         </div>
         <p v-if="error" class="error">{{ error }}</p>
         <button type="submit" class="btn-glow" :disabled="loading">

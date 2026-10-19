@@ -22,13 +22,13 @@
         <router-link to="/knowledge-base" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
           岗位画像库
         </router-link>
-        <router-link to="/ability-diagnosis" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
+        <router-link to="/ability-diagnosis" class="btn-secondary desktop-shortcut" style="display:inline-block;padding:10px 18px;border-radius:8px">
           能力诊断
         </router-link>
-        <router-link to="/learning-tasks" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
+        <router-link to="/learning-tasks" class="btn-secondary desktop-shortcut" style="display:inline-block;padding:10px 18px;border-radius:8px">
           学习任务
         </router-link>
-        <router-link to="/training-review" class="btn-secondary" style="display:inline-block;padding:10px 18px;border-radius:8px">
+        <router-link to="/training-review" class="btn-secondary desktop-shortcut" style="display:inline-block;padding:10px 18px;border-radius:8px">
           训练复盘
         </router-link>
         <router-link to="/resume/upload" class="btn-primary" style="display:inline-block;padding:10px 24px;color:white;border-radius:8px">
@@ -181,12 +181,16 @@ async function handleDelete(item) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
 }
 .position {
+  min-width: 0;
   font-weight: 600;
   font-size: 16px;
 }
 .status {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: 12px;
   padding: 3px 10px;
   border-radius: 12px;
@@ -216,15 +220,26 @@ async function handleDelete(item) {
 .btn-danger:hover {
   background: #dc2626;
 }
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .workspace-hero,
   .page-header {
     flex-direction: column;
     align-items: stretch;
   }
-  .hero-actions,
+  .hero-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    text-align: center;
+  }
   .header-actions {
-    flex-direction: column;
+    flex-wrap: wrap;
+  }
+  .header-actions .desktop-shortcut {
+    display: none !important;
+  }
+  .item-meta {
+    flex-wrap: wrap;
+    gap: 8px 16px;
   }
 }
 </style>

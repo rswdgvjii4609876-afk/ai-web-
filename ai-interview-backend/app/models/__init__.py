@@ -11,8 +11,10 @@ from .learning_task import LearningTask
 from .learning_plan import LearningPlan
 from .training_review import TrainingReview
 from .learning_route_stage import LearningRouteStage
+from .feedback import Feedback
 
 __all__ = [
+    "Feedback",
     "User",
     "Token",
     "Admin",

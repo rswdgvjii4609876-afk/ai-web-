@@ -1,9 +1,11 @@
 <template>
-  <div id="app">
+  <div class="app-shell" :class="{ 'signed-in': authStore.token, 'interview-focus': isInterview }">
+    <a class="skip-link" href="#page-content">跳到主要内容</a>
     <nav class="navbar" v-if="authStore.token">
       <div class="nav-content">
         <router-link to="/dashboard" class="nav-logo">职启智评</router-link>
-        <div class="nav-links">
+        <button ref="menuButton" class="mobile-menu-button btn-secondary" type="button" :aria-expanded="menuOpen" aria-controls="primary-links" @click="menuOpen = !menuOpen">{{ menuOpen ? '收起菜单' : '更多功能' }}</button>
+        <div id="primary-links" class="nav-links" :class="{ 'is-open': menuOpen }" @click="closeMenu" @keydown.esc="closeMenu(true)">
           <router-link to="/resume-polish">简历润色</router-link>
           <router-link to="/dashboard">工作台</router-link>
           <router-link to="/knowledge-base">岗位画像库</router-link>
@@ -11,6 +13,7 @@
           <router-link to="/learning-tasks">学习任务</router-link>
           <router-link to="/training-review">训练复盘</router-link>
           <router-link to="/resume/upload">新建面试</router-link>
+          <router-link to="/feedback">留言反馈</router-link>
           <router-link to="/profile" class="nav-user-link">
             <img v-if="authStore.userAvatar && !avatarError" :src="authStore.userAvatar" class="nav-avatar" alt="avatar" @error="avatarError = true" />
             <span v-else class="nav-avatar-placeholder">👤</span>
@@ -20,7 +23,13 @@
         </div>
       </div>
     </nav>
-    <router-view />
+    <main id="page-content" tabindex="-1"><router-view /></main>
+    <nav v-if="authStore.token && !isInterview" class="mobile-tabs" aria-label="手机主导航">
+      <router-link to="/dashboard"><span aria-hidden="true">⌂</span>工作台</router-link>
+      <router-link to="/resume/upload"><span aria-hidden="true">◇</span>面试</router-link>
+      <router-link to="/learning-tasks" :class="{ 'router-link-active': route.path === '/training-review' }"><span aria-hidden="true">▤</span>学习</router-link>
+      <router-link to="/profile" :class="{ 'router-link-active': route.path === '/feedback' }"><span aria-hidden="true">○</span>我的</router-link>
+    </nav>
     <footer class="icp-footer" aria-label="ICP备案信息">
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer noopener">
         粤ICP备2026047626号
@@ -30,13 +39,35 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useAuthStore } from './stores/auth'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getProfile } from './api/user'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
+const menuOpen = ref(false)
+const menuButton = ref(null)
+const isInterview = computed(() => route.name === 'Interview')
+function closeMenu(restoreFocus = false) {
+  menuOpen.value = false
+  if (restoreFocus === true) menuButton.value?.focus()
+}
+watch(() => route.fullPath, () => closeMenu())
+function updateViewportHeight() {
+  document.documentElement.style.setProperty('--visual-viewport-height', `${window.visualViewport?.height || window.innerHeight}px`)
+}
+onMounted(() => {
+  updateViewportHeight()
+  window.visualViewport?.addEventListener('resize', updateViewportHeight)
+  window.addEventListener('resize', updateViewportHeight)
+})
+onUnmounted(() => {
+  window.visualViewport?.removeEventListener('resize', updateViewportHeight)
+  window.removeEventListener('resize', updateViewportHeight)
+  document.documentElement.style.removeProperty('--visual-viewport-height')
+})
 const avatarError = ref(false)
 
 onMounted(async () => {
@@ -58,6 +89,9 @@ function logout() {
 </script>
 
 <style scoped>
+.mobile-menu-button, .mobile-tabs { display: none; }
+.skip-link { position: fixed; top: -80px; left: 12px; z-index: 1000; padding: 12px; background: white; }
+.skip-link:focus { top: 8px; }
 .navbar {
   background: white;
   border-bottom: 1px solid #e5e7eb;
@@ -138,21 +172,37 @@ function logout() {
 }
 
 @media (max-width: 860px) {
+  .signed-in { padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
+  .interview-focus { padding-bottom: 0; }
+  .navbar { padding: 0 16px; }
   .nav-content {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    min-height: 64px;
+    gap: 0;
   }
   .nav-logo {
     display: inline-block;
-    margin-bottom: 8px;
+    margin-bottom: 0;
   }
+  .mobile-menu-button { display: block; min-height: 44px; }
   .nav-links {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 6px;
-    white-space: nowrap;
+    display: none;
+    width: 100%;
+    max-height: calc(100dvh - 144px);
+    overflow-y: auto;
+    padding: 12px 0;
+    white-space: normal;
+    gap: 8px;
   }
+  .nav-links.is-open { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nav-links > * {
-    flex: 0 0 auto;
+    display: flex; align-items: center; min-height: 44px; padding: 8px; overflow-wrap: anywhere;
   }
+  .mobile-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); position: fixed; bottom: 0; left: 0; right: 0; z-index: 110; padding-bottom: env(safe-area-inset-bottom, 0px); background: white; border-top: 1px solid #e5e7eb; }
+  .mobile-tabs a { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 64px; gap: 3px; color: #475569; font-size: 13px; }
+  .mobile-tabs a span { font-size: 22px; line-height: 24px; }
+  .mobile-tabs a.router-link-active { color: #4f46e5; font-weight: 700; background: #f5f3ff; }
+  .interview-focus .icp-footer { display: none; }
 }
 </style>

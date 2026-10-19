@@ -1,0 +1,11 @@
+{
+  "name": "ai-interview-mobile-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node mobile_check.mjs && node authenticated_mobile_check.mjs && node interview_keyboard_check.mjs && node admin_feedback_check.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

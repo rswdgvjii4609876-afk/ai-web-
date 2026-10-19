@@ -4,6 +4,7 @@
       <div class="sidebar-logo"><span class="logo-text">职启智评</span></div>
       <div class="sidebar-subtitle">管理后台</div>
       <nav class="sidebar-nav">
+        <router-link v-if="authStore.canManageAdmins" to="/feedback" active-class="active"><span class="nav-icon">▤</span> 留言反馈</router-link>
         <router-link to="/" exact-active-class="active">
           <span class="nav-icon">📊</span> 数据概览
         </router-link>

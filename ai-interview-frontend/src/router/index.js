@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 const routes = [
+  { path: '/feedback', name: 'Feedback', component: () => import('../views/Feedback.vue'), meta: { auth: true } },
   { path: '/login', name: 'Login', component: () => import('../views/Login.vue') },
   { path: '/register', name: 'Register', component: () => import('../views/Register.vue') },
   { path: '/privacy', name: 'PrivacyPolicy', component: () => import('../views/PrivacyPolicy.vue') },
@@ -23,7 +24,8 @@ const routes = [
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes
+  routes,
+  scrollBehavior(to, from, savedPosition) { return savedPosition || { top: 0 } }
 })
 
 router.beforeEach((to, from, next) => {

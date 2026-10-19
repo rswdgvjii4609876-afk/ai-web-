@@ -1,0 +1,24 @@
+/* Shared touch and narrow-screen rules; business components retain their own layouts. */
+html { -webkit-text-size-adjust: 100%; }
+#page-content { min-width: 0; }
+#app input, #app select, #app textarea { font-size: 16px; }
+#app .auth-page { padding: 24px 16px; min-height: calc(100dvh - 64px); }
+#app .auth-card { width: 100%; max-width: 420px; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #818cf8; outline-offset: 3px; }
+@media (max-width: 860px) {
+  #app .container { padding: 16px; }
+  #app .card { padding: 18px; }
+  #app button, #app .btn-primary, #app .btn-secondary { min-height: 44px; }
+  #app input:not([type=checkbox]):not([type=radio]), #app select { min-height: 44px; }
+  #app .auth-card { padding: 28px 22px; }
+  #app .auth-page { align-items: safe center; }
+  #app .card, #app .bubble, #app .nav-user-link, #app .input-area { overflow-wrap: anywhere; min-width: 0; }
+  #app h1 { font-size: 25px; line-height: 1.4; }
+  #app .page-header, #app .header-actions, #app .item-actions { flex-wrap: wrap; gap: 10px; }
+  #app .page-header { align-items: flex-start; }
+  #app .header-actions > *, #app .hero-actions > * { max-width: 100%; white-space: normal; }
+  #app .prepare-card { max-width: calc(100vw - 32px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

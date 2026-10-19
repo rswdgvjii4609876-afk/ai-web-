@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/auth'
 import { authApi } from '../api'
 
 const routes = [
+  { path: '/feedback', name: 'Feedback', component: () => import('../views/Feedback.vue'), meta: { auth: true, manageAdmins: true } },
   { path: '/login', name: 'Login', component: () => import('../views/Login.vue') },
   { path: '/', name: 'Dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true } },
   { path: '/users', name: 'Users', component: () => import('../views/Users.vue'), meta: { auth: true } },
