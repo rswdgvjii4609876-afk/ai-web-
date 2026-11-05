@@ -14,10 +14,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from app.db.base import get_engine
-from app.models.admin import Admin
-
-
-ROOT_ADMIN_EMAIL = "autsky6666@gmail.com"
+from app.models.admin import Admin, ROOT_ADMIN_EMAIL
 
 
 PASSWORD_REQUIREMENTS = (

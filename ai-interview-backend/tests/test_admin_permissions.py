@@ -68,3 +68,19 @@ def test_backoffice_logout_accepts_refresh_scope_and_revokes_token():
 
     assert stored.is_active is False
     assert db.committed is True
+
+
+def test_new_installation_can_configure_its_own_root_identity():
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ, ROOT_ADMIN_EMAIL=" Owner@Example.com ")
+    code = (
+        "from app.models.admin import Admin, ROOT_ADMIN_EMAIL; "
+        "from scripts.create_first_admin import ROOT_ADMIN_EMAIL as bootstrap_root; "
+        "assert ROOT_ADMIN_EMAIL == bootstrap_root == 'owner@example.com'; "
+        "assert Admin(email='owner@example.com').is_root_admin; "
+        "assert not Admin(email='autsky6666@gmail.com').is_root_admin"
+    )
+    subprocess.run([sys.executable, "-c", code], env=env, check=True, capture_output=True)

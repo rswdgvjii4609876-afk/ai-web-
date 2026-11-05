@@ -14,7 +14,7 @@
 
 2026-11-05，Windows / Node.js 环境：用户端和管理端均通过 `npm ci --ignore-scripts --no-audit --no-fund` 与 `npm run build`。
 
-首次检查后端测试为 285 项通过、1 项失败。后续修复了反馈接口缺少基础隐私同意检查的问题，并扩展 HTTP 回归测试，当前 **286 项全部通过**。依赖检查通过，Alembic 迁移链只有一个 head。实际改动见[本次开发记录](docs/development/2026-11-05-feedback-consent.md)，具体限制见[可行性报告](docs/chuanzhi-feasibility-2026-11-05.md)。这些检查不代表真实模型效果、生产部署或整条用户流程已经通过验收。
+首次检查后端测试为 285 项通过、1 项失败。后续修复了反馈接口缺少基础隐私同意检查的问题，并扩展 HTTP 回归测试，当前 **287 项全部通过**（包含新增的管理员身份配置回归测试）。依赖检查通过，Alembic 迁移链只有一个 head。实际改动见[本次开发记录](docs/development/2026-11-05-feedback-consent.md)，具体限制见[可行性报告](docs/chuanzhi-feasibility-2026-11-05.md)。这些检查不代表真实模型效果、生产部署或整条用户流程已经通过验收。
 
 ## 本地构建
 
@@ -27,13 +27,13 @@ npm run build
 
 后端使用 Python 3.12。建立独立虚拟环境后，安装 `ai-interview-backend/requirements-test.txt`，在后端目录执行 `python -m pytest -q`。
 
-完整服务需要 PostgreSQL、Redis、数据库迁移和配置文件；AI 业务还要求用户在个人中心保存可用的模型 API Key。前端开发代理默认端口 `8006` 与后端默认端口 `8001` 不同，本地联调时应显式配置 `VITE_DEV_PROXY_TARGET=http://127.0.0.1:8001`。
+完整服务需要 PostgreSQL、Redis、数据库迁移和配置文件；AI 业务还要求用户在个人中心保存可用的模型 API Key。两个前端开发代理默认对齐后端端口 `8001`，可用 `VITE_DEV_PROXY_TARGET` 覆盖。
 
-当前没有随代码提供 `.env.example`，因此本页不承诺一键复现。生产配置及共享网关需按实际环境准备，不能照搬原作者的服务器参数。
+已提供根目录和双前端的 `.env.example`、独立单机编排 `compose.single-host.yml`，以及自动生成私有配置、初始化管理员和检查服务的工具。完整步骤见[腾讯云单机运行指南](docs/deployment/tencent-single-host.md)。单机预览通过 SSH 隧道访问，无需原作者的共享网关。原有 `docker-compose.yml` 仍用于共享网关生产拓扑。
 
 ## 云端部署状态
 
-尚未执行云端部署，也未采购云资源、配置域名或调用付费模型。部署前先向项目持有人说明服务器、域名、API 费用和部署方案，待其确认后执行。
+仓库已补充单机预览配置；实际云端部署状态以对应版本的验收记录为准。当前说明不表示真实模型流程或公网生产部署已经通过验收。
 
 ## 参考
 

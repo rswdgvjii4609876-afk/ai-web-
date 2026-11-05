@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     BREVO_EMAIL_FROM: str = "noreply@example.com"
     BREVO_EMAIL_FROM_NAME: str = "Seiki"
 
+    # Administrator identity; override for a new installation.
+    ROOT_ADMIN_EMAIL: str = "autsky6666@gmail.com"
+
     # Admin contact
     ADMIN_EMAIL: str = "dev@zetos.fr"
 

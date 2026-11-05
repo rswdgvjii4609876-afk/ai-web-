@@ -2,9 +2,10 @@ from sqlalchemy import Boolean, Column, Integer, String, Enum
 from .base import BaseModel
 from passlib.context import CryptContext
 from sqlalchemy.orm import relationship
+from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-ROOT_ADMIN_EMAIL = "autsky6666@gmail.com"
+ROOT_ADMIN_EMAIL = settings.ROOT_ADMIN_EMAIL.strip().lower()
 
 
 class UserRole(str, Enum):
