@@ -11,9 +11,6 @@
 | `ai-interview-backend/` | FastAPI、SQLAlchemy、Alembic、Celery 等后端代码及测试 |
 | `portal/` | 项目入口静态页面 |
 | `docker-compose.yml` | PostgreSQL、Redis、后端及前端等生产编排 |
-| `docs/competition/` | 原作者已有的比赛资料；不能作为本团队成果直接提交 |
-
-## 已验证与限制
 
 2026-11-05，Windows / Node.js 环境：用户端和管理端均通过 `npm ci --ignore-scripts --no-audit --no-fund` 与 `npm run build`。
 
