@@ -61,3 +61,22 @@ class RuntimeToolsTest(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+
+
+class GatewayConfigTest(unittest.TestCase):
+    def test_repeat_configuration_preserves_existing_site(self):
+        gateway = load("configure_gateway")
+        old = "43.132.227.52 {\n    reverse_proxy app:8080\n}\n"
+        first = gateway.update_config(old, "interview.example.com", "admin.example.com")
+        second = gateway.update_config(first, "interview.example.com", "admin.example.com")
+        self.assertEqual(first, second)
+        self.assertTrue(first.startswith(old))
+        self.assertEqual(first.count(gateway.BEGIN), 1)
+        self.assertIn("reverse_proxy app:8080", first)
+
+    def test_existing_hostname_and_incomplete_markers_are_rejected(self):
+        gateway = load("configure_gateway")
+        with self.assertRaises(ValueError):
+            gateway.update_config("interview.example.com {}", "interview.example.com", "admin.example.com")
+        with self.assertRaises(ValueError):
+            gateway.update_config(gateway.BEGIN, "interview.example.com", "admin.example.com")

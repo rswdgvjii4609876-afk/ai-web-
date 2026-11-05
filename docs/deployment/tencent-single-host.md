@@ -106,3 +106,20 @@ sudo bash scripts/deploy_ubuntu24.sh
 该脚本在结束或报错时，会停止本次专用的 `codex-deploy-ssh` 临时服务并移除标记为 `codex-ai-interview-deploy-01a1aaeb` 的临时授权，保留其他 SSH 公钥。源码压缩包通过 `DEPLOY_COMMIT.txt` 记录版本，备份工具支持这种不含 `.git` 的分发方式。
 
 这是自动化安装脚本；尚需在实际服务器上执行才能确认部署结果。
+
+## 接入服务器已有 Caddy 网关
+
+`compose.gateway.yml.example` 为双前端提供额外的网关网络，API、PostgreSQL 和 Redis 保留在原网络。`scripts/configure_gateway.py` 根据传入的 Caddy 容器及其持久化挂载定位配置，先创建备份，再添加两个独立域名站点。只重建新项目的用户端和管理端，不重建既有网关或既有应用。
+
+该脚本验证 Caddy 配置后热加载，使用可信 TLS 校验探测 `/healthz` 和 API 健康检查。配置加载或证书等待失败会恢复原 Caddyfile 并重新加载。部署前应确认域名解析、80/443 入站规则及服务器到 ACME CA 的连通性；免费测试 DNS 的可用性不作为服务保证。切勿跳过浏览器证书警告。
+
+示例（替换为实际网关、网络及域名）：
+
+```bash
+python3 scripts/configure_gateway.py \
+  --caddy EXISTING_CADDY --network EXISTING_NETWORK \
+  --server-ip SERVER_IPV4 \
+  --frontend USER_HOSTNAME --admin ADMIN_HOSTNAME
+```
+
+生成的 `compose.gateway.yml` 保存本机网络配置，启动脚本检测到它后会自动合并，避免后续重建丢失网关连接。Caddyfile 的备份位于原配置文件同目录，文件名包含 `ai-interview-backup`。这一步提供 HTTPS 预览入口，尚不代表生产模式、真实 AI 效果及完整浏览器流程均已验收。

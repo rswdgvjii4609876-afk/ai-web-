@@ -86,3 +86,7 @@ Thumbs.db
 /volumes/
 /backups/
 .venv/
+
+# Host-specific gateway overlay and rollback copies
+/compose.gateway.yml
+/compose.gateway.yml.backup-*

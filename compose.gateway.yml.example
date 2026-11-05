@@ -1,0 +1,15 @@
+services:
+  frontend:
+    networks:
+      default: {}
+      existing_gateway:
+        aliases: [ai-interview-preview-web]
+  admin:
+    networks:
+      default: {}
+      existing_gateway:
+        aliases: [ai-interview-preview-admin]
+networks:
+  existing_gateway:
+    external: true
+    name: __GATEWAY_NETWORK__

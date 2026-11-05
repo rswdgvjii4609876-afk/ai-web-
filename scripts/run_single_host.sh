@@ -5,6 +5,7 @@ command -v docker >/dev/null || { echo "Docker Engine is required." >&2; exit 1;
 docker compose version >/dev/null
 test -f .env || { echo "Run python3 scripts/init_runtime_env.py --admin-email YOUR_EMAIL first." >&2; exit 1; }
 compose=(docker compose -f compose.single-host.yml)
+[[ ! -f compose.gateway.yml ]] || compose+=(-f compose.gateway.yml)
 "${compose[@]}" config --quiet
 # Build one image at a time to reduce peak memory on a 2 GB host.
 "${compose[@]}" build app
