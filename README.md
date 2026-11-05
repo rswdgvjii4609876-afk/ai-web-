@@ -28,7 +28,7 @@
 
 2026-11-05，Windows / Node.js 环境：用户端和管理端均通过 `npm ci --ignore-scripts --no-audit --no-fund` 与 `npm run build`。
 
-后端现有测试：285 项通过，1 项失败；失败涉及新增反馈接口与基础隐私同意门禁测试预期不一致。依赖检查通过，Alembic 迁移链只有一个 head。具体证据和限制见[可行性报告](docs/chuanzhi-feasibility-2026-11-05.md)。这些检查不代表真实模型效果、生产部署或整条用户流程已经通过验收。
+首次检查后端测试为 285 项通过、1 项失败。后续修复了反馈接口缺少基础隐私同意检查的问题，并扩展 HTTP 回归测试，当前 **286 项全部通过**。依赖检查通过，Alembic 迁移链只有一个 head。实际改动见[本次开发记录](docs/development/2026-11-05-feedback-consent.md)，具体限制见[可行性报告](docs/chuanzhi-feasibility-2026-11-05.md)。这些检查不代表真实模型效果、生产部署或整条用户流程已经通过验收。
 
 ## 本地构建
 

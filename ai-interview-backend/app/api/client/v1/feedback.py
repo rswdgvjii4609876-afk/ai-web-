@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.client.deps import get_current_user
+from app.api.client.deps import require_base_privacy_consent
 from app.db.session import get_db
 from app.models.feedback import Feedback
 from app.models.user import User
@@ -16,7 +16,7 @@ router = APIRouter()
 async def create_feedback(
     payload: FeedbackCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
 ):
     item = Feedback(user_id=current_user.id, **payload.model_dump())
     db.add(item)
@@ -30,7 +30,7 @@ async def list_feedback(
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
 ):
     query = (
         select(Feedback)
@@ -50,7 +50,7 @@ async def list_feedback(
 async def get_feedback(
     feedback_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_base_privacy_consent),
 ):
     query = select(Feedback).where(
         Feedback.id == feedback_id, Feedback.user_id == current_user.id

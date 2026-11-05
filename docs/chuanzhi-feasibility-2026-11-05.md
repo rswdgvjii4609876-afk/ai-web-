@@ -19,7 +19,7 @@ AI 面试与求职训练的 Web 应用方向与赛道相符。现有项目具备
 - 导入基线：`3200645a046a515488b8b19d8d0fc19155dddede`，2026-10-19 的提交。
 - 已保留基线及之前全部 127 次提交与作者信息；这些不是本团队的原创开发记录。
 - 本地 `origin` 指向新仓库，`upstream` 指向原仓库。
-- 本次仅增加项目说明和评估报告，没有修改业务代码或原作者历史。
+- 首次评估仅增加项目说明和评估报告。后续真实修复了反馈接口的隐私同意检查，并补充 HTTP 回归覆盖，详见[开发记录](development/2026-11-05-feedback-consent.md)；原作者历史保持不变。
 - 原仓库 GitHub 许可证字段为空，当前树未发现许可证文件。本次未添加新的代码许可证。
 
 ## 赛道核对
@@ -73,7 +73,8 @@ AI 面试与求职训练的 Web 应用方向与赛道相符。现有项目具备
 | --- | --- |
 | 用户端安装与生产构建 | 通过，`npm ci --ignore-scripts --no-audit --no-fund` + `npm run build`，142 个模块。 |
 | 管理端安装与生产构建 | 通过，同上，113 个模块。 |
-| 后端现有测试集 | `python -m pytest -q --tb=short`：285 passed，1 failed，运行约 5.94 秒。 |
+| 后端测试初次基线 | `python -m pytest -q --tb=short`：285 passed，1 failed，运行约 5.94 秒。 |
+| 后端测试修复后 | 相同测试集扩展 HTTP 隐私门禁覆盖后，286 passed，约 3.43 秒。 |
 | Python 依赖一致性 | `python -m pip check` 通过。 |
 | Alembic 迁移链 | `python -m alembic heads` 返回唯一 head：`c719af032001`；未连接数据库执行迁移。 |
 | Docker 构建及编排启动 | 未执行，本机未发现 Docker 命令。 |
@@ -82,7 +83,9 @@ AI 面试与求职训练的 Web 应用方向与赛道相符。现有项目具备
 
 验证环境：Windows，Node.js 24.22.1，工作区独立 Python 3.12.14 虚拟环境；使用原项目测试依赖。测试时模型密钥设为占位值，未发起付费模型调用。前端成功构建说明代码可打包，不等于登录、上传、面试和报告全流程均可用。
 
-失败项为 `tests/test_privacy_stage152_exposure.py::test_client_routes_do_not_bypass_base_privacy_gate`。检查发现 `app/api/client/v1/feedback.py` 的创建、列表和详情接口直接依赖 `get_current_user`，而测试要求此类非例外用户接口走基础隐私同意检查。反馈路由仍有登录和用户归属限制，本次失败不能据此解释为允许匿名访问或读取他人反馈。应明确反馈业务的同意要求后修正实现或测试预期，再做回归验收；本次保留上游现状，没有顺带修改。
+初始失败项为 `tests/test_privacy_stage152_exposure.py::test_client_routes_do_not_bypass_base_privacy_gate`。检查发现 `app/api/client/v1/feedback.py` 的创建、列表和详情接口直接依赖 `get_current_user`，没有复用项目已有的基础隐私同意检查。反馈路由原有登录和用户归属限制，不能据此解释为允许匿名访问或读取他人反馈。
+
+后续将三个接口接入 `require_base_privacy_consent`；HTTP 测试验证缺失或旧版同意会被拒绝、当前版本同意后可操作，并继续验证登录要求、用户数据隔离及后台回复权限。扩展后的 HTTP 测试在修复前失败（实际 200、预期 400），修复后全部 286 项测试通过。这是本次实际完成的工程维护贡献，不替代赛事对原创性的判断。
 
 ## 复现与部署准备
 
