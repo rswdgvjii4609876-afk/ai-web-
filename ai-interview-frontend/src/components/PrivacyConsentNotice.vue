@@ -8,12 +8,21 @@
       </p>
     </div>
 
-    <label class="privacy-check" aria-label="我已确认隐私与数据使用">
+    <label v-if="showBaseConsent" class="privacy-check" aria-label="我已确认隐私与数据使用">
       <input
         type="checkbox"
         :checked="baseAgreed"
-        @change="handleConsentChange($event.target.checked)"
+        @change="emit('update:baseAgreed', $event.target.checked)"
       />
+      <span>我已阅读并同意基础隐私说明，以使用简历分析和面试服务。</span>
+    </label>
+    <label v-if="showDataContribution" class="privacy-check" aria-label="自愿贡献去标识化数据">
+      <input
+        type="checkbox"
+        :checked="dataContributionConsent"
+        @change="emit('update:dataContributionConsent', $event.target.checked)"
+      />
+      <span>自愿将去标识化资料用于评测、比赛材料和质量改进。不同意不影响使用，可在个人设置及案例报告中撤回。</span>
     </label>
   </div>
 </template>
@@ -26,11 +35,11 @@ defineProps({
   },
   baseAgreed: {
     type: Boolean,
-    default: true
+    default: false
   },
   dataContributionConsent: {
     type: Boolean,
-    default: true
+    default: false
   },
   showBaseConsent: {
     type: Boolean,
@@ -48,10 +57,6 @@ defineProps({
 
 const emit = defineEmits(['update:baseAgreed', 'update:dataContributionConsent'])
 
-function handleConsentChange(checked) {
-  emit('update:baseAgreed', checked)
-  emit('update:dataContributionConsent', checked)
-}
 </script>
 
 <style scoped>
@@ -93,7 +98,8 @@ function handleConsentChange(checked) {
 
 .privacy-check {
   display: flex;
-  justify-content: center;
+  align-items: flex-start;
+  gap: 8px;
   margin-top: 8px;
   padding: 2px 0;
   border: 3px solid #e0e7ff;
@@ -101,8 +107,9 @@ function handleConsentChange(checked) {
 }
 
 .privacy-check input {
+  flex-shrink: 0;
   width: 13px;
   height: 13px;
-  margin: 0;
+  margin: 3px 0 0;
 }
 </style>

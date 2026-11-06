@@ -192,6 +192,11 @@
           </p>
           <label class="privacy-simple-check" aria-label="我已确认隐私与数据使用">
             <input v-model="privacyForm.privacy_agreed" type="checkbox" />
+            <span>我已阅读并同意基础隐私说明。</span>
+          </label>
+          <label class="privacy-simple-check" aria-label="自愿贡献去标识化数据">
+            <input v-model="privacyForm.data_contribution_consent" type="checkbox" />
+            <span>自愿将后续去标识化资料用于评测、比赛材料和质量改进。不同意不影响使用；已生成案例可在报告中单独撤回。</span>
           </label>
         </div>
       </div>
@@ -274,7 +279,7 @@ const clearSavedKeyPending = ref({
   openai: false
 })
 const pwForm = ref({ old_password: '', new_password: '', confirm_password: '' })
-const privacyForm = ref({ privacy_agreed: true, data_contribution_consent: true })
+const privacyForm = ref({ privacy_agreed: false, data_contribution_consent: false })
 const saving = ref(false)
 const changingPw = ref(false)
 const profileMsg = ref('')
@@ -346,8 +351,8 @@ const activeBaseUrlValue = computed({
 function applyProfile(data) {
   profile.value = data || {}
   privacyForm.value = {
-    privacy_agreed: true,
-    data_contribution_consent: true
+    privacy_agreed: Boolean(data.privacy_base_consent_valid),
+    data_contribution_consent: Boolean(data.data_contribution_consent_valid)
   }
   form.value = {
     first_name: data.first_name || '',
@@ -452,10 +457,9 @@ async function handleSaveProfile() {
       payload.privacy_agreed = true
     }
     if (
-      privacyForm.value.privacy_agreed
-      && (!profile.value.data_contribution_consent || !profile.value.data_contribution_consent_valid)
+      privacyForm.value.data_contribution_consent !== Boolean(profile.value.data_contribution_consent_valid)
     ) {
-      payload.data_contribution_consent = true
+      payload.data_contribution_consent = privacyForm.value.data_contribution_consent
     }
 
     const result = await updateProfile(payload)
@@ -665,7 +669,8 @@ async function handleChangePassword() {
 
 .privacy-simple-check {
   display: flex;
-  justify-content: center;
+  align-items: flex-start;
+  gap: 8px;
   margin-top: 8px;
   padding: 2px 0;
   border: 3px solid #e0e7ff;
@@ -673,9 +678,10 @@ async function handleChangePassword() {
 }
 
 .privacy-simple-check input {
+  flex-shrink: 0;
   width: 13px;
   height: 13px;
-  margin: 0;
+  margin: 3px 0 0;
 }
 
 .privacy-setting-check {

@@ -514,8 +514,8 @@ const testingAiConnection = ref(false)
 const aiTestMessage = ref('')
 const aiTestSuccess = ref(false)
 const privacyProfile = ref({})
-const privacyBaseAgreed = ref(true)
-const dataContributionConsent = ref(true)
+const privacyBaseAgreed = ref(false)
+const dataContributionConsent = ref(false)
 
 const activeAiProviderLabel = computed(() => aiProviderLabels[aiTestProvider.value] || 'AI')
 const activeAiModelOptions = computed(() => aiProviderModelOptions[aiTestProvider.value] || [])
@@ -714,8 +714,8 @@ function applyAiProfile(data) {
 
 function applyPrivacyProfile(data) {
   privacyProfile.value = data || {}
-  privacyBaseAgreed.value = true
-  dataContributionConsent.value = true
+  privacyBaseAgreed.value = Boolean(data?.privacy_base_consent_valid)
+  dataContributionConsent.value = Boolean(data?.data_contribution_consent_valid)
 }
 
 function handleAiProviderChange() {

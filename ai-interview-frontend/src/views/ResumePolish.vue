@@ -73,6 +73,12 @@
           <span>{{ selectedFile?.name || '仅支持 10MB 内 PDF' }}</span>
         </label>
       </div>
+      <PrivacyConsentNotice
+        :show-base-consent="!privacyBaseAgreed"
+        v-model:base-agreed="privacyBaseAgreed"
+        v-model:data-contribution-consent="dataContributionConsent"
+        compact
+      />
       <div class="actions">
         <button class="btn-primary" type="button" :disabled="isRunning" @click="runPolish">
           {{ isRunning ? currentStep : '开始评分并润色' }}
@@ -180,6 +186,7 @@ import { getProfile } from '../api/user'
 import { getResume, polishResume, uploadResume } from '../api/resume'
 import { normalizeResumeEvaluation } from '../utils/resumeEvaluation'
 import AiConfigErrorNotice from '../components/AiConfigErrorNotice.vue'
+import PrivacyConsentNotice from '../components/PrivacyConsentNotice.vue'
 import {
   aiProviderDefaults,
   aiProviderModelOptions,
@@ -198,8 +205,8 @@ const resumeId = ref(null)
 const isRunning = ref(false)
 const currentStep = ref('')
 const error = ref('')
-const privacyBaseAgreed = ref(true)
-const dataContributionConsent = ref(true)
+const privacyBaseAgreed = ref(false)
+const dataContributionConsent = ref(false)
 const aiProvider = ref('deepseek')
 const aiModel = ref('')
 const aiSavedModels = ref({ deepseek: '', openai: '' })
@@ -226,6 +233,8 @@ watch(polishResult, value => {
 onMounted(async () => {
   try {
     const data = await getProfile()
+    privacyBaseAgreed.value = Boolean(data?.privacy_base_consent_valid)
+    dataContributionConsent.value = Boolean(data?.data_contribution_consent_valid)
     aiSavedModels.value = {
       deepseek: normalizeAiModel('deepseek', data?.deepseek_model),
       openai: data?.openai_model || ''

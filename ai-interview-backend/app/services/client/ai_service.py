@@ -411,6 +411,10 @@ class AIService:
         return None
     @staticmethod
     def _parse_json_candidate(candidate: str) -> Any:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
         cleaned = AIService._clean_json_candidate(candidate)
         try:
             return json.loads(cleaned)
@@ -529,33 +533,37 @@ class AIService:
                 parser_label,
                 last_error,
             )
-            current_text = await AIService._chat(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You repair malformed structured output. "
-                            "Return valid JSON only. "
-                            "Do not add commentary or markdown fences. "
-                            "Only repair JSON syntax and shape. Preserve the original meaning. "
-                            "Do not invent candidate experience, metrics, project facts, company names, dates, or outcomes. "
-                            "If a required field is missing and cannot be inferred from the original content, use an empty string, empty array, null, or false as appropriate."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Repair the following content into valid JSON.\n"
-                            f"Required schema hint: {schema_hint}\n"
-                            f"Expected type: {expected_type or '-'}\n"
-                            f"Required keys: {', '.join(required_keys or []) or '-'}\n"
-                            f"Original content:\n{current_text}"
-                        ),
-                    },
-                ],
-                temperature=0,
-                ai_config=ai_config,
-            )
+            repair_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You repair malformed structured output. "
+                        "Return valid JSON only. "
+                        "Do not add commentary or markdown fences. "
+                        "Only repair JSON syntax and shape. Preserve the original meaning. "
+                        "Do not invent candidate experience, metrics, project facts, company names, dates, or outcomes. "
+                        "If a required field is missing and cannot be inferred from the original content, use an empty string, empty array, null, or false as appropriate."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Repair the following content into valid JSON.\n"
+                        f"Required schema hint: {schema_hint}\n"
+                        f"Expected type: {expected_type or '-'}\n"
+                        f"Required keys: {', '.join(required_keys or []) or '-'}\n"
+                        f"Original content:\n{current_text}"
+                    ),
+                },
+            ]
+            if parser_label in {"interview_report", "panel_interview_report"}:
+                current_text, _ = await AIService._chat_json(
+                    repair_messages, temperature=0, ai_config=ai_config, max_tokens=4096,
+                )
+            else:
+                current_text = await AIService._chat(
+                    repair_messages, temperature=0, ai_config=ai_config,
+                )
             try:
                 payload = AIService._extract_json(current_text)
                 validated = AIService._validate_structured_json_payload(

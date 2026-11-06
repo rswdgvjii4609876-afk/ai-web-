@@ -237,6 +237,44 @@ def test_extract_json_accepts_python_style_dict_output():
 
 
 @pytest.mark.unit
+def test_report_valid_json_preserves_typographic_quotes_and_candidate_text():
+    report = {"summary": "能解释“幂等键”和‘重试’，示例文本 ,} 不应被改写。",
+              "strengths": ["证据“明确”"], "weaknesses": [], "suggestions": []}
+    assert AIService._extract_json(json.dumps(report, ensure_ascii=False)) == report
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("report_method", ["generate_report", "generate_panel_report"])
+def test_report_repairs_malformed_output_with_json_mode_and_full_budget(monkeypatch, report_method):
+    calls = []
+    repaired = {"summary": "只依据“虚构样例”总结", "strengths": [],
+                "weaknesses": [], "suggestions": []}
+
+    async def fake_json(messages, temperature=0.2, ai_config=None, max_tokens=2200):
+        calls.append({"messages": messages, "temperature": temperature,
+                      "max_tokens": max_tokens, "ai_config": ai_config})
+        if len(calls) == 1:
+            return '{"summary":"fixture" "strengths":[]}', "json_mode"
+        return json.dumps(repaired, ensure_ascii=False), "json_mode"
+
+    async def reject_text_repair(*args, **kwargs):
+        pytest.fail("Report repair must use JSON mode, not the 2000-token text path")
+
+    monkeypatch.setattr(AIService, "_chat_json", fake_json)
+    monkeypatch.setattr(AIService, "_chat", reject_text_repair)
+    result = asyncio.run(getattr(AIService, report_method)(
+        parsed_resume={}, target_position="fixture", questions_and_scores=[],
+        ai_config={"provider": "deepseek"},
+    ))
+    assert result["summary"] == repaired["summary"]
+    assert len(calls) == 2
+    assert calls[1]["temperature"] == 0
+    assert calls[1]["max_tokens"] >= 4096
+    assert calls[1]["ai_config"] == {"provider": "deepseek"}
+    assert "Do not invent candidate experience" in calls[1]["messages"][0]["content"]
+
+
+@pytest.mark.unit
 def test_extract_or_repair_json_repairs_missing_required_keys(monkeypatch):
     calls = []
 

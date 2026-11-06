@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --experimental-vm-modules --test",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
