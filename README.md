@@ -107,8 +107,8 @@ flowchart LR
 ### 1 获取代码
 
 ```bash
-git clone https://github.com/rswdgvjii4609876-afk/ai-interview.git
-cd ai-interview
+git clone https://github.com/rswdgvjii4609876-afk/ai-web-.git
+cd ai-web-
 ```
 
 仓库已公开，直接克隆即可。不要将访问令牌写进仓库或部署脚本。
