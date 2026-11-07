@@ -111,7 +111,7 @@ git clone https://github.com/rswdgvjii4609876-afk/ai-interview.git
 cd ai-interview
 ```
 
-仓库当前为私有仓库，克隆需要相应访问权限。不要将访问令牌写进仓库或部署脚本。
+仓库已公开，直接克隆即可。不要将访问令牌写进仓库或部署脚本。
 
 ### 2 生成运行配置
 
