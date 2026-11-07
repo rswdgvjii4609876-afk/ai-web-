@@ -55,7 +55,11 @@ def _stage(
 PYTHON_BACKEND_ROUTE_STAGES: List[Dict[str, Any]] = [
     _stage(PYTHON_BASIC_ROUTE_SOURCE, "python_basic", "Python 基础与编程思维", "python_basic_route", "theory_demo", 180, ["python", "语法", "函数", "oop", "装饰器", "迭代器", "异常", "文件", "类型"], "项目内置学习路线：python基础学习路线.md；重点补 Python 语法、函数、OOP、异常处理和文件处理。"),
     _stage(PYTHON_BACKEND_ROUTE_SOURCE, "web_api_foundation", "Web 与 REST API 基础", "python_backend_route", "theory_demo", 150, ["http", "rest", "api", "接口", "认证", "jwt", "cors", "网络"], "项目内置学习路线：python后端学习路线.md；重点补 HTTP、RESTful API、认证授权和接口设计。"),
-    _stage(PYTHON_BACKEND_ROUTE_SOURCE, "database_orm", "数据库、SQL 与 ORM", "python_backend_route", "demo_practice", 210, ["sql", "mysql", "postgres", "数据库", "索引", "事务", "orm", "sqlalchemy", "alembic"], "项目内置学习路线：python后端学习路线.md；重点补 SQL、索引、事务、SQLAlchemy 和 Alembic。"),
+    {
+        **_stage(PYTHON_BACKEND_ROUTE_SOURCE, "database_orm", "数据库、SQL 与 ORM", "python_backend_route", "demo_practice", 210, ["sql", "mysql", "postgres", "数据库", "索引", "事务", "orm", "sqlalchemy", "alembic"], "项目内置学习路线：python后端学习路线.md；重点补 SQL、索引、事务、SQLAlchemy 和 Alembic。"),
+        "practice_task": "用 PostgreSQL 与 SQLAlchemy 实现库存扣减和预约写入的单一事务；注入唯一约束冲突，验证事务回滚，并用两个连接验证并发时库存不为负。",
+        "acceptance_criteria": ["提供可运行代码与 pytest 测试结果。", "事务失败后库存与预约记录均恢复；重复请求不产生重复记录。", "说明隔离级别、条件更新及唯一约束各自保证的边界。"],
+    },
     _stage(PYTHON_BACKEND_ROUTE_SOURCE, "fastapi_framework", "FastAPI 框架与工程结构", "python_backend_route", "demo_practice", 240, ["fastapi", "pydantic", "depends", "异步", "swagger", "中间件", "路由"], "项目内置学习路线：python后端学习路线.md；重点补 FastAPI、Pydantic、依赖注入、异步接口和项目分层。"),
     _stage(PYTHON_BACKEND_ROUTE_SOURCE, "middleware_engineering", "Redis、Celery、Docker 与部署", "python_backend_route", "project_practice", 240, ["redis", "缓存", "celery", "docker", "部署", "异步", "队列", "排障"], "项目内置学习路线：python后端学习路线.md；重点补 Redis 缓存、Celery 异步任务、Docker 部署和线上排障。"),
     _stage(PYTHON_BACKEND_ROUTE_SOURCE, "project_review", "项目实战与面试复盘", "python_backend_route", "project_review", 180, ["项目", "复盘", "排障", "性能", "上线", "证据", "面试"], "项目内置学习路线：python后端学习路线.md；重点把学习结果整理成项目证据和面试表达。"),

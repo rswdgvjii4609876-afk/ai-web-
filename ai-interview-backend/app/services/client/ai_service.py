@@ -2261,6 +2261,40 @@ class AIService:
             lines.append(f"Interviewer guidance: {interviewer_prompt}")
         return "\n".join(lines)
     @staticmethod
+    def _retry_limit_evidence(answer: str) -> str:
+        for sentence in re.split(r"[。；;\n]", str(answer or "")):
+            if re.search(r"(?:不|未|没有).{0,6}重试|不是.{0,8}次重试", sentence):
+                continue
+            match = re.search(
+                r"(?:重试[^。；;\n]{0,24}?(?:最多|至多|不超过|上限为?)\s*[0-9一二三四五六七八九十两]+\s*次|"
+                r"(?:最多|至多|不超过)\s*[0-9一二三四五六七八九十两]+\s*次重试)", sentence,
+            )
+            if match:
+                return sentence[max(0, match.start() - 20):match.end() + 40].strip()
+        return ""
+
+    @staticmethod
+    def _check_answer_consistency(payload: Dict, answer: str) -> Dict:
+        evidence = AIService._retry_limit_evidence(answer)
+        if not evidence:
+            return payload
+        contradiction = re.compile(
+            r"[^。！？;；\n]*(?:(?:未|没有)(?:给出|说明|提及|提供|描述|明确)|缺少|缺乏)"
+            r"(?:具体的?|明确的?|最大)?重试次数(?!的?(?:配置|代码|实现))[^。！？;；\n]*"
+        )
+
+        def correct(value):
+            if isinstance(value, str):
+                return contradiction.sub(lambda _: f"原文已说明重试次数：「{evidence}」；实现细节与效果仍需核验", value)
+            if isinstance(value, list):
+                return [correct(item) for item in value]
+            if isinstance(value, dict):
+                return {key: correct(item) for key, item in value.items()}
+            return value
+
+        return correct(payload)
+
+    @staticmethod
     def _build_grounding_rules(
         task: str,
         has_routed_evidence: bool = False,
@@ -2273,6 +2307,8 @@ class AIService:
             "- Treat routed slices as trusted role-calibration sources only, not candidate evidence.",
             "- Position knowledge and routed RAG slices calibrate what to ask; they are not proof that the candidate has that experience or skill.",
             "- Low-confidence routed evidence must be phrased as a verification target, not as a factual conclusion.",
+            "- Before claiming a detail is absent, check the answer verbatim, including Chinese numerals and explicit parameter values. Cite the supplied detail and distinguish it from missing implementation or validation evidence.",
+            "- Earlier gaps may be resolved by later answers. Reconcile them against the full interview before repeating them as final weaknesses. Never treat missing production proof as absence of a stated design parameter.",
         ]
         if task in {"question", "panel_question"}:
             rules.extend(
@@ -3611,6 +3647,7 @@ class AIService:
             question_meta=question_meta,
             knowledge_base=knowledge_base,
         )
+        normalized = AIService._check_answer_consistency(normalized, answer)
         normalized.setdefault("metadata", {})
         normalized["metadata"].update(
             {
@@ -3699,6 +3736,7 @@ class AIService:
             knowledge_base=knowledge_base,
             panel_snapshot=panel_snapshot,
         )
+        normalized = AIService._check_answer_consistency(normalized, answer)
         normalized.setdefault("metadata", {})
         normalized["metadata"].update(
             {

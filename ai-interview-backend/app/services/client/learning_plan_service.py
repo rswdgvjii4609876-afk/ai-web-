@@ -525,6 +525,8 @@ class LearningPlanService:
                         "content": (
                             "你是学习计划生成助手。只返回 JSON，字段为 tasks。"
                             "每个任务必须包含 title、learning_material、practice_task、estimated_minutes、acceptance_criteria。"
+                            "任务必须紧扣对应能力和路线阶段，不用通用编程基础替代数据库、并发等专项。"
+                            "练习需包含具体输入、实现动作和失败场景，验收标准需能通过运行结果、断言或产出物核对。"
                         ),
                     },
                     {

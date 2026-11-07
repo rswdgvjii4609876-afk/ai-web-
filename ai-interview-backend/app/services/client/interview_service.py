@@ -2831,6 +2831,7 @@ class InterviewService:
             )
 
         return {
+            "answer_retry_evidence": AIService._retry_limit_evidence("。".join(str(item.get("answer") or "") for item in questions)),
             "common_gaps": [item for item, _ in gap_counter.most_common(5)],
             "common_strengths": [item for item, _ in strength_counter.most_common(5)],
             "training_priorities": InterviewService._unique_strings(
@@ -2898,7 +2899,7 @@ class InterviewService:
                 *(merged.get("report_diagnostics") or []),
                 *diagnostics,
             ]
-        return merged
+        return AIService._check_answer_consistency(merged, report_signals.get("answer_retry_evidence") or "")
 
     @staticmethod
     def _fallback_report_from_signals(

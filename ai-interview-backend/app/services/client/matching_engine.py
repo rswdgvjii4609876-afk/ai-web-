@@ -607,9 +607,10 @@ class MatchingEngine:
                 )
                 continue
             if action_type == "evidence_completion":
-                terms = "、".join((item.get("related_matches") or item.get("direct_matches") or item.get("matched_keywords") or [])[:4]) or "已有相关经历"
+                terms = "、".join((item.get("direct_matches") or [])[:4])
+                evidence_hint = f"原文命中 {terms}" if terms else "未确认直接证据，相关线索仍需核验"
                 summary.append(
-                    f"补充{name}证据深度：已有 {terms}，当前 {item.get('current_level')} / 要求 {item.get('required_level')}；建议补清个人动作、技术取舍和结果。"
+                    f"补充{name}证据深度：{evidence_hint}，当前 {item.get('current_level')} / 要求 {item.get('required_level')}；建议补清个人动作、技术取舍和结果。"
                 )
                 continue
             missing = "、".join((item.get("missing_keywords") or [])[:4]) or "岗位核心基础"
@@ -784,10 +785,16 @@ class MatchingEngine:
     ) -> Dict[str, Any]:
         job_id = str(profile.get("job_id") or "")
         category = str(profile.get("category") or "")
-        text = cls._normalize_text(" ".join([ability_name, target_position, *missing_keywords]))
+        text = cls._normalize_text(" ".join([ability_name, *missing_keywords]))
         if route_stage_resolver:
             route = route_stage_resolver(job_id, text, category)
             if route:
+                builtin = match_learning_route_stage(job_id=job_id, text=text, category=category)
+                if route.get("route_source", "").startswith("project_builtin_") and route.get("route_stage") == builtin.get("route_stage"):
+                    route = dict(route)
+                    for field in ("practice_task", "acceptance_criteria"):
+                        if not route.get(field) and builtin.get(field):
+                            route[field] = builtin[field]
                 return route
         return match_learning_route_stage(job_id=job_id, text=text, category=category)
 
